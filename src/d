@@ -1,0 +1,10 @@
+#!/bin/bash
+# usage: src/d IN OUT "SCRIPT"
+#   IN/OUT are names under states/ without .state (IN may be "-" for a fresh boot).
+#   Writes states/OUT.state and states/shots/OUT.png. See src/drive.py for SCRIPT tokens.
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PY="${NUZLOCKERL_PY:-$HOME/venvs/nuzlockerl/bin/python}"
+ROM="${NUZLOCKERL_ROM:-$ROOT/roms/plat-kaizo-nightmare-update-final.nds}"
+cd "$ROOT"; mkdir -p states/shots
+in=$1; [ "$in" != "-" ] && in=states/$1.state
+SDL_VIDEODRIVER=dummy nice -n 10 "$PY" src/drive.py "$ROM" "$in" "states/$2.state" "$3" "states/shots/$2.png" 2>&1 | grep -v -e pygame -e "^$" || true

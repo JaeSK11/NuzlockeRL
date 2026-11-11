@@ -1,0 +1,12 @@
+# pynds itself is built from source by scripts/setup_env.sh (pip 0.0.4 can't read memory)
+numpy
+pillow
+pytest
+sounddevice
+pygame
+# build tools for PyNDS
+cmake
+ninja
+nanobind
+setuptools
+wheel

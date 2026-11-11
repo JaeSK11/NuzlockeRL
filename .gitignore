@@ -1,0 +1,20 @@
+# Game files: never publish
+roms/
+*.nds
+*.zip
+*.sav
+# Save states contain game memory
+states/
+*.state
+# Third-party code and PDFs: fetched by scripts/fetch_references.sh
+repos/
+papers/
+# Game screenshots
+*.png
+# Personal notes
+notes/
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
