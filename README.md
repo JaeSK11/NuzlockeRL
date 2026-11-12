@@ -17,8 +17,9 @@ state, then add encounters, team building and overworld movement later.
 | Save states | ✅ ~5.5 MB, ~2.7 ms to load |
 | Party and battle RAM | ✅ Pointer chain and Gen 4 decryption verified on the hack, covered by tests |
 | Battle RAM: waiting for a command, RNG seed, result, input mode | ✅ Verified on two battles (Barry 1 and a wild Delibird) |
-| Battle environment | ✅ `src/battle_env.py`: touch actions, faint-event rewards, turn cap, random battle RNG, JSON logs. Parallel envs via `scripts/rollout.py` |
-| Switches, effects, weather, RL training | ⏳ Next. See [docs/ROADMAP.md](docs/ROADMAP.md) |
+| Battle environment | ✅ `src/battle_env.py`: moves, switches, and the forced switch by touch, faint-event rewards, turn cap, random battle RNG, JSON logs. Parallel envs via `scripts/rollout.py` |
+| RAM audit | ✅ `scripts/ram_audit.py`: 244 battles, 0 violations |
+| Effects, weather, double battles, RL training | ⏳ Next. See [docs/ROADMAP.md](docs/ROADMAP.md) |
 
 ## Documentation
 

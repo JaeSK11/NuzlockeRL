@@ -469,3 +469,64 @@ it also reads False on those frames.
 | The overnight audit ran 7 h 20 min and produced nothing | The script passed `$NUZLOCKERL_ROM`, unset, as the ROM path instead of the default. `multiprocessing.Pool` replaces a worker whose setup raises, with no limit, so it never stopped: 17 million workers and 14 GB of tracebacks | The script uses the env's default ROM, and a setup error is raised from the first job in the main process. A missing ROM now exits 1 at once |
 | An audit sampling every frame stalled in its main process after the workers finished | Not found | Killed it. Sampling every 10 frames runs fine. Still open |
 | The random battles never moved a stat stage | In this hack Barry's Chimchar knows only Scratch, and Delibird only Present and Powder Snow | `--probe` forces the moves |
+
+## 14. Switches, the forced switch, Struggle, and a richer observation (2026-11-12)
+
+Goal: make team battles playable. Generated teams of 2 to 6 ended STUCK
+whenever the lead fainted, the agent couldn't switch, and the observation
+had no move types.
+
+**What was built,** in `src/battle_env.py`:
+- **A phase read from RAM.** `read_phase` turns `command`,
+  `curCommandState[0]`, and the player's `SWITCHING` flag into one of
+  ACTION_MENU, MOVE_MENU, PARTY_MENU, FORCED_SWITCH, or BUSY. Only
+  ACTION_MENU and FORCED_SWITCH are decisions.
+- **Routes.** `route_for` lists the screens each action passes through.
+  `_walk` waits for each screen's phase, taps, and taps again if the phase
+  doesn't change.
+  - A switch taps POKéMON, then the slot, then SHIFT.
+  - A forced switch taps the slot, then SHIFT.
+- **Switches.** Actions 4–8 pick party-menu positions 1–5. The party menu
+  follows `partyOrder`, not the order of the structs, so position k means
+  `partyOrder[k]`.
+- **The forced switch.** It is a decision but not a turn. The mask allows
+  only living teammates, the reward is 0, the turn counter doesn't move,
+  and `info["forced_switch"]` is set. A party has at most 6 Pokémon, so
+  forced switches can't loop.
+- **Struggle.** With no PP left, the mask allows only action 0. Tapping a
+  move then makes the game use Struggle.
+- **An 812-value observation** built from one `OBS_FIELDS` table. Each party
+  slot, in menu order, has:
+  - Types, level, HP fraction, 5 status flags, active, and alive.
+  - For each move: type, power, accuracy, class (physical, special, or
+    status), and PP fraction, all from `romdata`.
+
+  Then come the enemy's active Pokémon (types, level, HP, status), which
+  enemy slots have fainted, both sides' stat stages, the turn, and the
+  forced-switch flag.
+
+Species and move IDs are left out on purpose: an ID tells a network
+nothing, while types, power, and class do. Max PP is the ROM's base PP,
+because the RAM readers don't expose PP Ups.
+
+**Verified.**
+- On a team of 6, every position switched to the right Pokémon, 28 times
+  with no retries, and switching back reached the previous Pokémon.
+- On a team of 3 against a Lv12 Starly, the lead's faint reached the forced
+  prompt, the mask allowed only the living teammates, and the battle went
+  on to a win.
+- With every PP at 0, the enemy still took damage.
+- A random policy played 40 episodes over 7 states, including 62 switches
+  and 9 forced switches, with 0 STUCK.
+- 200 random battles under the RAM audit (§13) ended with 0 STUCK or
+  errors.
+
+The BattleContext fields are in [RAM_MAP.md](RAM_MAP.md#battle-system).
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| A slow POKéMON tap was tapped twice | The tap check ran 8 frames after the press, and that button reacts after 9 | `TAP_CHECK` is 20 frames, polled each frame. The party screen needs 40 frames before it takes a slot tap, and 30 between taps |
+| Two episodes on the team of 6 ended as ENDED mid-battle | `in_battle()` read False for one frame. §13 found why: the game held the struct decrypted on that frame | ENDED needs 3 snapshots in a row with no battle |
+| Command 21 didn't mark the forced switch alone | It also holds during the faint animation, and `curCommandState[0]` stays 14 | The forced switch is command 21 with `SWITCHING` set |
+| `weaklead_vs_eevee.state` ends STUCK | After loading, the touch menu is never drawn, even after 600 frames. A fresh process sometimes works. The env at HEAD fails on it too | Left out of runs. The generator needs to check each state it saves |
+| Trapping and move locks aren't modeled | No state uses Mean Look, Arena Trap, Disable, Encore, or a Choice item yet | A refused tap ends the step STUCK. Listed in the roadmap |

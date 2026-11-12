@@ -18,15 +18,16 @@ the episode on win or wipe.
 - [x] **Waiting-for-input signal.** `gen4.waiting_for_command()` reads
       `BattleContext.command` and `curCommandState`, which also mark the
       move menu. See [RAM_MAP.md](RAM_MAP.md#battle-system).
-- [ ] **Switch menu signal.** The `curCommandState` values for the
-      POKéMON menu and the forced switch after a faint aren't mapped yet.
+- [x] **Switch menu signal.** `curCommandState[0]` reads 10 while the
+      party menu is up, and the forced switch is `command` 21 with the
+      player's `SWITCHING` flag set.
 - [x] **Battle result:** `resultMask` reads 1 after a win and 2 after a
       loss.
 - [ ] **Flee and capture results.** The decomp's values (4 = captured,
       combined bits for fleeing) haven't been seen in RAM yet.
-- [ ] **Active battler's party slot**, for switching and for knowing which
-      Pokémon fainted. The env matches the active PIDs to party slots, but
-      that's untested with 2+ Pokémon.
+- [x] **Active battler's party slot.** `partyOrder` maps party-menu
+      positions to party slots, and position 0 is the active Pokémon.
+      Verified on teams of 2 to 6.
 - [ ] **Double battles:** a battle-type flag and two active Pokémon per side.
 - [ ] **Temporary effects:** confusion, Leech Seed, Substitute, Protect,
       trapping, Taunt, Encore, and so on. Confusion and flinch are mapped in
@@ -45,9 +46,9 @@ The hack changed abilities, so assume it changed more.
       type, accuracy, effect), trainer teams, and encounters from the hack's
       ROM files (`src/romdata.py`). The summary of how they differ from
       vanilla is in [HACK_DATA.md](HACK_DATA.md).
-- [ ] Add move type, power, and accuracy from `romdata` to the battle
-      observation, so the agent can learn type matchups instead of
-      memorizing move ids.
+- [x] Add move type, power, accuracy, and class from `romdata` to the
+      battle observation, so the agent can learn type matchups instead of
+      memorizing move ids. Species and move ids are left out.
 - [ ] Decide what the agent may see. `enemyBase` contains the opponent's
       full moveset. Showing it gives the agent more than a human sees; KP
       Labs didn't. Both are worth trying.
@@ -57,9 +58,10 @@ The hack changed abilities, so assume it changed more.
 - [x] Gymnasium env (`src/battle_env.py`). Reset loads a battle save
       state. An action is a move slot (0–3) or a switch (4–8), tapped on
       the touchscreen when the game waits for a command. The observation is
-      a 111-value vector from RAM: the player's party in full, the enemy's
-      active Pokémon, and which enemy slots have fainted. It shows no enemy
-      moves.
+      812 values: each party slot's types, level, HP, status, and moves
+      (type, power, accuracy, class, PP), then the enemy's active Pokémon,
+      which enemy slots have fainted, both sides' stat stages, the turn, and
+      whether this is a forced switch. It shows no enemy moves.
 - [x] Reward from events only: +1 per enemy faint, −3 per own faint, +5
       win, −10 loss. **No damage-dealt reward** (KP Labs' stalling hack).
       Nothing comes from a total that can go down, such as party size or
@@ -85,17 +87,23 @@ The hack changed abilities, so assume it changed more.
 
 ### Gaps in the env
 
-- [ ] **Switches.** Write a switch macro and verify it on a state with 2+
-      party Pokémon. Until then the env masks switches off.
+- [x] **Switches.** Actions 4–8 switch to party-menu positions 1–5,
+      verified on a team of 6 (28 switches, each to the right Pokémon).
 - [x] **Move slots 2 and 3.** Tapping (64, 115) and (192, 115) drops
       exactly that slot's PP, verified on a generated Pokémon with 4 moves.
-- [ ] **Prompts the env doesn't model.** These are the forced switch
-      after a faint (seen on generated teams: the lead faints, the game
-      waits with command 21, and the env ends the episode as STUCK), the trainer's "Will you switch?" question in Shift
-      style, and move-learn and evolution questions. Today they end the
-      episode as STUCK.
-- [ ] **No PP left.** The action mask goes all False, but the game uses
-      Struggle. Give that case one valid action.
+- [x] **The forced switch after a faint.** It is a decision but not a
+      turn: the mask allows only living teammates, the reward is 0, and the
+      turn counter doesn't move.
+- [ ] **Prompts the env doesn't model.** The trainer's "Will you switch?"
+      question in Shift style, and move-learn and evolution questions. They
+      end the episode as STUCK. No multi-Pokémon trainer state exists yet
+      to test the first.
+- [ ] **Switching while trapped** (Mean Look, Arena Trap) and **move
+      locks** (Disable, Encore, Choice items) aren't in the action mask. A
+      refused tap ends the step as STUCK.
+- [x] **No PP left.** The mask allows action 0 only, which taps a move
+      and makes the game use Struggle. Switching is masked off in that case
+      for now; allowing it is a one-line change in `action_mask`.
 - [ ] **Lockstep stepping wastes CPU.** Gymnasium's vector env waits for the
       slowest battle at every step. 14 envs averaged only 7.3 busy cores.
       An asynchronous env pool, such as PufferLib's, should win most of it

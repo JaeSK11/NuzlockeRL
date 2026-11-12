@@ -70,8 +70,15 @@ the pointer):
 
 | Field | Where | Values |
 |---|---|---|
-| `command` | u32 at ctx+8 | 5 = waits for the player's command (`BATTLE_CONTROL_COMMAND_SELECTION_INPUT`), 44 = end of battle, others during the turn |
-| `curCommandState[0]` | u8 at ctx+0 | 1 = the FIGHT, BAG, POKéMON, RUN menu is up; 3 = the move menu is opening; 4 = the move menu is up; 14 = command chosen |
+| `command` | u32 at ctx+8 | 5 = waits for the player's command (`BATTLE_CONTROL_COMMAND_SELECTION_INPUT`), 21 = a battle script runs (`EXEC_SCRIPT`), 44 = end of battle, others during the turn |
+| `curCommandState[0]` | u8 at ctx+0 | 1 = the FIGHT, BAG, POKéMON, RUN menu is up; 3 = the move menu is opening; 4 = the move menu is up; 10 = the party menu is up; 13 = waiting; 14 = command chosen; 15 = an alert message; 17 = clearing the touch screen. Tapping a move with no PP left goes 17, 15, 13, 14 (Struggle) |
+| `battlerStatusFlags[0]` | u32 at ctx+0x13C | The player's side. Bit 0 (`SWITCHING`) is set while the game waits for the player to pick a replacement after a faint |
+| `partyOrder[0]` | 6 × u8 at ctx+0x312C | Party-menu position → index in `playerBattleBase`. A switch permutes this and never moves the structs. Position 0 is the active Pokémon |
+
+**The forced switch** after a faint is `command == 21` with `SWITCHING`
+set. Command 21 alone also holds during the faint animation, and
+`curCommandState[0]` stays 14, so neither works alone. These offsets follow
+the decomp's struct order and were checked on generated teams of 2 to 6.
 
 **Waiting for a command** is `command == 5 and curCommandState[0] == 1 and
 in_battle()` (`gen4.waiting_for_command`). Over the whole Barry 1 battle it

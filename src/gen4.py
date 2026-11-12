@@ -192,6 +192,12 @@ def in_battle(nds, addrs: dict | None = None) -> bool:
 CMD_SELECTION_INPUT = 5         # BattleContext.command while the game waits for the player
 CS_ACTION_MENU = 1              # curCommandState[0]: FIGHT / BAG / POKEMON / RUN is up
 CS_MOVE_MENU = 4                # curCommandState[0]: move menu is up (3 while it opens)
+CS_PARTY_MENU = 10              # curCommandState[0]: the party menu opened from the action menu is up
+CMD_EXEC_SCRIPT = 21            # BattleContext.command while a battle script runs, also while it waits for the forced switch
+# BattleContext offsets from the decomp's struct order, checked against this hack's RAM
+CTX_STATUS_FLAGS = 0x13C        # u32 battlerStatusFlags[0], the player's side
+CTX_PARTY_ORDER = 0x312C        # u8 partyOrder[0][6]: party-menu position -> index in playerBattleBase
+BATTLER_STATUS_SWITCHING = 1    # battlerStatusFlags bit: the game waits for the player to pick a replacement
 
 
 def read_battle_command(nds, addrs: dict) -> tuple[int, int] | None:
