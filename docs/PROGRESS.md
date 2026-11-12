@@ -321,7 +321,53 @@ PID. The Route 201 table holds the Delibird that appeared. 11 tests pass.
 
 | Issue | Cause | Resolution |
 |---|---|---|
-| I expected Barry's Chimchar to use Leer and move stat stages | That was vanilla knowledge; the hack's Chimchar knows only Scratch | The audit forced stat moves instead (section 11) |
+| I expected Barry's Chimchar to use Leer and move stat stages | That was vanilla knowledge; the hack's Chimchar knows only Scratch | The audit forced stat moves instead (section 12) |
 | The extraction report said some Jubilife grunts fight double battles | They don't; 3 other Galactic teams do | Checked `double_battle` for all trainers and corrected HACK_DATA.md |
 | Decomp map-header lines didn't match ids at first | The decomp's line numbers are 1-based | Fixed in the parser; Route 201 is header 342 |
 | The rival's trainer name reads "Cedric" | Not traced | Left open in HACK_DATA.md |
+
+## 11. Battle-scenario generator (2026-11-11)
+
+Goal: battles with real choices. The two milestone battles give Turtwig one
+or two moves and no team, so an agent has almost nothing to learn from them.
+
+**What was built.** `src/scenario.py` builds Pokémon from the hack's data
+(`romdata`) and writes them into the party in RAM while the player stands
+in Route 201 grass:
+- `build_mon` sets species, level, moves, IVs, EVs, nature, and ability
+  slot. It computes stats, PP, and EXP the way the game does.
+- `encode_mon` is the exact inverse of the decryption, byte for byte.
+- `set_wild_encounter` overwrites the map's wild table in RAM, so the
+  next encounter is the chosen species and level.
+
+The generator then walks until a battle starts and saves a state a few
+frames after the first command prompt. `scripts/make_scenario.py` is the
+command line. Generated states go to `states/generated/`, outside git.
+
+This avoids hand-playing the Kaizo hack to reach each kind of battle, and
+it gives teams of 2–6 Pokémon, which switches need.
+
+**Verified.**
+- Encoding round-trips exactly on every real struct in the milestone
+  states.
+- The stat formula, EXP curve, nature, gender, and ability slot match what
+  the game stored.
+- Written teams appear in the battle copy with the right species, level,
+  moves, PP, and HP, and the screen shows the right names.
+- Forcing the wild table gave exactly the chosen enemy every time, for
+  example Pikachu Lv7, Eevee Lv13, and Mewtwo Lv50.
+- A random policy finished every battle with a solo Lv10 Turtwig with 4
+  moves (8 of 8) and with a team of 3 (10 of 10), and none ended STUCK.
+- Tapping (64, 115) and (192, 115) drops exactly move slot 2's and slot 3's
+  PP, so the env's last two move positions are confirmed.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| A generated Pokémon showed as "What will do?" | The game keeps the species name in the nickname field | `build_mon` writes the name from the ROM's text bank |
+| Two of ten team battles ended STUCK | When the lead faints with teammates alive, the game waits for the player to pick the next Pokémon (command 21) | An env gap, not a generator fault. Listed in the roadmap |
+| The generator and `romdata` both read the ROM's tables | They were built in parallel | The generator now uses `romdata` only. 27 generated Pokémon were byte-identical before and after |
+| `--rom` changes only the emulator's ROM | `romdata` reads one ROM, set by `$NUZLOCKERL_ROM` | Fine with one hack. Set `$NUZLOCKERL_ROM` to switch both |
+
+Not yet done: enemy moves, IVs, and PID are the game's own rolls, the met
+location and dates are left at zero, and the generator makes wild battles
+only.

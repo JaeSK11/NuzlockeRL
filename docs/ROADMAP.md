@@ -75,17 +75,21 @@ The hack changed abilities, so assume it changed more.
       stays above 99 °C for 30 s.
 - [x] Log every step and every episode as JSON lines.
 - [ ] Baseline: PPO, after drubinstein/pokemonred_puffer (PufferLib).
-- [ ] Battle states for the early bosses (Barry 1, Roark, …) and some
-      generated encounters. Barry 1 and a wild Delibird exist so far.
+- [x] Generated wild battles: `src/scenario.py` writes any party and any
+      wild enemy into RAM and saves a battle state at the first prompt.
+- [ ] Trainer battles for the early bosses (Roark, Barry 2, Galactic). The
+      generator makes wild battles only; trainer battles need the walk to
+      each trainer, or a way to start one from RAM.
 
 ### Gaps in the env
 
 - [ ] **Switches.** Write a switch macro and verify it on a state with 2+
       party Pokémon. Until then the env masks switches off.
-- [ ] **Move slots 2 and 3.** Their tap positions, (64, 115) and
-      (192, 115), are guesses until a Pokémon with 3+ moves is tested.
+- [x] **Move slots 2 and 3.** Tapping (64, 115) and (192, 115) drops
+      exactly that slot's PP, verified on a generated Pokémon with 4 moves.
 - [ ] **Prompts the env doesn't model.** These are the forced switch
-      after a faint, the trainer's "Will you switch?" question in Shift
+      after a faint (seen on generated teams: the lead faints, the game
+      waits with command 21, and the env ends the episode as STUCK), the trainer's "Will you switch?" question in Shift
       style, and move-learn and evolution questions. Today they end the
       episode as STUCK.
 - [ ] **No PP left.** The action mask goes all False, but the game uses

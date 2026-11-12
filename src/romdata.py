@@ -41,6 +41,7 @@ EVO_METHODS = ("none", "level_happiness", "level_happiness_day", "level_happines
                "use_item_male", "use_item_female", "level_with_held_item_day", "level_with_held_item_night",
                "level_know_move", "level_species_in_party", "level_male", "level_female",
                "level_magnetic_field", "level_moss_rock", "level_ice_rock")
+SHEDINJA = 292
 GRASS_SLOT_PERCENT = (20, 20, 10, 10, 10, 10, 5, 5, 4, 4, 1, 1)
 WATER_SLOT_PERCENT = {"surf": (60, 30, 5, 4, 1), "old_rod": (60, 30, 5, 4, 1),
                       "good_rod": (40, 40, 15, 4, 1), "super_rod": (40, 40, 15, 4, 1)}
@@ -204,7 +205,7 @@ class Encounters:
         return tuple(sp)
 
 
-def _decode_text(b: bytes) -> list[str]:
+def _decode_words(b: bytes) -> list[list[int]]:
     """One text bank (msgdata/pl_msg.narc member): per-message XOR keys, 16-bit characters."""
     count, seed = struct.unpack_from("<HH", b, 0)
     k1 = seed * 0x2FD & 0xFFFF
@@ -218,8 +219,12 @@ def _decode_text(b: bytes) -> list[str]:
         for j in range(length):
             words.append(_u16(b, off + 2 * j) ^ key)
             key = key + 0x493D & 0xFFFF
-        out.append(_words_to_str(words))
+        out.append(words)
     return out
+
+
+def _decode_text(b: bytes) -> list[str]:
+    return [_words_to_str(w) for w in _decode_words(b)]
 
 
 def _words_to_str(words: list[int]) -> str:
@@ -282,6 +287,13 @@ def species_name(i: int) -> str:
     return "".join(c if k == 0 or n[k - 1] in " .-" else c.lower() for k, c in enumerate(n))
 
 
+def species_name_codes(i: int) -> list[int]:
+    """The species name as the game's raw character codes, without the 0xFFFF end. This is what a
+    Pokémon's nickname field holds until it is renamed."""
+    words = _decode_words(_narc("msgdata/pl_msg.narc")[412])[i]
+    return words[:words.index(0xFFFF)] if 0xFFFF in words else words
+
+
 def move_name(i: int) -> str: return _name(647, i)
 def ability_name(i: int) -> str: return _name(610, i)
 def item_name(i: int) -> str: return _name(392, i)
@@ -301,6 +313,21 @@ def _species_table() -> tuple[Species, ...]:
             egg_groups=(b[20], b[21]), base_friendship=b[18], hatch_cycles=b[17],
             tm_mask=int.from_bytes(b[28:44], "little")))
     return tuple(out)
+
+
+@cache
+def _growth_tables() -> tuple[tuple[int, ...], ...]:
+    """EXP needed to reach each level 0..100, per GROWTH_RATES index."""
+    return tuple(struct.unpack("<101I", b) for b in _narc("poketool/personal/pl_growtbl.narc"))
+
+
+def exp_for_level(species_id: int, level: int) -> int:
+    return _growth_tables()[species(species_id).growth_rate][level]
+
+
+def level_for_exp(species_id: int, exp: int) -> int:
+    table = _growth_tables()[species(species_id).growth_rate]
+    return max(lv for lv in range(1, 101) if table[lv] <= exp)
 
 
 def species(i: int) -> Species:
@@ -472,7 +499,7 @@ def calc_stats(species_id: int, level: int, ivs, evs, nature: int) -> tuple[int,
     for k in range(6):
         core = (2 * base[k] + ivs[k] + evs[k] // 4) * level // 100
         if k == 0:
-            out.append(core + level + 10)
+            out.append(1 if species_id == SHEDINJA else core + level + 10)
             continue
         v = core + 5
         up, down = nature // 5, nature % 5                  # nature boosts/cuts one of atk, def, spe, spa, spd

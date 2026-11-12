@@ -36,6 +36,8 @@ state, then add encounters, team building and overworld movement later.
 ```
 src/gen4.py         Gen 4 RAM layout + Pokémon decryption (party, battle, scan)
 src/battle_env.py   Gymnasium battle env: touch actions, faint-event rewards, random battle RNG
+src/romdata.py      The hack's species, moves, learnsets, trainers, and encounters, read from the ROM
+src/scenario.py     Battle-scenario generator: any party vs any wild Pokémon, saved as a battle state
 src/drive.py        Scripted input driver for exploring the game and making save states
 src/d               Shell wrapper for drive.py
 tests/              Regression tests against milestone save states
@@ -70,6 +72,7 @@ verified against it.
 ~/venvs/nuzlockerl/bin/python -m pytest -q tests   # skipped without the ROM/states
 src/d - mystate "w900 a*10 w120"                   # boot, press A, save state + screenshot
 ~/venvs/nuzlockerl/bin/python scripts/rollout.py --episodes 200   # random policy, one env per hardware thread minus 2
+~/venvs/nuzlockerl/bin/python scripts/make_scenario.py --mon 387:10:33,72,44,75 --enemy 225:8 --out states/generated/turtwig10.state
 ```
 
 ## Hack notes
