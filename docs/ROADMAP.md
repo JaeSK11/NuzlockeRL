@@ -6,9 +6,12 @@ the episode on win or wipe.
 
 ## 0. Quick win
 
-- [ ] In the in-game Options, set **battle scene (animations) off** and
-      **text speed fast**, then re-save the milestone states. Every battle
-      gets much shorter in frames, so training is faster for free.
+- [x] **Battle scene (animations) off**, **text speed fast**, and **battle
+      style Set**. `BattleEnv(fast_battles=True)` writes these into the
+      Options the running battle reads, so no state is re-saved. With
+      animations off, Barry 1 takes 28% fewer frames and the wild battle
+      54% fewer. Set style is written but untested, because no state has a
+      multi-Pokémon trainer battle yet.
 
 ## 1. RAM still needed for battles
 

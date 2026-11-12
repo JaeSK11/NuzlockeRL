@@ -264,3 +264,38 @@ thread. It stops early if the CPU stays above 99 °C for more than 30 s.
 The open items are in the roadmap's [Gaps in the env](ROADMAP.md#gaps-in-the-env):
 switches, move slots 2 and 3, unmodeled prompts, the no-PP case, and
 lockstep stepping.
+
+## 9. Faster battles through the Options in RAM (2026-11-11)
+
+Goal: roadmap step 0. Fewer emulated frames per battle mean more battles
+per hour of training.
+
+**What was built.** The decomp shows that the battle keeps a pointer to the
+game's Options and reads through it on every check, for example
+`BattleSystem_AreAnimationsOn`. So `BattleEnv(fast_battles=True)` writes
+text speed fast, battle scene off, and battle style Set through
+`battleOptionsPtr` right after loading a state. No save state had to be
+re-made. `gen4.write_battle_options` keeps all other option bits, and it
+refuses to write outside a battle.
+
+**Results.** Each run used the state's own seed and always took action 0:
+
+| Battle | Frames, as saved | Frames, animations off | Change |
+|---|---|---|---|
+| Barry 1 (5 turns) | 2547 | 1839 | −28% |
+| Wild Delibird (2 turns) | 1329 | 617 | −54% |
+
+- HP before every step was identical in every setting, so the options don't
+  touch the battle RNG.
+- Setting text speed to normal or slow made the same battles longer (Barry
+  1 took 3623 and 5053 frames). That confirms the write takes effect
+  mid-battle.
+- Over 24 battles with random seeds, every step still took exactly 2 taps.
+  The 20-frame settle holds with animations off.
+- Tests: 16 pass.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| Fast text gave no speedup | Both saves already had text speed fast and battle style Set | Only the animation switch matters for the current states. The env still writes all three, for states made later |
+| No overworld address for the Options | The pointer target sits at a different offset from v in each save, and the pointer is stale outside battle | The env writes during battle only. `write_battle_options` raises outside a battle instead of writing through a stale pointer |
+| Battle style Set can't be tested | No state has a trainer with 2+ Pokémon | Left unverified in the roadmap until the scenario generator makes one |

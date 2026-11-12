@@ -39,6 +39,7 @@ Re-resolve after every save-state load (`gen4.resolve(nds)`).
 | battleRngStart | 0x43C48 | u32, `BattleSystem.seedDTO` | ✅ The seed the battle started with. At the first prompt, `seedRandNext` is this seed advanced 13 times (Barry 1) or 7 times (wild) |
 | battleResult | 0x43C1C | u8, `resultMask` | ✅ 1 after a win, 2 after a loss (one battle each). See [Battle system](#battle-system) |
 | battleCtxPtr | 0x4182C | u32 pointer to `BattleContext` | ✅ Both battles. See [Battle system](#battle-system) |
+| battleOptionsPtr | 0x419B0 | u32 pointer to the Options u16, `BattleSystem.options` | ✅ Both battles, valid only during a battle. Bits: text speed 0–3 (2 = fast), battle style 6 (1 = Set), battle scene 7 (1 = off). The battle reads through the pointer on every check, so writes take effect mid-battle |
 | inputSystemPtr | 0x41998 | u32 pointer to the battle subscreen | ✅ Both battles. The u8 at +0x6DC is the menu input mode, 0 = touch, 1 = buttons |
 | (no name in `gen4`) | 0x2370C | u8 | ✅ The input mode each new battle starts in. It was 0 in states 00–02 and 1 in state 04 |
 | itemStartNoBattle / itemStartBattle | 0xB60 / 0x442BC | bag | ⏳ Not checked |

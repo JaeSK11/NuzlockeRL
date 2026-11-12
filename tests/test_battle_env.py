@@ -152,3 +152,35 @@ def test_log_file(tmp_path):
     assert step["events"] == ["TURN_CAP"] and step["player_hp"] == [18] and step["enemy_hp"] == [15]
     assert set(summary) >= {"episode", "outcome", "turns", "return", "frames"}
     assert summary["outcome"] == "TURN_CAP" and summary["return"] == -10.0
+
+
+def battle_frames(info0, rows):
+    return info0["frames"] + sum(r[6]["frames"] for r in rows)
+
+
+@needs_rom
+def test_fast_battles_keep_the_rng_path_and_cut_frames(env):
+    slow = BattleEnv([BARRY], ROM, fast_battles=False)
+    info_s, rows_s = play(slow, BARRY, [0] * 10, keep_rng=True)
+    slow.close()
+    info_f, rows_f = play(env, BARRY, [0] * 10, keep_rng=True)
+    assert [r[0] for r in rows_f] == [r[0] for r in rows_s]
+    assert [r[3] for r in rows_f] == [r[3] for r in rows_s]
+    assert battle_frames(info_f, rows_f) <= 0.8 * battle_frames(info_s, rows_s)
+
+
+@needs_rom
+@pytest.mark.parametrize("state", [BARRY, WILD])
+def test_reset_writes_fast_options_and_keeps_the_other_bits(env, state):
+    raw = {}
+    for fast in (False, True):
+        e = env if fast else BattleEnv([state], ROM, fast_battles=False)
+        e.reset(options={"state": state, "keep_rng": True})
+        raw[fast] = gen4.read_battle_options(e.nds, e.addrs)
+        if not fast:
+            e.close()
+    written, saved = (gen4.decode_options(raw[f]) for f in (True, False))
+    assert (written["text_speed"], written["battle_style"], written["battle_scene"]) == (
+        gen4.TEXT_FAST, gen4.STYLE_SET, gen4.SCENE_OFF)
+    for k in ("sound_mode", "button_mode", "frame"):
+        assert written[k] == saved[k]

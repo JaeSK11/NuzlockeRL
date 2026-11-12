@@ -24,6 +24,7 @@ OFFSETS = {                     # added to the resolved version pointer
     "battleRngStart": 0x43C48,  # u32, BattleSystem.seedDTO, the seed the battle started with
     "battleResult": 0x43C1C,    # u8, resultMask: 1 win, 2 lose, 4 captured. Garbage once battle memory is freed
     "battleCtxPtr": 0x4182C,    # u32 pointer to BattleContext (main RAM). +0 u8 curCommandState[0], +8 u32 command
+    "battleOptionsPtr": 0x419B0,  # u32 pointer to the u16 Options bitfield, BattleSystem.options. Garbage outside battle
     "inputSystemPtr": 0x41998,  # u32 pointer; u8 at +0x6DC is the menu input mode, 0 touch, 1 buttons
     "itemStartNoBattle": 0xB60,
     "itemStartBattle": 0x442BC,
@@ -194,3 +195,38 @@ def read_input_mode(nds, addrs: dict) -> int | None:
     if not (MAIN_RAM <= p < MAIN_RAM + 0x400000 - 0x800):
         return None
     return nds.memory.read_u8(False, p + 0x6DC)
+
+
+# Options bitfield (decomp include/game_options.h). The battle reads it through
+# BattleSystem.options on every check, so a write takes effect mid-battle.
+OPTION_FIELDS = {"text_speed": (0, 0xF), "battle_style": (6, 1), "battle_scene": (7, 1)}
+TEXT_FAST, STYLE_SET, SCENE_OFF = 2, 1, 1
+
+
+def decode_options(x: int) -> dict:
+    return {"text_speed": x & 0xF, "sound_mode": (x >> 4) & 3, "battle_style": (x >> 6) & 1,
+            "battle_scene": (x >> 7) & 1, "button_mode": (x >> 8) & 3, "frame": (x >> 10) & 0x1F}
+
+
+def _options_addr(nds, addrs: dict) -> int | None:
+    p = nds.memory.read_u32(False, addrs["battleOptionsPtr"])
+    return p if MAIN_RAM <= p < MAIN_RAM + 0x400000 - 4 and not p & 1 else None
+
+
+def read_battle_options(nds, addrs: dict) -> int | None:
+    """The raw Options u16 the running battle reads, or None if the pointer is invalid."""
+    p = _options_addr(nds, addrs)
+    return None if p is None else nds.memory.read_u16(False, p)
+
+
+def write_battle_options(nds, addrs: dict, **fields: int) -> int:
+    """Set the named OPTION_FIELDS and keep every other bit. Returns the new u16."""
+    p = _options_addr(nds, addrs)
+    if p is None or not in_battle(nds, addrs):
+        raise RuntimeError("no battle is running; battleOptionsPtr is stale outside battle")
+    x = nds.memory.read_u16(False, p)
+    for name, val in fields.items():
+        shift, mask = OPTION_FIELDS[name]
+        x = (x & ~(mask << shift)) | ((val & mask) << shift)
+    nds.memory.write_u16(False, p, x)
+    return x

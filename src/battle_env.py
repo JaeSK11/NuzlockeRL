@@ -143,10 +143,10 @@ class BattleEnv(gym.Env):
     metadata = {"render_modes": []}
 
     def __init__(self, states: list[str], rom: str = DEFAULT_ROM, turn_cap: int = 100,
-                 log_path: str | None = None):
+                 log_path: str | None = None, fast_battles: bool = True):
         pynds.config.set_threaded_2d(0)
         pynds.config.set_threaded_3d(0)
-        self.states, self.turn_cap = list(states), turn_cap
+        self.states, self.turn_cap, self.fast_battles = list(states), turn_cap, fast_battles
         self.nds = pynds.PyNDS(rom)
         self.action_space = gym.spaces.Discrete(N_ACTIONS)
         self.observation_space = gym.spaces.Box(0.0, np.inf, (OBS_SIZE,), np.float32)
@@ -237,6 +237,9 @@ class BattleEnv(gym.Env):
         else:
             self.rng_seed = int(self.np_random.integers(2 ** 32))
             gen4.write_battle_seed(self.nds, self.addrs, self.rng_seed)
+        if self.fast_battles:
+            gen4.write_battle_options(self.nds, self.addrs, text_speed=gen4.TEXT_FAST,
+                                      battle_scene=gen4.SCENE_OFF, battle_style=gen4.STYLE_SET)
         self.input_mode = gen4.read_input_mode(self.nds, self.addrs)
         self._frames = self._ep_frames = 0
         self.turn, self.ret, self.result_mask = 0, 0.0, 0
