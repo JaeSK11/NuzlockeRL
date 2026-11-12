@@ -12,7 +12,7 @@ state, then add encounters, team building and overworld movement later.
 
 | Area | State |
 |---|---|
-| DS emulator from Python | ✅ PyNDS (NooDS core), built from source with a fixed DS clock. Headless, ~650–1000 fps per process |
+| DS emulator from Python | ✅ PyNDS (NooDS core), built from source with two NooDS fixes: a fixed DS clock, and state loads that don't depend on what ran before. Headless, ~650–1000 fps per process |
 | Inputs (buttons and touch) | ✅ All tested on the Kaizo ROM |
 | Save states | ✅ ~5.5 MB, ~2.7 ms to load |
 | Party and battle RAM | ✅ Pointer chain and Gen 4 decryption verified on the hack, covered by tests |

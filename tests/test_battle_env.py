@@ -1,17 +1,18 @@
 """Tests for battle_env.py. The events_between tests need no emulator; the rest need the
 Kaizo ROM and the local milestone states (not in git).
 Run: ~/venvs/nuzlockerl/bin/python -m pytest -q tests  (from ~/nuzlockeRL)"""
-import json, os, sys
+import hashlib, json, os, sys
 import numpy as np
 import pytest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 import gen4
+import pynds
 import romdata
 import scenario
-from battle_env import (BattleEnv, Event, OBS_FIELDS, OBS_SIZE, OBS_SLICES, REWARDS, Snapshot, action_mask,
-                        events_between, observation)
+from battle_env import (BattleEnv, Event, FIGHT_XY, OBS_FIELDS, OBS_SIZE, OBS_SLICES, REWARDS, Snapshot,
+                        action_mask, events_between, observation)
 
 ROM = os.environ.get("NUZLOCKERL_ROM", os.path.join(ROOT, "roms/plat-kaizo-nightmare-update-final.nds"))
 M = os.path.join(ROOT, "states/milestones")
@@ -22,7 +23,7 @@ needs_rom = pytest.mark.skipif(
     reason="needs the Kaizo ROM and local milestone save states (not in git)")
 
 GEN = os.path.join(ROOT, "states/generated")
-CHIMCHAR, PIPLUP, PIKACHU, TURTWIG, STARLY, BIDOOF = 390, 393, 25, 387, 396, 399
+CHIMCHAR, PIPLUP, PIKACHU, TURTWIG, STARLY, BIDOOF, EEVEE = 390, 393, 25, 387, 396, 399, 133
 TEAM3 = [{"species": CHIMCHAR, "level": 12, "moves": [52, 10, 43, 183]},
          {"species": PIPLUP, "level": 11, "moves": [55, 1, 145, 64]},
          {"species": PIKACHU, "level": 10, "moves": [84, 98, 86, 45]}]
@@ -31,9 +32,11 @@ TEAM6 = [{"species": CHIMCHAR, "level": 12, "moves": [52, 10]}, {"species": PIPL
          {"species": STARLY, "level": 8, "moves": [33, 28]}, {"species": BIDOOF, "level": 7, "moves": [33]}]
 # Turtwig's two moves have 1 PP each (Tail Whip, Meditate), so two turns leave it with none. Pikachu is alive.
 NO_PP = [{"species": TURTWIG, "level": 10, "moves": [39, 96]}, {"species": PIKACHU, "level": 10, "moves": [84, 98]}]
+WEAKLEAD = [{"species": PIKACHU, "level": 2, "moves": [84, 45]}, {"species": TURTWIG, "level": 15, "moves": [33, 72, 75, 44]}]
 SCENARIOS = {   # name: (party, wild enemy (species, level) or None, seed); built on first use, as make_scenario.py does
     "team3": (TEAM3, None, 2), "team_vs_starly12": (TEAM3, (STARLY, 12), 4),
-    "team6_vs_starly12": (TEAM6, (STARLY, 12), 5), "no_pp_vs_starly12": (NO_PP, (STARLY, 12), 3)}
+    "team6_vs_starly12": (TEAM6, (STARLY, 12), 5), "no_pp_vs_starly12": (NO_PP, (STARLY, 12), 3),
+    "weaklead_vs_eevee": (WEAKLEAD, (EEVEE, 13), 7)}
 
 
 def scenario_state(name):
@@ -446,3 +449,35 @@ def test_a_one_frame_battle_dropout_after_a_switch_is_not_the_battles_end(team_e
     for action in (6, 6, 8, 0, 5, 8, 7):
         _, _, term, trunc, info = team_env.step(action)
         assert not (term or trunc) and info["events"] == []
+
+
+def ram_after_a_fight_tap(nds):
+    """curCommandState[0] and a hash of main RAM after the same input from a loaded state."""
+    a = gen4.resolve(nds)
+    gen4.write_battle_seed(nds, a, 0x12345678)
+    nds.tick(20)
+    nds.button.set_touch(*FIGHT_XY); nds.button.touch(); nds.tick(6); nds.button.release_touch()
+    nds.tick(200)
+    return gen4.read_battle_command(nds, a)[1], hashlib.sha1(gen4.read_bytes(nds, gen4.MAIN_RAM, 0x400000)).hexdigest()
+
+
+@needs_rom
+def test_a_state_loads_the_same_whatever_ran_before():
+    """NooDS used to pick the CPU run function from the halt states before a load. The ARM7
+    is halted as this battle ends, so after the next load it stayed stopped: no touch input,
+    and every tap was ignored (patches/noods-load-state-run-function.patch)."""
+    state = scenario_state("weaklead_vs_eevee")
+    fresh = pynds.PyNDS(ROM)
+    fresh.load_state_from_file(state)
+    want = ram_after_a_fight_tap(fresh)
+    assert want[0] == gen4.CS_MOVE_MENU, "the FIGHT tap opens the move menu"
+    e = BattleEnv([state], ROM)
+    _, info = e.reset(seed=0)
+    for _ in range(50):
+        _, _, term, trunc, info = e.step(int(np.flatnonzero(info["action_mask"])[0]))
+        if term or trunc:
+            break
+    assert info["outcome"] in ("WON", "LOST")
+    e.nds.load_state_from_file(state)
+    assert ram_after_a_fight_tap(e.nds) == want
+    e.close()

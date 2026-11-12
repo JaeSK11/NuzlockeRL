@@ -24,7 +24,7 @@ python3 -m venv ~/venvs/nuzlockerl
 ~/venvs/nuzlockerl/bin/pip install numpy pillow pytest cmake ninja nanobind setuptools wheel
 git clone https://github.com/unexploredtest/PyNDS.git && cd PyNDS
 git checkout 5a40a52 && git submodule update --init --recursive
-git -C externals/NooDS apply /path/to/nuzlockeRL/patches/noods-fixed-rtc.patch
+for p in /path/to/nuzlockeRL/patches/noods-*.patch; do git -C externals/NooDS apply "$p"; done
 PATH=~/venvs/nuzlockerl/bin:$PATH ~/venvs/nuzlockerl/bin/pip install --no-build-isolation .
 ```
 
@@ -42,6 +42,23 @@ the clock then stays at that time. `src/gen4.py` sets it to Wednesday
 module that creates an emulator imports `gen4` first, and spawned workers
 inherit it. `tests/test_gen4.py::test_clock_is_fixed` fails on a build
 without the patch.
+
+### The state-load fix
+
+NooDS restores every component from a save state, but it picks the
+function that runs the two CPUs before it restores their halt flags. That
+choice followed the CPUs from before the load. If the ARM7 was halted then
+and running in the saved state, the ARM7 stayed stopped after the load. The
+ARM7 reads the touchscreen, so the game ignored every tap.
+
+A battle that just ended often leaves the ARM7 halted, so resetting the env
+after a WON or LOST hit this. On one generated state, 9 of 10 resets after
+a finished battle ended STUCK, with the action menu up and no tap taking.
+`patches/noods-load-state-run-function.patch` picks the run function again
+once every component is loaded. After it, a load gives the same RAM, byte
+for byte, whatever ran before.
+`tests/test_battle_env.py::test_a_state_loads_the_same_whatever_ran_before`
+fails without the patch.
 
 ## Test results on the Kaizo ROM (2026-11-11, 32-core machine)
 

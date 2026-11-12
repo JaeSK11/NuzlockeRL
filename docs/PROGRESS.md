@@ -528,7 +528,7 @@ The BattleContext fields are in [RAM_MAP.md](RAM_MAP.md#battle-system).
 | A slow POKéMON tap was tapped twice | The tap check ran 8 frames after the press, and that button reacts after 9 | `TAP_CHECK` is 20 frames, polled each frame. The party screen needs 40 frames before it takes a slot tap, and 30 between taps |
 | Two episodes on the team of 6 ended as ENDED mid-battle | `in_battle()` read False for one frame. §13 found why: the game held the struct decrypted on that frame | ENDED needs 3 snapshots in a row with no battle |
 | Command 21 didn't mark the forced switch alone | It also holds during the faint animation, and `curCommandState[0]` stays 14 | The forced switch is command 21 with `SWITCHING` set |
-| `weaklead_vs_eevee.state` ends STUCK | After loading, the touch menu is never drawn, even after 600 frames. A fresh process sometimes works. The env at HEAD fails on it too | Left out of runs. The generator needs to check each state it saves |
+| `weaklead_vs_eevee.state` ends STUCK | After loading, the touch menu is never drawn, even after 600 frames. A fresh process sometimes works. The env at HEAD fails on it too | Left out of runs. The cause, found later, was a NooDS state-load bug (§17) |
 | Trapping and move locks aren't modeled | No state uses Mean Look, Arena Trap, Disable, Encore, or a Choice item yet | A refused tap ends the step STUCK. Listed in the roadmap |
 
 ## 15. Training: an async env pool and masked PPO (2026-11-12)
@@ -647,3 +647,55 @@ writes all 18 slots.
 | A time-zone setting can't pin the clock | A time zone only shifts the time, which still moves | Patch NooDS instead |
 | PyNDS has no clock setting | Not exposed by its bindings | A 9-line patch to `rtc.cpp`, applied by `setup_env.sh` |
 | An unpatched build would ignore the variable without a sign | The variable only does something in the patched build | `test_clock_is_fixed` reads the game's clock and fails on an unpatched build |
+
+## 17. State loads that don't depend on what ran before (2026-11-12)
+
+Goal: find why `weaklead_vs_eevee.state` ended STUCK (§14).
+
+**Finding.** A rollout on that state ended 11 of 24 episodes STUCK. Every
+STUCK was the first step of an episode: the action menu stayed up through
+all 4 taps. In each worker, a STUCK episode came right after a WON or LOST,
+and the episode after a STUCK was fine. Resetting mid-battle never failed.
+So whatever ran before a load changed the loaded game.
+
+To narrow it down:
+- **One process, 10 resets after a finished battle:** 9 ended STUCK.
+  Loading the state twice (load, 1 frame, load) brought that to 0.
+  Running 600 frames before the reset didn't help.
+- **The same input after a load.** The test applied a fixed battle seed,
+  20 frames, a FIGHT tap, and 400 frames. A load after a LOST gave
+  different RAM from a fresh process's load, and the tap did nothing. The
+  double load wasn't a real fix: after a STUCK it gave different RAM too.
+- **Memory frame by frame.** Right after the load, main RAM, both CPUs'
+  I/O registers, ARM7 RAM, and shared RAM matched a fresh load exactly.
+  One frame later the ARM7 had stopped: its frame counter at `0x03806DE8`
+  stayed put, its sound registers froze, and its interrupt flags stayed
+  pending. The ARM7 reads the touchscreen, so no tap reached the game.
+
+**Cause.** NooDS's `SaveStates::loadState` restores `Core` first, and
+`Core::loadState` picks the function that runs the CPUs from their halt
+flags. The interpreters, and their halt flags, are restored after that. So
+the run function followed the CPUs from before the load. A battle that just
+ended leaves the ARM7 halted. After the next load the ARM7 should run, but
+only the ARM9 did. The milestone states didn't trigger it, which is why
+nothing failed before.
+
+**Fix.** `patches/noods-load-state-run-function.patch` schedules
+`UPDATE_RUN` once every component is loaded, the way a CPU's halt or wake
+does. `scripts/setup_env.sh` applies every `patches/noods-*.patch`.
+
+**Verified.**
+- After a WON, a LOST, or a STUCK, single or double, every load gave the
+  same RAM as a fresh process's load, and that matches what a fresh load
+  gave before the fix.
+- 10 resets after finished battles gave 0 STUCK.
+- `test_a_state_loads_the_same_whatever_ran_before` builds the weak-lead
+  scenario, plays it to the end, loads it, and compares RAM after a FIGHT
+  tap with a fresh emulator. It fails without the patch.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| After a won or lost battle, the next episode's taps were all ignored | NooDS picked the CPU run function from the halt flags before the load, so the ARM7 stayed stopped | Pick it again after the load (`noods-load-state-run-function.patch`) |
+| My first check of the state found nothing (20 of 20 fine) | It reset mid-battle each time, never after a finished battle | Tested resets after finished battles |
+| The double load looked like a fix | It only made the bad case rarer: after a STUCK it still gave different RAM | Compared RAM after the same input instead of counting STUCK |
+| The old `weaklead_vs_eevee.state` came from the live clock | Generated before §16 | Moved out of the way; the test builds it again from its recipe |

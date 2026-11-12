@@ -114,6 +114,10 @@ The hack changed abilities, so assume it changed more.
 - [x] **Lockstep stepping wastes CPU.** `src/pool.py` steps each env as
       soon as it's ready: 1.30× more decisions per second with 14 envs,
       and 13.2 busy cores instead of 8.3.
+- [ ] **Check generated states when they are saved.** The generator could
+      load each state in a fresh emulator and check that a FIGHT tap opens
+      the move menu. A state that fails then stops generation instead of a
+      training run, since any worker error stops training.
 - [ ] **Save states on tmpfs.** Loading a state takes about 2.7 ms, so this
       matters only if profiling shows state loads.
 

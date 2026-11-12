@@ -1,0 +1,15 @@
+diff --git a/src/save_states.cpp b/src/save_states.cpp
+index 6246c98..ee737cc 100644
+--- a/src/save_states.cpp
++++ b/src/save_states.cpp
+@@ -144,5 +144,10 @@ bool SaveStates::loadState() {
+     core->timers[1].loadState(file);
+     core->wifi.loadState(file);
+     fclose(file);
++
++    // Pick the run function from the loaded halt states. core->loadState picks it before the
++    // interpreters are loaded, so it would follow the halt states from before the load, and a
++    // CPU halted then would stay stopped after it
++    core->schedule(UPDATE_RUN, 0);
+     return true;
+ }
