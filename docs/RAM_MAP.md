@@ -33,8 +33,8 @@ Re-resolve after every save-state load (`gen4.resolve(nds)`).
 | playerBattleMonPID | 0x47620 | u32 | ✅ PID of the active player Pokémon |
 | enemyBattleMonPID | 0x476E0 | u32 | ✅ PID of the active enemy Pokémon |
 | enemyPokemonID | 0x47678 | u16 species | ✅ 390 (Chimchar) in Barry 1 |
-| statStagesPlayer | 0x475D0 | 8 × u8, 6 = ±0 | ✅ Neutral seen; changes not verified |
-| statStagesEnemy | 0x47690 | 8 × u8 | ✅ Neutral seen; changes not verified |
+| statStagesPlayer | 0x475D0 | 8 × u8, 6 = ±0, range 0–12 | ✅ The player's `BattleMon.statBoosts`. Forced enemy moves changed it: Leer took Defense (index 2) down to 1, Growl took Attack (index 1) to 0, Swagger raised Attack to 12 |
+| statStagesEnemy | 0x47690 | 8 × u8 | ✅ The enemy's `BattleMon.statBoosts`, the same layout |
 | battleRngSeed | 0x43C44 | u32, `BattleSystem.seedRandNext` | ✅ Both battles. Writing it right after a state load randomizes the battle |
 | battleRngStart | 0x43C48 | u32, `BattleSystem.seedDTO` | ✅ The seed the battle started with. At the first prompt, `seedRandNext` is this seed advanced 13 times (Barry 1) or 7 times (wild) |
 | battleResult | 0x43C1C | u8, `resultMask` | ✅ 1 after a win, 2 after a loss (one battle each). See [Battle system](#battle-system) |
@@ -94,6 +94,35 @@ signal rises 7 to 12 frames before the button shows.
 it while the game waits at a menu, so a battle save state fixes that
 battle's luck. This is vanilla behavior.
 
+**BattleMon.** `BattleContext` holds one `BattleMon` per battler, 0xC0
+bytes each, at ctx+0x2D40 (the player's) and ctx+0x2E00 (the enemy's). The
+layout matches decomp `include/battle/battle_mon.h` exactly.
+`statStagesPlayer` is the player's `statBoosts`, `enemyPokemonID` is the
+enemy's `species`, and `personality` is `playerBattleMonPID`. The game
+copies a `BattleMon` back into the party struct a few frames after it
+changes (`BattleMon_CopyToParty`), so the two agree at every prompt.
+Checked by `scripts/ram_audit.py` (see [PROGRESS.md](PROGRESS.md#13-ram-audit-2026-11-12)).
+
+| Offset | Field | Status |
+|---|---|---|
+| 0x00 | `species` u16 | ✅ |
+| 0x02–0x0A | atk, def, spe, spa, spd, u16 each | ✅ |
+| 0x0C | `moves` 4 × u16 | ✅ |
+| 0x18 | `statBoosts` 8 × s8, 6 = ±0 | ✅ Changes verified |
+| 0x27 | `ability` u8 | ✅ |
+| 0x2C | `ppCur` 4 × u8 | ✅ |
+| 0x34 | `level` u8 | ✅ |
+| 0x4C | `curHP` i32 | ✅ |
+| 0x50 | `maxHP` u32 | ✅ |
+| 0x64 | `exp` u32 | ✅ |
+| 0x68 | `personality` u32 | ✅ |
+| 0x6C | `status` u32 | ✅ Every major status seen |
+| 0x70 | `statusVolatile` u32 | ✅ Confusion turns in bits 0–2 (1–5 seen), flinch bit 3. Other bits not yet seen |
+| 0x78 | `heldItem` u16 | ⚠️ 0 in every battle so far |
+| 0x7C | `timesDamaged` u8 | ⚠️ Rises with hits; not checked against exact counts |
+| 0x80 | `moveEffectsMask` u32 | ⏳ 0 in every battle so far |
+| 0x84 | `moveEffectsTemp` u32 | ⏳ 0 in every battle so far |
+
 **Battle result.** The decomp's `resultMask` bits are 1 = win, 2 = lose,
 and 4 = captured, and the flee results combine them. The game sets the bit
 during the text after the final KO, which needs A presses to get through.
@@ -123,7 +152,7 @@ encounters, are in [HACK_DATA.md](HACK_DATA.md).
 | Bytes | Contents |
 |---|---|
 | 0x00–0x03 | PID (unencrypted). `PID % 25` = nature |
-| 0x04–0x05 | Unused, always 0 (used as a filter in the scan) |
+| 0x04–0x05 | Flags: bit 0 `partyDecrypted`, bit 1 `boxDecrypted` (decomp `include/struct_defs/pokemon.h`). 0 at rest. For single frames mid-turn the game holds a struct decrypted in place and sets them, and then the bytes are plaintext. `gen4.decode_mon` reports such a struct as not `checksum_ok` |
 | 0x06–0x07 | Checksum (unencrypted) = sum of the decrypted 16-bit words in 0x08–0x87 |
 | 0x08–0x87 | Four 32-byte blocks A/B/C/D, encrypted, shuffled |
 | 0x88–0xEB | Battle stats (party only), encrypted |
@@ -140,6 +169,12 @@ Decoded so far:
 - **B:** moves 4 × u16 @0, PP 4 × u8 @8, IV word @16 (bit 30 = egg)
 - **Battle stats:** status u32 @0, level @4, HP u16 @6, max HP @8, then
   atk, def, spe, spa, spd
+
+**Status word** (seen in both the party struct and `BattleMon`): sleep
+turns in bits 0–2 (1–5 seen), poison 8, burn 16, freeze 32, paralysis 64,
+toxic 128. The toxic counter, in bits 8–11, exists only in `BattleMon`;
+the party copy keeps 128. A fainted Pokémon's party status is cleared while
+its `BattleMon` keeps the last one.
 
 ## Caveats
 

@@ -29,11 +29,13 @@ the episode on win or wipe.
       that's untested with 2+ Pokémon.
 - [ ] **Double battles:** a battle-type flag and two active Pokémon per side.
 - [ ] **Temporary effects:** confusion, Leech Seed, Substitute, Protect,
-      trapping, Taunt, Encore, and so on.
+      trapping, Taunt, Encore, and so on. Confusion and flinch are mapped in
+      `BattleMon.statusVolatile`; see [RAM_MAP.md](RAM_MAP.md#battle-system).
 - [ ] **Weather and field effects:** weather, Trick Room, Reflect and Light
       Screen, entry hazards.
-- [ ] **Verify** that status and stat-stage fields change correctly (all
-      that has been seen so far is neutral values).
+- [x] **Verify** that status and stat-stage fields change correctly.
+      `scripts/ram_audit.py --probe` forces status and stat moves onto the
+      player, and every major status and stage change read correctly.
 - [ ] **Ability and held item** on both sides, in the battle copy.
 
 ## 2. Game data from the ROM (not RAM)

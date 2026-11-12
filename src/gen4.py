@@ -119,10 +119,17 @@ class Mon:
 
 
 def decode_mon(raw: bytes, with_battle_stats: bool = True) -> Mon:
-    """Decode one 236-byte party struct (or a 136-byte box struct)."""
-    pid, checksum = _u32(raw, 0), _u16(raw, 6)
+    """Decode one 236-byte party struct (or a 136-byte box struct). checksum_ok is False
+    while the game holds the struct decrypted in place (decomp partyDecrypted/boxDecrypted
+    flags in the u16 at +4), because its bytes are then plaintext and decode as garbage.
+
+    Pokemon_GetValue and Pokemon_SetValue (decomp src/pokemon.c) also decrypt in place, without
+    the flags, and they decrypt the battle stats before the blocks. A read in between passes the
+    checksum but decodes the battle stats as garbage, so with_battle_stats also requires a level
+    of 1-100, hp <= max_hp, and no status bits above the toxic counter's (bits 8-11)."""
+    pid, flags, checksum = _u32(raw, 0), _u16(raw, 4), _u16(raw, 6)
     blocks = _crypt(raw[8:136], checksum)
-    ok = checksum != 0 and (sum(_u16(blocks, i) for i in range(0, 128, 2)) & 0xFFFF) == checksum
+    ok = flags == 0 and checksum != 0 and (sum(_u16(blocks, i) for i in range(0, 128, 2)) & 0xFFFF) == checksum
     order = BLOCK_ORDERS[((pid & 0x3E000) >> 13) % 24]
     blk = {letter: blocks[32 * i:32 * (i + 1)] for i, letter in enumerate(order)}
     a, b = blk["A"], blk["B"]
@@ -138,6 +145,7 @@ def decode_mon(raw: bytes, with_battle_stats: bool = True) -> Mon:
         m.hp, m.max_hp = _u16(s, 6), _u16(s, 8)
         m.stats = dict(zip(("atk", "def", "spe", "spa", "spd"),
                            (_u16(s, 10 + 2 * i) for i in range(5))))
+        m.checksum_ok = ok and 1 <= m.level <= 100 and m.hp <= m.max_hp and m.status >> 12 == 0
     return m
 
 

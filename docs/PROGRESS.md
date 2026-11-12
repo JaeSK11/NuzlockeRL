@@ -406,3 +406,66 @@ Tests are in `tests/test_nuzlocke_ram.py`.
 | `childMapHeader` read 0 in the bedroom state | It isn't set until the first map change after a new game | Use `location` |
 | Viewing the three starters didn't mark them as seen | The selection screen sets no Pokédex flags | Expectation corrected |
 | No way to verify the PC with a real Pokémon | The bedroom PC in this hack is the Kaizo difficulty menu, and Pokémon Storage needs a Pokémon Center | Layout checked against the decomp only. Left open in the roadmap |
+
+## 13. RAM audit (2026-11-12)
+
+Goal: make a silent wrong RAM read loud. Each field so far was checked on
+two battles. A mapping that is wrong only some of the time would pass those
+checks, and the agent would learn from bad data.
+
+**What was built.** `scripts/ram_audit.py` plays random battles in parallel
+with a random policy. It checks RAM at every decision and every 10 frames
+mid-turn:
+- Every struct decodes, and its values are in range: species, level, HP,
+  moves, PP, and status bits.
+- The active PIDs match a party slot, stat stages stay in 0–12,
+  `enemyTrainerID` is right for the battle, `command` and
+  `curCommandState` stay within the decomp's values, and `resultMask` is 0
+  until the battle is decided.
+- Every party struct matches the game's second copy of the same Pokémon,
+  its `BattleMon` in `BattleContext`: species, level, HP, max HP, moves,
+  PP, EXP, ability, stats, held item, and stat stages.
+
+`--probe N` writes a status or stat move into the enemy's `BattleMon`, so
+the player really gets hit by Leer, Thunder Wave, Toxic, Hypnosis, Confuse
+Ray, and others. Barry's Chimchar and the wild Delibird never use such
+moves.
+
+**Result.** 200 random battles and 44 probe battles (seed 11) gave 0
+strict violations, over 1,984 struct reads at decisions and 57,926
+mid-turn.
+- Every mapped field is right.
+- The `BattleMon` layout matches the decomp exactly; see
+  [RAM_MAP.md](RAM_MAP.md#battle-system).
+- Stat stages, every major status, confusion, and flinch read correctly.
+
+**Finding: the game decrypts structs in place.** For single frames
+mid-turn, a party struct can't be decoded, because the game is partway
+through reading or changing it. There are two forms:
+- With the flags in the u16 at +4 set (`Pokemon_EnterDecryptionContext`),
+  the whole struct is plaintext.
+- With no flags, inside `Pokemon_GetValue` and `Pokemon_SetValue` (decomp
+  `src/pokemon.c`). These decrypt the battle stats, then the blocks, change
+  a field, and encrypt both again in the same order. A frame can end at any
+  point in between, even partway through one section.
+
+In one of these windows the checksum still passes but the battle stats
+decode as garbage, such as level 196. The env took that as a valid struct.
+
+`gen4.decode_mon` now rejects every form. It rejects nonzero flags, and
+battle stats that no real Pokémon has: a level outside 1–100, HP above max
+HP, or status bits above 11. The status word is decrypted first, so a
+section that is partly done fails too. The audit checks each rejected
+struct the other way around: some in-place state must make it valid, or it
+counts as a violation. `in_battle()` decodes the player's battle struct, so
+it also reads False on those frames.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| 12 violations on the first run, all mid-turn, all on the enemy's struct | The game held the struct decrypted with the flags set | `decode_mon` rejects nonzero flags |
+| 56 more frames passed the checksum with garbage battle stats | The `Pokemon_GetValue` window: battle stats plaintext, blocks still encrypted, no flags | `decode_mon` checks that the battle stats are possible |
+| 4 rejected structs in Hypnosis probes matched no whole-section state | The game was partway through encrypting the blocks again, after `Pokemon_SetValue` wrote the new move | The audit accepts sections that are partly converted |
+| `test_barry_with_fixed_rng_is_won_in_five_turns` failed after the fix | Its helper stopped at the first frame `in_battle()` read False, before `resultMask` was set | The helper waits for 3 frames in a row |
+| The overnight audit ran 7 h 20 min and produced nothing | The script passed `$NUZLOCKERL_ROM`, unset, as the ROM path instead of the default. `multiprocessing.Pool` replaces a worker whose setup raises, with no limit, so it never stopped: 17 million workers and 14 GB of tracebacks | The script uses the env's default ROM, and a setup error is raised from the first job in the main process. A missing ROM now exits 1 at once |
+| An audit sampling every frame stalled in its main process after the workers finished | Not found | Killed it. Sampling every 10 frames runs fine. Still open |
+| The random battles never moved a stat stage | In this hack Barry's Chimchar knows only Scratch, and Delibird only Present and Powder Snow | `--probe` forces the moves |

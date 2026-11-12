@@ -49,3 +49,19 @@ def test_after_battle_party_updated():
     assert not gen4.in_battle(n)
     m = gen4.read_party(n)[0]
     assert (m.species, m.level, m.max_hp, m.moves[:2]) == (387, 6, 23, [33, 72])
+
+
+def test_struct_held_decrypted_is_not_valid():
+    n = load("03_barry1_battle_turn1.state")
+    a = gen4.resolve(n)
+    raw = bytearray(gen4.read_bytes(n, a["playerBase"], gen4.PARTY_MON_SIZE))
+    assert gen4.decode_mon(bytes(raw)).checksum_ok
+    held = bytearray(raw)
+    held[4:6] = (3).to_bytes(2, "little")
+    assert not gen4.decode_mon(bytes(held)).checksum_ok
+    # Pokemon_GetValue's window: battle stats already plaintext, blocks still encrypted
+    half = bytearray(raw)
+    half[136:236] = gen4._crypt(bytes(raw[136:236]), gen4._u32(raw, 0))
+    m = gen4.decode_mon(bytes(half))
+    assert not m.checksum_ok
+    assert gen4.decode_mon(bytes(half), with_battle_stats=False).checksum_ok

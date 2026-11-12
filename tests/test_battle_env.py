@@ -59,14 +59,20 @@ def play(env, state, actions, seed=None, keep_rng=False):
 
 
 def result_masks_after_end(env):
-    """resultMask values seen while the battle memory is still valid, tapping A through the text."""
-    seen = []
+    """resultMask values seen while the battle memory is still valid, tapping A through the text.
+    The battle is over once in_battle() stays False for 3 frames: for a single frame it also
+    reads False while the game holds the battle struct decrypted in place."""
+    seen, gone = [], 0
     for k in range(3000):
         env.nds.tick()
         if k % 66 == 0:
             env.nds.button.press_key("a"); env.nds.tick(6); env.nds.button.release_key("a")
         if not gen4.in_battle(env.nds, env.addrs):
-            return seen
+            gone += 1
+            if gone == 3:
+                return seen
+            continue
+        gone = 0
         v = env.nds.memory.read_u8(False, env.addrs["battleResult"])
         if not seen or seen[-1] != v:
             seen.append(v)
