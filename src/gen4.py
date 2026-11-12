@@ -6,6 +6,9 @@ for retail US Platinum (game code CPUE). The Kaizo hack reports JAK7, so every
 offset here must be checked against the hack. See verify_party().
 """
 from dataclasses import dataclass, field
+from typing import NamedTuple
+
+from platinum_locations import location_name
 
 MAIN_RAM = 0x02000000
 GLOBAL_POINTER = 0xBA8          # main-RAM offset of the global pointer
@@ -26,14 +29,28 @@ OFFSETS = {                     # added to the resolved version pointer
     "battleCtxPtr": 0x4182C,    # u32 pointer to BattleContext (main RAM). +0 u8 curCommandState[0], +8 u32 command
     "battleOptionsPtr": 0x419B0,  # u32 pointer to the u16 Options bitfield, BattleSystem.options. Garbage outside battle
     "inputSystemPtr": 0x41998,  # u32 pointer; u8 at +0x6DC is the menu input mode, 0 touch, 1 buttons
-    "itemStartNoBattle": 0xB60,
-    "itemStartBattle": 0x442BC,
-    "badges": 0x96,
-    "childMapHeader": 0x239B0,
-    "facingDirection": 0x238A4,
-    "repelSteps": 0x8087,
+    "itemStartNoBattle": 0xB60, # start of the Medicine pocket (not the bag start). The bag is at "bag"
+    "itemStartBattle": 0x442BC, # same pocket in the battle copy of the bag
+    "badges": 0x96,             # u8 bitfield, TrainerInfo.badgeMask. Bit n = badge n+1; verified on the Trainer Card
+    "childMapHeader": 0x239B0,  # map header ID, tracks "location" but reads 0 until the first map change after a new game
+    "facingDirection": 0x238A4, # u8, 0 up, 1 down, 2 left, 3 right
+    "repelSteps": 0x8087,       # not verified
+    "location": 0x1294,         # Location {i32 mapHeaderID, i32 warpID, i32 x, i32 z, i32 facing}. x and z track the player live; facing is stale
+    "money": 0x90,              # u32, TrainerInfo.money (TrainerInfo starts at +0x7C)
+    "pokedex": 0x133C,          # Pokedex save struct: u32 magic, caught[16] u32, seen[16] u32. Not updated until a battle ends
+    "battlePokedexPtr": 0x4185C,  # u32 pointer to the battle's own Pokedex copy. Valid only during battle
+    "bag": 0x644,               # Bag, see BAG_POCKETS. The battle copy is at "bagBattle"
+    "bagBattle": 0x43DA0,       # battle copy of the bag, valid only during battle. Items used in battle drop here first
+    "pcBoxes": 0xCF40,          # PCBoxes: u32 currentBoxID, 18 x 30 x 136-byte box mons, then names. Empty-box layout only; no occupied slot seen
 }
 BATTLE_STATUS = 0x24A55A        # tracker global; reads 0 even mid-battle in Kaizo. Use in_battle()
+
+POKEDEX_MAGIC = 0xBEEFCAFE
+DEX_SPECIES = 493               # bits above this in the Pokedex bitfields are padding, and read as set
+BAG_POCKETS = (("items", 165), ("key_items", 50), ("tm_hm", 100), ("mail", 12),
+               ("medicine", 40), ("berries", 64), ("balls", 15), ("battle_items", 30))
+BAG_SIZE = 4 * sum(n for _, n in BAG_POCKETS) + 4   # trailing u32 is the registered item
+PC_BOXES, BOX_SLOTS, BOX_MON_SIZE = 18, 30, 136
 
 PARTY_MON_SIZE = 236            # 8 header + 128 blocks + 100 battle stats
 BLOCK_ORDERS = [
@@ -230,3 +247,76 @@ def write_battle_options(nds, addrs: dict, **fields: int) -> int:
         x = (x & ~(mask << shift)) | ((val & mask) << shift)
     nds.memory.write_u16(False, p, x)
     return x
+
+
+class Location(NamedTuple):
+    map_id: int     # map header ID
+    x: int
+    z: int
+    facing: int     # 0 up, 1 down, 2 left, 3 right
+
+    @property
+    def name(self) -> str | None:
+        return location_name(self.map_id)
+
+
+def read_location(nds, addrs: dict | None = None) -> Location:
+    a = addrs or resolve(nds)
+    map_id, _warp, x, z = (nds.memory.read_u32(False, a["location"] + 4 * i) for i in range(4))
+    return Location(map_id, x, z, nds.memory.read_u8(False, a["facingDirection"]))
+
+
+def read_badges(nds, addrs: dict | None = None) -> int:
+    a = addrs or resolve(nds)
+    return nds.memory.read_u8(False, a["badges"])
+
+
+def _dex_sets(raw: bytes) -> tuple[set, set]:
+    def species(off):
+        words = [_u32(raw, off + 4 * i) for i in range(16)]
+        return {s for s in range(1, DEX_SPECIES + 1) if words[(s - 1) // 32] >> ((s - 1) % 32) & 1}
+    return species(4), species(4 + 64)
+
+
+def read_pokedex(nds, addrs: dict | None = None, from_battle: bool | None = None) -> tuple[set, set]:
+    """(caught, seen) species sets. A battle works on its own Pokedex copy and writes it
+    back when the battle ends, so during battle the copy is the current one.
+    from_battle=None picks by in_battle(); False reads the save copy."""
+    a = addrs or resolve(nds)
+    if from_battle is None:
+        from_battle = in_battle(nds, a)
+    base = a["pokedex"]
+    if from_battle:
+        p = nds.memory.read_u32(False, a["battlePokedexPtr"])
+        if MAIN_RAM <= p < MAIN_RAM + 0x400000 - 0x100 and not p & 3 and nds.memory.read_u32(False, p) == POKEDEX_MAGIC:
+            base = p
+    return _dex_sets(read_bytes(nds, base, 4 + 128))
+
+
+def read_bag(nds, addrs: dict | None = None, from_battle: bool | None = None) -> dict[str, list[tuple[int, int]]]:
+    """{pocket: [(item ID, quantity)]} for the non-empty slots. During battle the battle
+    copy is the current one, because item use only reaches the saved bag when the battle ends."""
+    a = addrs or resolve(nds)
+    if from_battle is None:
+        from_battle = in_battle(nds, a)
+    raw = read_bytes(nds, a["bagBattle" if from_battle else "bag"], BAG_SIZE)
+    bag, off = {}, 0
+    for name, n in BAG_POCKETS:
+        slots = [(_u16(raw, off + 4 * i), _u16(raw, off + 4 * i + 2)) for i in range(n)]
+        bag[name] = [s for s in slots if s[0]]
+        off += 4 * n
+    return bag
+
+
+def read_box(nds, box: int, addrs: dict | None = None) -> list[Mon | None]:
+    """The 30 slots of PC box `box` (0-based) as Mon, or None for an empty slot."""
+    if not 0 <= box < PC_BOXES:
+        raise IndexError(f"box {box} is not in 0..{PC_BOXES - 1}")
+    a = addrs or resolve(nds)
+    raw = read_bytes(nds, a["pcBoxes"] + 4 + box * BOX_SLOTS * BOX_MON_SIZE, BOX_SLOTS * BOX_MON_SIZE)
+    mons = []
+    for i in range(BOX_SLOTS):
+        chunk = raw[i * BOX_MON_SIZE:(i + 1) * BOX_MON_SIZE]
+        empty = _u32(chunk, 0) == 0 and _u16(chunk, 6) == 0
+        mons.append(None if empty else decode_mon(chunk, with_battle_stats=False))
+    return mons

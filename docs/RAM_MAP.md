@@ -44,10 +44,17 @@ Re-resolve after every save-state load (`gen4.resolve(nds)`).
 | battleOptionsPtr | 0x419B0 | u32 pointer to the Options u16, `BattleSystem.options` | ✅ Both battles, valid only during a battle. Bits: text speed 0–3 (2 = fast), battle style 6 (1 = Set), battle scene 7 (1 = off). The battle reads through the pointer on every check, so writes take effect mid-battle |
 | inputSystemPtr | 0x41998 | u32 pointer to the battle subscreen | ✅ Both battles. The u8 at +0x6DC is the menu input mode, 0 = touch, 1 = buttons |
 | (no name in `gen4`) | 0x2370C | u8 | ✅ The input mode each new battle starts in. It was 0 in states 00–02 and 1 in state 04 |
-| itemStartNoBattle / itemStartBattle | 0xB60 / 0x442BC | bag | ⏳ Not checked |
-| badges | 0x96 | u8 bitfield | ⏳ Not checked |
-| childMapHeader | 0x239B0 | map ID | ⏳ Not checked |
-| facingDirection | 0x238A4 | | ⏳ Not checked |
+| location | 0x1294 | `Location {i32 mapHeaderID, warpID, x, z, facing}` | ✅ The map ID changes at the same step as the screen: 414 home 1F, 411 Twinleaf Town, 342 Route 201. x and z track the player. The facing field here is stale; use facingDirection |
+| facingDirection | 0x238A4 | u8: 0 up, 1 down, 2 left, 3 right | ✅ Changes on a turn in place |
+| childMapHeader | 0x239B0 | map header ID | ✅ Matches location, except it reads 0 until the first map change after a new game. Use location |
+| badges | 0x96 | u8 bitfield, `TrainerInfo.badgeMask`. Bit n is badge n+1 | ✅ Writing 0, 0xFF, and 0x05 showed 0, 8, and 2 badges on the Trainer Card. 0 in every milestone |
+| money | 0x90 | u32, `TrainerInfo.money` | ✅ Matches the Trainer Card |
+| pokedex | 0x133C | u32 magic 0xBEEFCAFE, caught[16] u32, seen[16] u32; bit = species − 1 | ✅ Turtwig caught from state 01, Chimchar seen from 04. Bits above 493 are padding and read as set |
+| battlePokedexPtr | 0x4185C | u32 pointer to the battle's own Pokédex copy | ✅ During battle only. A battle writes its copy back when it ends, so the save copy lags. `gen4.read_pokedex` picks the right one |
+| bag | 0x644 | 8 pockets of (u16 item, u16 quantity): items 165, key 50, TM/HM 100, mail 12, medicine 40, berries 64, balls 15, battle items 30 | ✅ Every slot matched the Bag screen |
+| bagBattle | 0x43DA0 | Battle copy of the bag | ✅ A thrown ball drops here first and reaches the bag when the battle ends |
+| itemStartNoBattle / itemStartBattle | 0xB60 / 0x442BC | The Medicine pocket in each copy, not the start of the bag | ✅ The tracker's names for these are misleading |
+| pcBoxes | 0xCF40 | u32 current box, then 18 × 30 box structs of 136 bytes, then names | ⚠️ The layout and the 18 default box names match the decomp. No real deposit has been read yet |
 | repelSteps | 0x8087 | | ⏳ Not checked |
 | battleStatus | global 0x0224A55A | u8 | ❌ **Always 0 in this hack.** Use `gen4.in_battle()` |
 

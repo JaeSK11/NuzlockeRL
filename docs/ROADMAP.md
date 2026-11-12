@@ -103,12 +103,23 @@ The hack changed abilities, so assume it changed more.
 
 ## 4. Nuzlocke rules
 
-- [ ] Location/map ID, for one encounter per route
-- [ ] Caught or seen flags, for the duplicates clause
-- [ ] Badges (address exists, not verified), for level caps
-- [ ] PC boxes, for catches when the party is full and for boxing the dead
-- [ ] Catch success, from party or box count changes
-- [ ] Bag, for healing-item counts
+- [x] Location: `gen4.read_location` gives the map header ID, position,
+      and facing. `romdata.encounters_for_map` maps the ID to its encounter
+      table, and `platinum_locations` gives the name.
+- [x] Caught and seen flags (`gen4.read_pokedex`), for the duplicates clause.
+- [x] Badges (`gen4.read_badges`), for level caps.
+- [ ] PC boxes (`gen4.read_box`): the layout matches the decomp, but no real
+      deposit has been read. That needs a Pokémon Center.
+- [x] Catch success: a caught Pokémon sets `battleResult` to 4, joins the
+      party, and gets its caught flag.
+- [x] Bag (`gen4.read_bag`), for healing-item counts.
+- [ ] Rule bookkeeping in the env: first encounter per route, the
+      fainted and boxed list, and the level cap for the current badge count
+      (the caps are in the README).
+- [ ] Lookups the rules need: which items heal, and each species'
+      evolution line for the duplicates clause (from `romdata.evolutions`).
+- [ ] Check that the map ID changes on seamless route-to-route crossings.
+      Only town-to-route crossings have been seen.
 
 ## 5. Team building and overworld (later)
 

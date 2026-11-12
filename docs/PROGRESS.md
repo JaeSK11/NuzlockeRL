@@ -321,7 +321,7 @@ PID. The Route 201 table holds the Delibird that appeared. 11 tests pass.
 
 | Issue | Cause | Resolution |
 |---|---|---|
-| I expected Barry's Chimchar to use Leer and move stat stages | That was vanilla knowledge; the hack's Chimchar knows only Scratch | The audit forced stat moves instead (section 12) |
+| I expected Barry's Chimchar to use Leer and move stat stages | That was vanilla knowledge; the hack's Chimchar knows only Scratch | The audit forced stat moves instead (section 13) |
 | The extraction report said some Jubilife grunts fight double battles | They don't; 3 other Galactic teams do | Checked `double_battle` for all trainers and corrected HACK_DATA.md |
 | Decomp map-header lines didn't match ids at first | The decomp's line numbers are 1-based | Fixed in the parser; Route 201 is header 342 |
 | The rival's trainer name reads "Cedric" | Not traced | Left open in HACK_DATA.md |
@@ -371,3 +371,38 @@ it gives teams of 2–6 Pokémon, which switches need.
 Not yet done: enemy moves, IVs, and PID are the game's own rolls, the met
 location and dates are left at zero, and the generator makes wild battles
 only.
+
+## 12. RAM for the Nuzlocke rules (2026-11-11)
+
+Goal: roadmap step 4's RAM, meaning the run state the Nuzlocke rules check
+between battles.
+
+**What was built.** New fields in `gen4.OFFSETS`, with readers:
+- `read_location`, `read_badges`, `read_pokedex`, `read_bag`, and
+  `read_box`.
+- `src/platinum_locations.py` names the map IDs. It is generated from
+  NDS-Ironmon-Tracker's retail table, and only the IDs listed in its header
+  were checked in the hack.
+
+The fields and their evidence are in [RAM_MAP.md](RAM_MAP.md#fields).
+
+**How each was verified.**
+- **Location:** the map ID changed at the same step as the screen when
+  walking from the house to Route 201.
+- **Badges:** writing the byte changed the badge count on the Trainer Card.
+- **Bag:** every slot matched the Bag screen in a state made after Mom's
+  cutscenes.
+- **Catch:** a Great Ball thrown at the wild Delibird set `battleResult` to
+  4, took a ball from the battle bag, added Delibird to the party, and set
+  its caught flag.
+
+Tests are in `tests/test_nuzlocke_ram.py`.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| Chimchar wasn't "seen" in the Barry 1 state, nor Delibird in the wild state | A battle works on its own Pokédex copy and writes it back when it ends | `read_pokedex` reads the battle copy during battle |
+| Items used in battle didn't show in the bag | The battle has its own bag copy too | `read_bag` reads the battle copy during battle |
+| The tracker's `itemStartNoBattle` didn't point at the start of the bag | It points at the Medicine pocket | Corrected in RAM_MAP and gen4 |
+| `childMapHeader` read 0 in the bedroom state | It isn't set until the first map change after a new game | Use `location` |
+| Viewing the three starters didn't mark them as seen | The selection screen sets no Pokédex flags | Expectation corrected |
+| No way to verify the PC with a real Pokémon | The bedroom PC in this hack is the Kaizo difficulty menu, and Pokémon Storage needs a Pokémon Center | Layout checked against the decomp only. Left open in the roadmap |
