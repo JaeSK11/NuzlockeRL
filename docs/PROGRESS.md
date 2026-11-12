@@ -299,3 +299,29 @@ refuses to write outside a battle.
 | Fast text gave no speedup | Both saves already had text speed fast and battle style Set | Only the animation switch matters for the current states. The env still writes all three, for states made later |
 | No overworld address for the Options | The pointer target sits at a different offset from v in each save, and the pointer is stale outside battle | The env writes during battle only. `write_battle_options` raises outside a battle instead of writing through a stale pointer |
 | Battle style Set can't be tested | No state has a trainer with 2+ Pokémon | Left unverified in the roadmap until the scenario generator makes one |
+
+## 10. The hack's game data from the ROM (2026-11-11)
+
+Goal: roadmap step 2. Observations, the scenario generator, and the
+Nuzlocke rules all need the hack's own data, and the hack changed most of it.
+
+**What was built.**
+- `src/romdata.py` parses the ROM's NARC files with ndspy into frozen
+  dataclasses: species, moves, learnsets, evolutions, trainers with their
+  parties and AI flags, wild encounters by map, and names from the text
+  banks. The tables load lazily and are cached.
+- `scripts/hack_diff.py` compares them with vanilla Platinum from the
+  decomp's data files. The summary is in [HACK_DATA.md](HACK_DATA.md).
+
+The extracted data and the full report stay under `roms/`, outside git.
+
+**Verified.** `tests/test_romdata.py` checks the data against RAM. Turtwig's
+ability and stats match at Lv5 and Lv6. Barry's Chimchar matches down to its
+PID. The Route 201 table holds the Delibird that appeared. 11 tests pass.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| I expected Barry's Chimchar to use Leer and move stat stages | That was vanilla knowledge; the hack's Chimchar knows only Scratch | The audit forced stat moves instead (section 11) |
+| The extraction report said some Jubilife grunts fight double battles | They don't; 3 other Galactic teams do | Checked `double_battle` for all trainers and corrected HACK_DATA.md |
+| Decomp map-header lines didn't match ids at first | The decomp's line numbers are 1-based | Fixed in the parser; Route 201 is header 342 |
+| The rival's trainer name reads "Cedric" | Not traced | Left open in HACK_DATA.md |

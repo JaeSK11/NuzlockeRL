@@ -96,15 +96,17 @@ env decides wins and losses from HP instead.
 Everything below was seen in this hack (game code `JAK7`) and differs from
 retail US Platinum (`CPUE`). Retail is the source of the tracker's offsets
 and of the pret/pokeplatinum decomp. Add a row whenever a new difference
-turns up.
+turns up. Differences in game data, such as species, moves, trainers, and
+encounters, are in [HACK_DATA.md](HACK_DATA.md).
 
 | What | Retail | This hack | Effect on the project |
 |---|---|---|---|
 | Game code | `CPUE` | `JAK7` | No address carries over without a check |
 | The tracker's global `battleStatus` | Set during battle | Always 0 | `gen4.in_battle()` replaces it |
 | Turtwig's ability | 65, Overgrow | 75, Shell Armor | Species data must come from the hack's ROM |
-| Turtwig's moves | Tackle and Withdraw at Lv5 (from memory, not checked) | Tackle only at Lv5, and Mega Drain by Lv6 | Learnsets must come from the hack's ROM |
-| Route 201 wild Pokémon | Starly and Bidoof (from memory, not checked) | Delibird Lv4 was seen | Encounter tables must come from the hack's ROM |
+| Turtwig's moves | Tackle and Withdraw at Lv5 | Tackle only at Lv5, and Mega Drain at Lv6 | Learnsets come from `romdata` |
+| Route 201 wild Pokémon | Starly, Bidoof, Kricketot at Lv2–3 | Igglybuff, Delibird, Venonat, Vulpix, and 7 more at Lv4–5 | Encounter tables come from `romdata` |
+| Barry's Chimchar | Scratch and Leer | Scratch only | Barry 1 can't change stat stages |
 | `seedRandNext` position | `BattleSystem`+0x2444, from the decomp's field names | `BattleSystem`+0x2448 | None, because the env uses the measured address. It may mean the hack added 4 bytes earlier in the struct. Unconfirmed |
 
 ## Pokémon struct (236 bytes)

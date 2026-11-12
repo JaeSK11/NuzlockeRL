@@ -39,8 +39,13 @@ the episode on win or wipe.
 ## 2. Game data from the ROM (not RAM)
 
 The hack changed abilities, so assume it changed more.
-- [ ] Extract species base stats, types, abilities, movesets, moves (power,
-      type, accuracy, effect) and trainer teams from the hack's ROM files.
+- [x] Extract species base stats, types, abilities, movesets, moves (power,
+      type, accuracy, effect), trainer teams, and encounters from the hack's
+      ROM files (`src/romdata.py`). The summary of how they differ from
+      vanilla is in [HACK_DATA.md](HACK_DATA.md).
+- [ ] Add move type, power, and accuracy from `romdata` to the battle
+      observation, so the agent can learn type matchups instead of
+      memorizing move ids.
 - [ ] Decide what the agent may see. `enemyBase` contains the opponent's
       full moveset. Showing it gives the agent more than a human sees; KP
       Labs didn't. Both are worth trying.
