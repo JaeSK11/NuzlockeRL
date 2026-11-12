@@ -56,6 +56,7 @@ Re-resolve after every save-state load (`gen4.resolve(nds)`).
 | itemStartNoBattle / itemStartBattle | 0xB60 / 0x442BC | The Medicine pocket in each copy, not the start of the bag | ✅ The tracker's names for these are misleading |
 | pcBoxes | 0xCF40 | u32 current box, then 18 × 30 box structs of 136 bytes, then names | ⚠️ The layout and the 18 default box names match the decomp. No real deposit has been read yet |
 | repelSteps | 0x8087 | | ⏳ Not checked |
+| (the game's clock) | absolute 0x021BF5D8 | 7 × u32: year % 100, month, day, weekday (0 = Sunday), hour, minute, second | ✅ Not behind the pointer chain. Matched the emulator's clock in all 6 milestone states, for two different fixed times. `gen4.read_clock` |
 | battleStatus | global 0x0224A55A | u8 | ❌ **Always 0 in this hack.** Use `gen4.in_battle()` |
 
 `gen4.in_battle()` returns true when the struct at `playerBattleBase` is

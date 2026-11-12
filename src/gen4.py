@@ -5,12 +5,22 @@ Pointer chain and offsets come from NDS-Ironmon-Tracker
 for retail US Platinum (game code CPUE). The Kaizo hack reports JAK7, so every
 offset here must be checked against the hack. See verify_party().
 """
+import os
 from dataclasses import dataclass, field
 from typing import NamedTuple
 
 from platinum_locations import location_name
 
+# NooDS sets the DS clock from the host's local time, and the overworld changes with the
+# time of day: the same inputs walk to different places at noon and at night. PyNDS built
+# with patches/noods-fixed-rtc.patch (scripts/setup_env.sh) reads this fixed time instead,
+# Wednesday 2026-11-11 22:00:00, which is night in Platinum. Every module that creates a
+# PyNDS imports gen4 first. Set NOODS_RTC_EPOCH (seconds since 1970, UTC) to pick another.
+FIXED_CLOCK_EPOCH = 1794434400
+os.environ.setdefault("NOODS_RTC_EPOCH", str(FIXED_CLOCK_EPOCH))
+
 MAIN_RAM = 0x02000000
+RTC_CACHE = 0x021BF5D8          # the game's copy of the clock: u32 year % 100, month, day, weekday, hour, minute, second
 GLOBAL_POINTER = 0xBA8          # main-RAM offset of the global pointer
 VERSION_POINTER_OFFSET = 0x20
 OFFSETS = {                     # added to the resolved version pointer
@@ -198,6 +208,12 @@ CMD_EXEC_SCRIPT = 21            # BattleContext.command while a battle script ru
 CTX_STATUS_FLAGS = 0x13C        # u32 battlerStatusFlags[0], the player's side
 CTX_PARTY_ORDER = 0x312C        # u8 partyOrder[0][6]: party-menu position -> index in playerBattleBase
 BATTLER_STATUS_SWITCHING = 1    # battlerStatusFlags bit: the game waits for the player to pick a replacement
+
+
+def read_clock(nds) -> tuple:
+    """(year % 100, month, day, weekday with 0 = Sunday, hour, minute, second), as the game
+    last read the DS clock. A fixed address, not behind the pointer chain."""
+    return tuple(nds.memory.read_u32(False, RTC_CACHE + 4 * i) for i in range(7))
 
 
 def read_battle_command(nds, addrs: dict) -> tuple[int, int] | None:

@@ -606,3 +606,44 @@ old lockstep path for comparison.
 | The pool's speedup is below the ratio of busy cores | 14 emulators share 8 physical cores, so frames per busy core fell from 265 to 217 | Expected with hyperthreads |
 | Installing torch upgraded setuptools from 59.6 to 78.1 | torch's dependencies | No effect seen. `requirements.txt` takes the CPU-only torch wheel |
 | A trainer run crashed once mid-run | The env file was being edited by another task at the same time | Runs during that work used a frozen copy of the env. Three updates against the final env passed |
+
+## 16. A fixed DS clock (2026-11-12)
+
+Goal: the same inputs should give the same game on any host, at any hour.
+
+**Finding.** `test_walking_changes_map_position_and_facing` passed when it
+was written, at night, and failed the next morning with nothing changed.
+The walk from `04_after_barry1_home.state` ended at z = 855 instead of 853.
+NooDS sets the DS clock from the host's local time (`rtc.cpp`), and
+Platinum's overworld changes with the time of day.
+
+The cause was confirmed in two steps:
+- With the time zone shifted so the local time read 22:47, the test
+  passed. At 12:47 it failed.
+- With the patched clock fixed at 22:00 it passed, and fixed at 12:00 it
+  failed.
+
+A time zone only shifts the clock, so it can't fix this. On a server in
+another time zone, or at another hour, the walk to the generator's grass
+state could end somewhere else.
+
+**What was built.**
+- `patches/noods-fixed-rtc.patch` makes NooDS use `NOODS_RTC_EPOCH` when
+  it is set, and the clock stays at that time. `scripts/setup_env.sh`
+  applies the patch before building PyNDS.
+- `src/gen4.py` sets the variable to Wednesday 2026-11-11 22:00:00 (night)
+  unless it is already set.
+- `gen4.read_clock` reads the game's copy of the clock at 0x021BF5D8, and
+  `test_clock_is_fixed` checks it. On the unpatched build that test fails,
+  showing the host's real time.
+
+Night was chosen because the walk script and the tests were recorded at
+night. The day/night wild slots don't matter to the generator, which
+writes all 18 slots.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| The walking test failed in the morning | The DS clock follows the host's time, and the overworld changes with the time of day | NooDS reads a fixed time from `NOODS_RTC_EPOCH` |
+| A time-zone setting can't pin the clock | A time zone only shifts the time, which still moves | Patch NooDS instead |
+| PyNDS has no clock setting | Not exposed by its bindings | A 9-line patch to `rtc.cpp`, applied by `setup_env.sh` |
+| An unpatched build would ignore the variable without a sign | The variable only does something in the patched build | `test_clock_is_fixed` reads the game's clock and fails on an unpatched build |

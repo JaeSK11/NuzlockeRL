@@ -1,6 +1,6 @@
 """Regression checks for gen4.py against the milestone save states.
 Run: ~/venvs/nuzlockerl/bin/python -m pytest -q tests  (from ~/nuzlockeRL)"""
-import os, sys
+import os, sys, time
 import pytest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
@@ -65,3 +65,13 @@ def test_struct_held_decrypted_is_not_valid():
     m = gen4.decode_mon(bytes(half))
     assert not m.checksum_ok
     assert gen4.decode_mon(bytes(half), with_battle_stats=False).checksum_ok
+
+
+def test_clock_is_fixed():
+    """Fails on a PyNDS built without patches/noods-fixed-rtc.patch: the game then reads the
+    host's clock, and overworld tests pass or fail with the time of day."""
+    t = time.gmtime(int(os.environ["NOODS_RTC_EPOCH"]))
+    want = (t.tm_year % 100, t.tm_mon, t.tm_mday, (t.tm_wday + 1) % 7, t.tm_hour, t.tm_min, t.tm_sec)
+    n = load("04_after_barry1_home.state")
+    n.tick(120)
+    assert gen4.read_clock(n) == want

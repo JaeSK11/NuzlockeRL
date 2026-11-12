@@ -1,0 +1,27 @@
+diff --git a/src/rtc.cpp b/src/rtc.cpp
+index 81cc6d1..2b30cc8 100644
+--- a/src/rtc.cpp
++++ b/src/rtc.cpp
+@@ -17,6 +17,7 @@
+     along with NooDS. If not, see <https://www.gnu.org/licenses/>.
+ */
+ 
++#include <cstdlib>
+ #include <ctime>
+ #include "core.h"
+ 
+@@ -89,9 +90,11 @@ void Rtc::updateRtc(bool cs, bool sck, bool sio) {
+ }
+ 
+ void Rtc::updateDateTime() {
+-    // Get the local time
+-    std::time_t t = std::time(nullptr);
+-    std::tm *time = std::localtime(&t);
++    // Get the local time, or a fixed time if NOODS_RTC_EPOCH is set (seconds since 1970,
++    // read as UTC), so runs don't depend on the host's clock or time zone
++    const char *fixed = std::getenv("NOODS_RTC_EPOCH");
++    std::time_t t = fixed ? (std::time_t)std::strtoll(fixed, nullptr, 10) : std::time(nullptr);
++    std::tm *time = fixed ? std::gmtime(&t) : std::localtime(&t);
+     time->tm_year %= 100; // The DS only counts years 2000-2099
+     time->tm_mon++; // The DS starts month values at 1, not 0
+ 

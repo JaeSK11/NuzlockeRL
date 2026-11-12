@@ -24,8 +24,24 @@ python3 -m venv ~/venvs/nuzlockerl
 ~/venvs/nuzlockerl/bin/pip install numpy pillow pytest cmake ninja nanobind setuptools wheel
 git clone https://github.com/unexploredtest/PyNDS.git && cd PyNDS
 git checkout 5a40a52 && git submodule update --init --recursive
+git -C externals/NooDS apply /path/to/nuzlockeRL/patches/noods-fixed-rtc.patch
 PATH=~/venvs/nuzlockerl/bin:$PATH ~/venvs/nuzlockerl/bin/pip install --no-build-isolation .
 ```
+
+### The fixed clock
+
+NooDS sets the DS clock from the host's local time, and Platinum's
+overworld changes with the time of day. The same walk from
+`04_after_barry1_home.state` ended two tiles apart at noon and at night,
+so tests and generated states depended on the hour and the time zone.
+
+`patches/noods-fixed-rtc.patch` makes NooDS read the time from
+`NOODS_RTC_EPOCH` (seconds since 1970, read as UTC) when it is set, and
+the clock then stays at that time. `src/gen4.py` sets it to Wednesday
+2026-11-11 22:00:00, night in Platinum, unless it is already set. Every
+module that creates an emulator imports `gen4` first, and spawned workers
+inherit it. `tests/test_gen4.py::test_clock_is_fixed` fails on a build
+without the patch.
 
 ## Test results on the Kaizo ROM (2026-11-11, 32-core machine)
 

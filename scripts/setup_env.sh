@@ -16,5 +16,10 @@ cd "$ROOT/repos/PyNDS"
 git fetch -q --unshallow 2>/dev/null || true
 git checkout -q "$PYNDS_COMMIT"
 git submodule update --init --recursive
+# A fixed DS clock (NOODS_RTC_EPOCH, set by src/gen4.py), so runs don't depend on the host's time
+PATCH="$ROOT/patches/noods-fixed-rtc.patch"
+if ! git -C externals/NooDS apply --reverse --check "$PATCH" 2>/dev/null; then
+  git -C externals/NooDS apply "$PATCH"
+fi
 PATH="$VENV/bin:$PATH" "$VENV/bin/pip" install --no-build-isolation .
 echo "OK: $VENV  (needs system libportaudio2 for 'import pynds')"
