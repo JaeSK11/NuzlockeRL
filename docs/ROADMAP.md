@@ -85,7 +85,7 @@ The hack changed abilities, so assume it changed more.
       from 0.55 to 1.00 in 2,000 decisions.
 - [ ] PPO pilot on generated battles: measure how many decisions a battle
       takes to learn, to decide whether a Python battle simulator is
-      needed.
+      needed. The plan is in [NEXT_PHASE.md](NEXT_PHASE.md).
 - [x] Generated wild battles: `src/scenario.py` writes any party and any
       wild enemy into RAM and saves a battle state at the first prompt.
 - [ ] Trainer battles for the early bosses (Roark, Barry 2, Galactic). The

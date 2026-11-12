@@ -28,6 +28,7 @@ state, then add encounters, team building and overworld movement later.
 |---|---|
 | [docs/PROGRESS.md](docs/PROGRESS.md) | What has been done so far, in order, and why each decision was made |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | What to do next, in priority order |
+| [docs/NEXT_PHASE.md](docs/NEXT_PHASE.md) | The plan for the PPO pilot: steps, battles, what to watch, how to decide |
 | [docs/RAM_MAP.md](docs/RAM_MAP.md) | Verified memory addresses, the Gen 4 decryption, and caveats |
 | [docs/HACK_DATA.md](docs/HACK_DATA.md) | How the hack's species, moves, trainers, and encounters differ from vanilla |
 | [docs/EMULATOR.md](docs/EMULATOR.md) | PyNDS setup, test results, input timing, emulator quirks |
