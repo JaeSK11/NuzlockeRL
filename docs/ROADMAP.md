@@ -78,7 +78,14 @@ The hack changed abilities, so assume it changed more.
       thread, minus 2, with NooDS's render threads off. It stops if the CPU
       stays above 99 °C for 30 s.
 - [x] Log every step and every episode as JSON lines.
-- [ ] Baseline: PPO, after drubinstein/pokemonred_puffer (PufferLib).
+- [x] PPO training: `src/ppo.py` (masked PPO, after CleanRL) over
+      `src/pool.py`, run by `scripts/train_ppo.py`, which resumes from its
+      last checkpoint. PufferLib doesn't install next to this project's
+      gymnasium and numpy. On a one-move smoke battle the win rate went
+      from 0.55 to 1.00 in 2,000 decisions.
+- [ ] PPO pilot on generated battles: measure how many decisions a battle
+      takes to learn, to decide whether a Python battle simulator is
+      needed.
 - [x] Generated wild battles: `src/scenario.py` writes any party and any
       wild enemy into RAM and saves a battle state at the first prompt.
 - [ ] Trainer battles for the early bosses (Roark, Barry 2, Galactic). The
@@ -104,10 +111,9 @@ The hack changed abilities, so assume it changed more.
 - [x] **No PP left.** The mask allows action 0 only, which taps a move
       and makes the game use Struggle. Switching is masked off in that case
       for now; allowing it is a one-line change in `action_mask`.
-- [ ] **Lockstep stepping wastes CPU.** Gymnasium's vector env waits for the
-      slowest battle at every step. 14 envs averaged only 7.3 busy cores.
-      An asynchronous env pool, such as PufferLib's, should win most of it
-      back.
+- [x] **Lockstep stepping wastes CPU.** `src/pool.py` steps each env as
+      soon as it's ready: 1.30× more decisions per second with 14 envs,
+      and 13.2 busy cores instead of 8.3.
 - [ ] **Save states on tmpfs.** Loading a state takes about 2.7 ms, so this
       matters only if profiling shows state loads.
 

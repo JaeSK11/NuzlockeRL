@@ -530,3 +530,79 @@ The BattleContext fields are in [RAM_MAP.md](RAM_MAP.md#battle-system).
 | Command 21 didn't mark the forced switch alone | It also holds during the faint animation, and `curCommandState[0]` stays 14 | The forced switch is command 21 with `SWITCHING` set |
 | `weaklead_vs_eevee.state` ends STUCK | After loading, the touch menu is never drawn, even after 600 frames. A fresh process sometimes works. The env at HEAD fails on it too | Left out of runs. The generator needs to check each state it saves |
 | Trapping and move locks aren't modeled | No state uses Mean Look, Arena Trap, Disable, Encore, or a Choice item yet | A refused tap ends the step STUCK. Listed in the roadmap |
+
+## 15. Training: an async env pool and masked PPO (2026-11-12)
+
+Goal: train an agent on this project's CPU, and use every core while doing
+it. Gymnasium's vector env steps all envs in lockstep. With 14 envs it kept
+only 7.3 cores busy (§8), because every step waited for the slowest battle.
+
+**What was built.**
+- **`src/pool.py`, an asynchronous env pool.** Each env runs in its own
+  spawned worker process, and the trainer acts on whichever envs are ready.
+  - A worker that raises, dies, or stops answering becomes a `WorkerError`,
+    never a silent hang.
+  - Autoreset happens inside the worker, in the step that ends the episode,
+    so one `send` is exactly one decision.
+  - Workers are spawned, not forked, because the trainer holds torch
+    threads, and a forked child can inherit a lock one of them held.
+- **`src/ppo.py`, masked PPO** after CleanRL's `ppo.py`, with two 64-unit
+  networks on the CPU.
+  - Invalid actions get a logit of −inf, both when sampling and in the
+    loss.
+  - The pool returns envs in any order, so each transition carries its env
+    ID and GAE runs over each env's own transitions.
+  - A truncated episode bootstraps from the value of its last observation.
+    A terminated one doesn't.
+  - Observations are normalized with running statistics.
+- **`scripts/train_ppo.py`** trains on a list of battle states.
+  - It saves checkpoints atomically, and rerunning the same command resumes
+    from the newest one. Log rows after that checkpoint are dropped, so
+    each update is logged once.
+  - It refuses a checkpoint trained on a different observation size.
+- **`src/thermal.py`.** The thermal guard moved here from `rollout.py`, so
+  training stops the same way when the CPU stays above 99 °C for 30 s.
+  Training saves a checkpoint first.
+
+`scripts/rollout.py` now uses the pool by default. `--pool gym` runs the
+old lockstep path for comparison.
+
+**Verified.**
+- **Throughput,** with 14 envs, a random policy, and 3 runs each: the pool
+  made 7.83 decisions/s against 6.02 for `AsyncVectorEnv`, 1.30× more.
+  Busy cores went from 8.3 to 13.2. The numbers are in
+  [EMULATOR.md](EMULATOR.md#how-many-emulators-to-run).
+- **18 tests** in `tests/test_pool.py` and `tests/test_ppo.py` cover worker
+  errors, autoreset, the mask, per-env GAE, bootstrapping, and resume. Each
+  of 11 deliberate breaks of the code made a test fail.
+- **Learning,** on a smoke battle with one damaging move, where a random
+  policy wins 26 of 60. With 4 envs:
+
+  | Decisions | Win rate | Mean return | Turns |
+  |---|---|---|---|
+  | 0 – 640 | 0.55 | −2.52 | 7.3 |
+  | 640 – 1,280 | 0.85 | +3.09 | 6.4 |
+  | 1,280 – 1,920 | 0.98 | +5.58 | 4.7 |
+  | 1,920 – 5,120 | 1.00 | +6.00 | 3.2 |
+
+- **Resume:** the trainer was killed with SIGKILL after update 8. The rerun
+  resumed from update 5 and dropped the three logged updates it repeated.
+
+**Risks for a long run.**
+- 7.8 decisions/s is about 28,000 an hour, so a million decisions take
+  about 36 hours.
+- Any worker error stops training, and nothing restarts it. A battle state
+  that fails to load is one such error, so a run should use only states
+  that have been loaded and checked.
+- STUCK is a truncation, so it bootstraps from the value of its last
+  state. The agent might come to prefer a STUCK episode to a loss. This is
+  untested.
+- The settings are CleanRL's defaults, untuned. Entropy fell to 0.04 in the
+  smoke run.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| PufferLib, the plan's choice for the env pool, doesn't install | Versions 3.0.0 and 2.0.6 pin `gymnasium<=0.29.1`, and 3.0.0 also pins `numpy<2.0` | A small pool of our own, `src/pool.py` |
+| The pool's speedup is below the ratio of busy cores | 14 emulators share 8 physical cores, so frames per busy core fell from 265 to 217 | Expected with hyperthreads |
+| Installing torch upgraded setuptools from 59.6 to 78.1 | torch's dependencies | No effect seen. `requirements.txt` takes the CPU-only torch wheel |
+| A trainer run crashed once mid-run | The env file was being edited by another task at the same time | Runs during that work used a frozen copy of the env. Three updates against the final env passed |

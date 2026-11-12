@@ -1,6 +1,10 @@
 # pynds itself is built from source by scripts/setup_env.sh (pip 0.0.4 can't read memory)
 numpy
 gymnasium
+cloudpickle
+# CPU-only PyTorch: with this index pip picks the +cpu wheel over PyPI's CUDA one
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch
 pillow
 pytest
 sounddevice

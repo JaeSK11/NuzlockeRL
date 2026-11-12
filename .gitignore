@@ -18,3 +18,5 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .venv/
+# Training runs: checkpoints and metrics
+runs/

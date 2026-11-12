@@ -76,11 +76,26 @@ spread at 16. That total is about 57× real time. Each process uses about
 
 ## How many emulators to run
 
-`scripts/rollout.py` defaults to the number of hardware threads minus 2.
-Throughput stops rising at one emulator per hardware thread, and the main
-process needs some room. Pass `--envs` to change it.
+`scripts/rollout.py` and `scripts/train_ppo.py` default to the number of
+hardware threads minus 2. Throughput stops rising at one emulator per
+hardware thread, and the main process needs some room. Pass `--envs` to
+change it.
 
-The runner stops if the hottest CPU sensor stays above `--max-temp`
+Both use `src/pool.py`, which steps each env as soon as its result arrives
+instead of waiting for the slowest battle. On the 7840U with 14 envs it
+made 1.30× more decisions per second than gymnasium's `AsyncVectorEnv`
+(median of 3 runs each, random policy, Barry 1 and the wild battle):
+
+| Stepping | Decisions/s | Frames/s | Busy cores |
+|---|---|---|---|
+| `AsyncVectorEnv`, lockstep | 6.02 | 2,206 | 8.3 |
+| `src/pool.py` | 7.83 | 2,862 | 13.2 |
+
+The gain is below 13.2/8.3 because 14 emulators share 8 physical cores, so
+each runs fewer frames per busy second. `rollout.py --pool gym` runs the
+lockstep path for comparison.
+
+Each script stops if the hottest CPU sensor stays above `--max-temp`
 (default 99 °C) for more than `--hot-seconds` (default 30 s). It reads the
 `k10temp` or `zenpower` sensors (AMD) and `coretemp` (Intel). Without one,
 as in many containers and VMs, it prints a warning and runs unguarded.

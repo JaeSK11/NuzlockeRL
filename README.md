@@ -19,7 +19,8 @@ state, then add encounters, team building and overworld movement later.
 | Battle RAM: waiting for a command, RNG seed, result, input mode | ✅ Verified on two battles (Barry 1 and a wild Delibird) |
 | Battle environment | ✅ `src/battle_env.py`: moves, switches, and the forced switch by touch, faint-event rewards, turn cap, random battle RNG, JSON logs. Parallel envs via `scripts/rollout.py` |
 | RAM audit | ✅ `scripts/ram_audit.py`: 244 battles, 0 violations |
-| Effects, weather, double battles, RL training | ⏳ Next. See [docs/ROADMAP.md](docs/ROADMAP.md) |
+| RL training | ✅ Masked PPO over an async env pool, `scripts/train_ppo.py`. Learns a one-move battle; the pilot on real battles is next |
+| Effects, weather, double battles | ⏳ Next. See [docs/ROADMAP.md](docs/ROADMAP.md) |
 
 ## Documentation
 
@@ -39,11 +40,14 @@ src/gen4.py         Gen 4 RAM layout + Pokémon decryption (party, battle, scan)
 src/battle_env.py   Gymnasium battle env: touch actions, faint-event rewards, random battle RNG
 src/romdata.py      The hack's species, moves, learnsets, trainers, and encounters, read from the ROM
 src/scenario.py     Battle-scenario generator: any party vs any wild Pokémon, saved as a battle state
+src/pool.py         Asynchronous env pool: one worker process per env, stepped as each is ready
+src/ppo.py          Masked PPO with checkpoints and resume
+src/thermal.py      Stops long runs when the CPU stays too hot
 src/drive.py        Scripted input driver for exploring the game and making save states
 src/d               Shell wrapper for drive.py
 tests/              Regression tests against milestone save states
 emu_tests/          Original PyNDS smoke tests (boot, speed, touch, memory)
-scripts/            Environment setup, reference fetching, and the parallel rollout runner
+scripts/            Environment setup, reference fetching, the rollout runner, PPO training, and the RAM audit
 scripts/milestones/ Input scripts that rebuild milestone save states
 docs/               Documentation
 ```
@@ -51,7 +55,8 @@ docs/               Documentation
 Not in git, for copyright reasons or because they belong to someone else:
 `roms/` (the game), `states/` (save states contain game memory), `repos/`
 (third-party code; see `scripts/fetch_references.sh`), `papers/` (PDFs;
-fetched by the same script), and game screenshots.
+fetched by the same script), and game screenshots. Training runs go to
+`runs/`, which is also left out.
 
 ## Setup
 
@@ -73,6 +78,7 @@ verified against it.
 ~/venvs/nuzlockerl/bin/python -m pytest -q tests   # skipped without the ROM/states
 src/d - mystate "w900 a*10 w120"                   # boot, press A, save state + screenshot
 ~/venvs/nuzlockerl/bin/python scripts/rollout.py --episodes 200   # random policy, one env per hardware thread minus 2
+~/venvs/nuzlockerl/bin/python scripts/train_ppo.py --states states/generated/solo_turtwig10.state --run-dir runs/pilot   # rerun to resume
 ~/venvs/nuzlockerl/bin/python scripts/make_scenario.py --mon 387:10:33,72,44,75 --enemy 225:8 --out states/generated/turtwig10.state
 ~/venvs/nuzlockerl/bin/python scripts/ram_audit.py --battles 200 --probe 4   # check RAM reads against invariants; exits 1 on a violation
 ```
