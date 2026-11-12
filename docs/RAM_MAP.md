@@ -35,6 +35,12 @@ Re-resolve after every save-state load (`gen4.resolve(nds)`).
 | enemyPokemonID | 0x47678 | u16 species | ✅ 390 (Chimchar) in Barry 1 |
 | statStagesPlayer | 0x475D0 | 8 × u8, 6 = ±0 | ✅ Neutral seen; changes not verified |
 | statStagesEnemy | 0x47690 | 8 × u8 | ✅ Neutral seen; changes not verified |
+| battleRngSeed | 0x43C44 | u32, `BattleSystem.seedRandNext` | ✅ Both battles. Writing it right after a state load randomizes the battle |
+| battleRngStart | 0x43C48 | u32, `BattleSystem.seedDTO` | ✅ The seed the battle started with. At the first prompt, `seedRandNext` is this seed advanced 13 times (Barry 1) or 7 times (wild) |
+| battleResult | 0x43C1C | u8, `resultMask` | ✅ 1 after a win, 2 after a loss (one battle each). See [Battle system](#battle-system) |
+| battleCtxPtr | 0x4182C | u32 pointer to `BattleContext` | ✅ Both battles. See [Battle system](#battle-system) |
+| inputSystemPtr | 0x41998 | u32 pointer to the battle subscreen | ✅ Both battles. The u8 at +0x6DC is the menu input mode, 0 = touch, 1 = buttons |
+| (no name in `gen4`) | 0x2370C | u8 | ✅ The input mode each new battle starts in. It was 0 in states 00–02 and 1 in state 04 |
 | itemStartNoBattle / itemStartBattle | 0xB60 / 0x442BC | bag | ⏳ Not checked |
 | badges | 0x96 | u8 bitfield | ⏳ Not checked |
 | childMapHeader | 0x239B0 | map ID | ⏳ Not checked |
@@ -44,6 +50,61 @@ Re-resolve after every save-state load (`gen4.resolve(nds)`).
 
 `gen4.in_battle()` returns true when the struct at `playerBattleBase` is
 checksum-valid. That works for both wild and trainer battles.
+
+## Battle system
+
+`BattleSystem` starts at v+0x417FC. Its `trainerIDs` field, at +0xA0, sits
+2 bytes before `enemyTrainerID`. The u32 at v+0x4182C points to
+`BattleContext` (the address is v+0x44878 in both test battles, but follow
+the pointer):
+
+| Field | Where | Values |
+|---|---|---|
+| `command` | u32 at ctx+8 | 5 = waits for the player's command (`BATTLE_CONTROL_COMMAND_SELECTION_INPUT`), 44 = end of battle, others during the turn |
+| `curCommandState[0]` | u8 at ctx+0 | 1 = the FIGHT, BAG, POKéMON, RUN menu is up; 3 = the move menu is opening; 4 = the move menu is up; 14 = command chosen |
+
+**Waiting for a command** is `command == 5 and curCommandState[0] == 1 and
+in_battle()` (`gen4.waiting_for_command`). Over the whole Barry 1 battle it
+matched the FIGHT button being on screen on 14,098 of 14,151 frames. The
+signal rises 7 to 12 frames before the button shows.
+
+**Tap timing,** measured on Barry 1:
+- Taps in the first 2 frames after the signal rises are dropped. On the
+  first prompt after a battle starts, taps are ignored for 15 frames. The env
+  waits 20.
+- The game takes a tap 8 to 10 frames after touch-down. The env reads
+  `curCommandState` 14 frames after touch-down and taps again if nothing
+  changed.
+- The move menu takes a tap as soon as `curCommandState[0]` reads 4.
+
+**Battle RNG.** The game seeds `seedRandNext` once, at battle setup
+(decomp `src/battle/battle_main.c:1034`). After that, only
+`BattleSystem_RandNext` advances it, each time the battle draws a number:
+25 draws in Barry 1's first turn, 22 in the wild battle's. Nothing advances
+it while the game waits at a menu, so a battle save state fixes that
+battle's luck. This is vanilla behavior.
+
+**Battle result.** The decomp's `resultMask` bits are 1 = win, 2 = lose,
+and 4 = captured, and the flee results combine them. The game sets the bit
+during the text after the final KO, which needs A presses to get through.
+Once the battle frees its memory, the byte reads garbage (168 was seen). The
+env decides wins and losses from HP instead.
+
+## Differences from retail Platinum
+
+Everything below was seen in this hack (game code `JAK7`) and differs from
+retail US Platinum (`CPUE`). Retail is the source of the tracker's offsets
+and of the pret/pokeplatinum decomp. Add a row whenever a new difference
+turns up.
+
+| What | Retail | This hack | Effect on the project |
+|---|---|---|---|
+| Game code | `CPUE` | `JAK7` | No address carries over without a check |
+| The tracker's global `battleStatus` | Set during battle | Always 0 | `gen4.in_battle()` replaces it |
+| Turtwig's ability | 65, Overgrow | 75, Shell Armor | Species data must come from the hack's ROM |
+| Turtwig's moves | Tackle and Withdraw at Lv5 (from memory, not checked) | Tackle only at Lv5, and Mega Drain by Lv6 | Learnsets must come from the hack's ROM |
+| Route 201 wild Pokémon | Starly and Bidoof (from memory, not checked) | Delibird Lv4 was seen | Encounter tables must come from the hack's ROM |
+| `seedRandNext` position | `BattleSystem`+0x2444, from the decomp's field names | `BattleSystem`+0x2448 | None, because the env uses the measured address. It may mean the hack added 4 bytes earlier in the struct. Unconfirmed |
 
 ## Pokémon struct (236 bytes)
 
@@ -83,3 +144,14 @@ Each one was checked against what was on screen, from save states made with
 `src/drive.py`: the starter in the party, every turn of the Barry 1 battle,
 then after the battle (level up, learned move, healed at home). The tests
 replay these checks.
+
+The battle system fields were found by searching RAM for the fields that
+the decomp names, then checked by behavior:
+- The seed passes the LCG test from `seedDTO`, and writing it changes the
+  battle.
+- The command signal matches the FIGHT button on screen.
+- Writing the input-mode byte changes how an A press behaves.
+
+Each one was checked again on a second battle, the wild Delibird in
+`05_route201_wild_battle.state`. The tests in `tests/test_battle_env.py`
+replay both battles.

@@ -12,13 +12,18 @@ the episode on win or wipe.
 
 ## 1. RAM still needed for battles
 
-- [ ] **Waiting-for-input signal.** Detect when the game shows "What will X
-      do?" and the move or switch menus. This is the hardest and most
-      important one. Search for a RAM byte that changes when the prompt
-      appears; matching the screen image is the fallback.
-- [ ] **Battle result:** win, loss, blackout, flee.
+- [x] **Waiting-for-input signal.** `gen4.waiting_for_command()` reads
+      `BattleContext.command` and `curCommandState`, which also mark the
+      move menu. See [RAM_MAP.md](RAM_MAP.md#battle-system).
+- [ ] **Switch menu signal.** The `curCommandState` values for the
+      POKéMON menu and the forced switch after a faint aren't mapped yet.
+- [x] **Battle result:** `resultMask` reads 1 after a win and 2 after a
+      loss.
+- [ ] **Flee and capture results.** The decomp's values (4 = captured,
+      combined bits for fleeing) haven't been seen in RAM yet.
 - [ ] **Active battler's party slot**, for switching and for knowing which
-      Pokémon fainted.
+      Pokémon fainted. The env matches the active PIDs to party slots, but
+      that's untested with 2+ Pokémon.
 - [ ] **Double battles:** a battle-type flag and two active Pokémon per side.
 - [ ] **Temporary effects:** confusion, Leech Seed, Substitute, Protect,
       trapping, Taunt, Encore, and so on.
@@ -39,15 +44,50 @@ The hack changed abilities, so assume it changed more.
 
 ## 3. Battle environment and first training run
 
-- [ ] Gymnasium env: reset loads a battle save state. Action is move 1–4 or
-      switch to slot 1–5, executed as timed inputs. Observation is a
-      structured vector from RAM, not pixels.
-- [ ] Reward: +KO, +win, −Pokémon lost, large −wipe. **No damage-dealt
-      reward** (KP Labs' stalling hack).
-- [ ] Parallel environments across CPU cores. Put save states on tmpfs.
+- [x] Gymnasium env (`src/battle_env.py`). Reset loads a battle save
+      state. An action is a move slot (0–3) or a switch (4–8), tapped on
+      the touchscreen when the game waits for a command. The observation is
+      a 111-value vector from RAM: the player's party in full, the enemy's
+      active Pokémon, and which enemy slots have fainted. It shows no enemy
+      moves.
+- [x] Reward from events only: +1 per enemy faint, −3 per own faint, +5
+      win, −10 loss. **No damage-dealt reward** (KP Labs' stalling hack).
+      Nothing comes from a total that can go down, such as party size or
+      summed levels. The Pokémon Red agent lost a huge one-time reward when
+      it deposited a Pokémon, and it learned to avoid Pokémon Centers.
+- [x] A turn cap (default 100) ends the episode as a loss, so stalling
+      never pays.
+- [x] Randomize the battle RNG at reset. A battle save state fixes the
+      battle's luck, so without this the agent could memorize one battle,
+      as the Pokémon Red agent memorized a button sequence that caught its
+      first Pokémon. The env writes a random `seedRandNext` after each
+      load. See [PROGRESS.md](PROGRESS.md#8-battle-environment-2026-11-11).
+- [x] Parallel environments: `scripts/rollout.py` runs one env per hardware
+      thread, minus 2, with NooDS's render threads off. It stops if the CPU
+      stays above 99 °C for 30 s.
+- [x] Log every step and every episode as JSON lines.
 - [ ] Baseline: PPO, after drubinstein/pokemonred_puffer (PufferLib).
 - [ ] Battle states for the early bosses (Barry 1, Roark, …) and some
-      generated encounters.
+      generated encounters. Barry 1 and a wild Delibird exist so far.
+
+### Gaps in the env
+
+- [ ] **Switches.** Write a switch macro and verify it on a state with 2+
+      party Pokémon. Until then the env masks switches off.
+- [ ] **Move slots 2 and 3.** Their tap positions, (64, 115) and
+      (192, 115), are guesses until a Pokémon with 3+ moves is tested.
+- [ ] **Prompts the env doesn't model.** These are the forced switch
+      after a faint, the trainer's "Will you switch?" question in Shift
+      style, and move-learn and evolution questions. Today they end the
+      episode as STUCK.
+- [ ] **No PP left.** The action mask goes all False, but the game uses
+      Struggle. Give that case one valid action.
+- [ ] **Lockstep stepping wastes CPU.** Gymnasium's vector env waits for the
+      slowest battle at every step. 14 envs averaged only 7.3 busy cores.
+      An asynchronous env pool, such as PufferLib's, should win most of it
+      back.
+- [ ] **Save states on tmpfs.** Loading a state takes about 2.7 ms, so this
+      matters only if profiling shows state loads.
 
 ## 4. Nuzlocke rules
 
@@ -65,6 +105,25 @@ The hack changed abilities, so assume it changed more.
 - [ ] Player position, map, facing direction, story flags, defeated-trainer
       flags, open menu
 - [ ] Overworld navigation, if it proves worth it at DS emulation speed
+
+## Later, as the project matures
+
+Ideas from the Pokémon Red agent (PWhiddy's PokemonRedExperiments video)
+that are too early now:
+
+- **A novelty reward for the overworld.** It rewards new screens and needs a
+  high enough threshold that animated water and NPCs don't count.
+- **Map and movement visualizations** built from the per-step logs. They
+  showed the Pokémon Red agent's habits, such as walking the map edges
+  counterclockwise.
+- **Level rewards for team building.** Reward only increases, and watch
+  for proxy hacks, like buying the level-5 Magikarp 10,000 times.
+- **World models (DreamerV3).** They learn from far less game time, which
+  matters at DS emulation speed. Try one once a PPO baseline exists.
+- **Pretrained or transfer models.** A model trained on broad game data
+  could shorten training for new battles.
+- **Hierarchical RL.** A planner for encounters and team building on top of
+  the battle policy, as step 5 describes.
 
 ## Open questions
 

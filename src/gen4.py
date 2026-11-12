@@ -20,6 +20,11 @@ OFFSETS = {                     # added to the resolved version pointer
     "statStagesPlayer": 0x475D0,
     "statStagesEnemy": 0x47690,
     "enemyPokemonID": 0x47678,
+    "battleRngSeed": 0x43C44,   # u32, BattleSystem.seedRandNext. LCG seed*0x41C64E6D+0x6073. Writing it randomizes the battle
+    "battleRngStart": 0x43C48,  # u32, BattleSystem.seedDTO, the seed the battle started with
+    "battleResult": 0x43C1C,    # u8, resultMask: 1 win, 2 lose, 4 captured. Garbage once battle memory is freed
+    "battleCtxPtr": 0x4182C,    # u32 pointer to BattleContext (main RAM). +0 u8 curCommandState[0], +8 u32 command
+    "inputSystemPtr": 0x41998,  # u32 pointer; u8 at +0x6DC is the menu input mode, 0 touch, 1 buttons
     "itemStartNoBattle": 0xB60,
     "itemStartBattle": 0x442BC,
     "badges": 0x96,
@@ -156,3 +161,36 @@ def in_battle(nds, addrs: dict | None = None) -> bool:
     raw = read_bytes(nds, a["playerBattleBase"], PARTY_MON_SIZE)
     m = decode_mon(raw)
     return m.checksum_ok and 0 < m.species <= 493
+
+
+CMD_SELECTION_INPUT = 5         # BattleContext.command while the game waits for the player
+CS_ACTION_MENU = 1              # curCommandState[0]: FIGHT / BAG / POKEMON / RUN is up
+CS_MOVE_MENU = 4                # curCommandState[0]: move menu is up (3 while it opens)
+
+
+def read_battle_command(nds, addrs: dict) -> tuple[int, int] | None:
+    """(command, curCommandState[0]) of the battle context, or None when the
+    context pointer isn't in main RAM (no battle, or still being set up)."""
+    rd = nds.memory.read_u32
+    p = rd(False, addrs["battleCtxPtr"])
+    if not (MAIN_RAM <= p < MAIN_RAM + 0x400000 - 0x100) or p & 3:
+        return None
+    return rd(False, p + 8), rd(False, p) & 0xFF
+
+
+def waiting_for_command(nds, addrs: dict) -> bool:
+    """True while the game shows the action menu and waits for the player."""
+    c = read_battle_command(nds, addrs)
+    return c == (CMD_SELECTION_INPUT, CS_ACTION_MENU) and in_battle(nds, addrs)
+
+
+def write_battle_seed(nds, addrs: dict, seed: int) -> None:
+    nds.memory.write_u32(False, addrs["battleRngSeed"], seed & 0xFFFFFFFF)
+
+
+def read_input_mode(nds, addrs: dict) -> int | None:
+    """0 = touch menus, 1 = button menus, None if the pointer is invalid."""
+    p = nds.memory.read_u32(False, addrs["inputSystemPtr"])
+    if not (MAIN_RAM <= p < MAIN_RAM + 0x400000 - 0x800):
+        return None
+    return nds.memory.read_u8(False, p + 0x6DC)

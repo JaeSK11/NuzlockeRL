@@ -16,8 +16,9 @@ state, then add encounters, team building and overworld movement later.
 | Inputs (buttons and touch) | ✅ All tested on the Kaizo ROM |
 | Save states | ✅ ~5.5 MB, ~2.7 ms to load |
 | Party and battle RAM | ✅ Pointer chain and Gen 4 decryption verified on the hack, covered by tests |
-| "Waiting for input", battle result, effects, weather | ⏳ Next. See [docs/ROADMAP.md](docs/ROADMAP.md) |
-| Gym environment and RL training | ⏳ Not started |
+| Battle RAM: waiting for a command, RNG seed, result, input mode | ✅ Verified on two battles (Barry 1 and a wild Delibird) |
+| Battle environment | ✅ `src/battle_env.py`: touch actions, faint-event rewards, turn cap, random battle RNG, JSON logs. Parallel envs via `scripts/rollout.py` |
+| Switches, effects, weather, RL training | ⏳ Next. See [docs/ROADMAP.md](docs/ROADMAP.md) |
 
 ## Documentation
 
@@ -33,11 +34,13 @@ state, then add encounters, team building and overworld movement later.
 
 ```
 src/gen4.py         Gen 4 RAM layout + Pokémon decryption (party, battle, scan)
+src/battle_env.py   Gymnasium battle env: touch actions, faint-event rewards, random battle RNG
 src/drive.py        Scripted input driver for exploring the game and making save states
 src/d               Shell wrapper for drive.py
 tests/              Regression tests against milestone save states
 emu_tests/          Original PyNDS smoke tests (boot, speed, touch, memory)
-scripts/            Environment setup and reference fetching
+scripts/            Environment setup, reference fetching, and the parallel rollout runner
+scripts/milestones/ Input scripts that rebuild milestone save states
 docs/               Documentation
 ```
 
@@ -48,7 +51,7 @@ fetched by the same script), and game screenshots.
 
 ## Setup
 
-Requires Linux, Python 3.12, a C++20 compiler and git.
+Requires Linux, Python 3.10 or newer, a C++20 compiler and git.
 
 ```bash
 sudo apt install libportaudio2          # pynds imports sounddevice
@@ -65,6 +68,7 @@ verified against it.
 ```bash
 ~/venvs/nuzlockerl/bin/python -m pytest -q tests   # skipped without the ROM/states
 src/d - mystate "w900 a*10 w120"                   # boot, press A, save state + screenshot
+~/venvs/nuzlockerl/bin/python scripts/rollout.py --episodes 200   # random policy, one env per hardware thread minus 2
 ```
 
 ## Hack notes

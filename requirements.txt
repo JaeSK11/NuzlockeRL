@@ -1,5 +1,6 @@
 # pynds itself is built from source by scripts/setup_env.sh (pip 0.0.4 can't read memory)
 numpy
+gymnasium
 pillow
 pytest
 sounddevice

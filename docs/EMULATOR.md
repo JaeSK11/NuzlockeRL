@@ -39,6 +39,52 @@ PATH=~/venvs/nuzlockerl/bin:$PATH ~/venvs/nuzlockerl/bin/pip install --no-build-
 | Memory reads, pip 0.0.4 | ❌ Every address returns 0 |
 | Memory reads, source build | ✅ 100k `read_u32` calls in ~11 ms |
 
+## Parallel speed on an 8-core CPU (Ryzen 7 7840U, 2026-11-11)
+
+The 7840U has 8 cores and 16 threads. Each run loads
+`03_barry1_battle_turn1.state` and calls `tick()` 3000 times per process.
+The table gives total fps across all processes, as the range of 3
+interleaved runs.
+
+| Processes | Default render threads | Render threads off |
+|---|---|---|
+| 1 | 590–597 | 475–484 |
+| 8 | 2720–2763 | 2968–2986 |
+| 16 | 1693–1780 | 3386–3407 |
+
+NooDS draws on extra threads by default (`threaded2D` and `threaded3D`),
+so each process uses about 1.7 cores. With more threads than cores, the
+render wait loops spin on `std::this_thread::yield()`, and the total at 16
+processes falls below the total at 8. With render threads off, each process
+uses exactly one core. Frames and RAM are byte-identical either way.
+
+To run many emulators in parallel, turn the render threads off before you
+create each emulator:
+
+```python
+pynds.config.set_threaded_2d(0)
+pynds.config.set_threaded_3d(0)
+nds = pynds.PyNDS(rom)
+```
+
+Keep the defaults for a single process, such as `src/drive.py`.
+
+Throughput stops rising at 16 processes, one per hardware thread. Runs at
+20, 24, and 32 processes gave 3031–3369 fps, inside the run-to-run
+spread at 16. That total is about 57× real time. Each process uses about
+95 MiB of RAM (proportional set size), so 16 processes need about 1.5 GiB.
+
+## How many emulators to run
+
+`scripts/rollout.py` defaults to the number of hardware threads minus 2.
+Throughput stops rising at one emulator per hardware thread, and the main
+process needs some room. Pass `--envs` to change it.
+
+The runner stops if the hottest CPU sensor stays above `--max-temp`
+(default 99 °C) for more than `--hot-seconds` (default 30 s). It reads the
+`k10temp` or `zenpower` sensors (AMD) and `coretemp` (Intel). Without one,
+as in many containers and VMs, it prints a warning and runs unguarded.
+
 ## API notes
 
 ```python
@@ -67,6 +113,14 @@ nds.save_state_to_file(p); nds.load_state_from_file(p)
   screen fades. The TV scene in the intro looked frozen until presses were
   spaced out.
 - Some menus need B **held** for ~20 frames.
+- Battle menus have two input modes, touch and buttons. In touch mode,
+  the first button press only shows the red cursor and selects nothing,
+  so from `03_barry1_battle_turn1.state` a move takes three A presses. A
+  tap selects in either mode. From the "What will X do?" prompt, a tap on
+  **FIGHT** at (128, 87) and then a tap on the first move at (64, 40) uses
+  that move. Use touch only. Then each menu takes one tap, whatever mode
+  the state was saved in, and the choice doesn't depend on where the
+  cursor was left. The mode byte is listed in [RAM_MAP.md](RAM_MAP.md).
 - So an RL action should be a timed macro, "hold for N frames, then wait M
   frames", or better, an action submitted only when a "waiting for input"
   signal is set (see the [roadmap](ROADMAP.md)).
