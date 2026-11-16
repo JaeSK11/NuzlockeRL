@@ -548,3 +548,21 @@ def test_info_names_each_decision(team_env):
     if not (info["outcome"] if "outcome" in info else None):
         _, _, _, _, info = team_env.step(int(np.flatnonzero(info["action_mask"][4:])[0]) + 4)
         assert (info["pick"], info["move"], info["pp_before"]) == ("switch", None, None)
+
+
+@needs_rom
+def test_the_wait_for_the_result_rides_out_snapshots_that_read_invalid(team_env, monkeypatch):
+    """The game decrypts a party struct in place while it writes it, so a snapshot can read
+    invalid for a frame, as when it adds the exp after a win. The wait must go on to the result."""
+    import battle_env
+    real, calls = battle_env.read_snapshot, [0]
+    def flaky(nds, addrs):
+        calls[0] += 1
+        return None if calls[0] % 3 == 0 else real(nds, addrs)
+    reset_on(team_env, "starly_vs_selfdestruct")
+    monkeypatch.setattr(battle_env, "read_snapshot", flaky)
+    for _ in range(5):
+        _, _, terminated, truncated, info = team_env.step(0)
+        if terminated or truncated:
+            break
+    assert info["outcome"] == "WON" and info["result_mask"] == 1 and "PLAYER_FAINTED" in info["events"]

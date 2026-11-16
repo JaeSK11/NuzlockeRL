@@ -465,13 +465,19 @@ class BattleEnv(gym.Env):
         """A side reads 0 HP, but the turn may not be over: Selfdestruct zeroes its user's HP
         before its blast lands, about 200 frames later. Run on until the game records the
         result, keeping the last snapshot, so every faint of the turn is counted. Stops early
-        if the battle memory is freed first, or after END_FRAME_GUARD frames."""
-        start = self._frames
+        if the battle memory is freed first, or after END_FRAME_GUARD frames. A snapshot that
+        reads invalid while the battle runs is skipped: the game decrypts a party struct in
+        place while it writes it, as when it adds the exp after a win."""
+        start, gone = self._frames, 0
         while not self.result_mask and self._frames - start < END_FRAME_GUARD:
             self._tick(SNAPSHOT_EVERY)
             snap = read_snapshot(self.nds, self.addrs)
             if snap is None:
-                return
+                gone = 0 if gen4.in_battle(self.nds, self.addrs) else gone + 1
+                if gone >= ENDED_CHECKS:
+                    return
+                continue
+            gone = 0
             self.snap = snap
             self.result_mask = self.nds.memory.read_u8(False, self.addrs["battleResult"])
 
