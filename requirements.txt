@@ -5,6 +5,7 @@ cloudpickle
 # CPU-only PyTorch: with this index pip picks the +cpu wheel over PyPI's CUDA one
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch
+matplotlib
 pillow
 pytest
 sounddevice

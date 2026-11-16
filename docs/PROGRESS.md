@@ -917,7 +917,7 @@ rate (won with no player faint) and faints per episode, in
 **Tests.** The matchup features on a made-up Turtwig against Gastly, the
 strength and penalty arithmetic, and faint counting in training and
 evaluation on a fake env. The three env tests that assumed a flat −3 now
-use the new rule. Each of three deliberate breaks of the faint counting made
+use the new rule. Each of two deliberate breaks of the faint counting made
 a test fail. 97 tests pass.
 
 | Issue | Cause | Resolution |
@@ -926,3 +926,61 @@ a test fail. 97 tests pass.
 | Losing the ace cost the same as losing fodder | A flat −3 per faint | The penalty scales with strength |
 | The logs couldn't show a clean win | Episode records had no faint count | The trainer and the eval count faints |
 | A PPO test failed after the change | It compared whole episode records, which now have a faint count | The expected records include it |
+
+## 22. The check run again, with matchups and the new penalty (2026-11-16)
+
+Goal: rerun step 4 of [NEXT_PHASE.md](NEXT_PHASE.md) with §21's changes, to
+see whether they help before the long pilot.
+
+**The run.** The same 10 battles, 14 envs, 20,480 decisions, default
+settings, in `runs/pilot_check2`. 0 STUCK or ENDED, 6.7 to 7.4 decisions/s,
+CPU peak 87 °C. The policy started to move at update 7, as in the first
+run. The last update reached a win rate of 0.91, a clean-win rate of 0.54,
+and a return of −0.64. Returns don't compare with the first run's, since a
+faint now costs more.
+
+**Per training battle,** the last 5 updates of each run:
+
+| Battle | Win: random / run 1 / run 2 | Clean win: random / run 2 |
+|---|---|---|
+| Chimchar team vs Lileep | 0.52 / 0.39 / 0.61 | 0.04 / 0.10 |
+| Chimchar team vs Corsola | 0.23 / 0.67 / 0.86 | 0.06 / 0.39 |
+| Turtwig team vs Corsola | 0.58 / 0.90 / 0.93 | 0.08 / 0.32 |
+| Piplup team vs Corsola | 0.26 / 0.71 / 0.63 | 0.05 / 0.26 |
+| Weak lead vs Lileep | 0.16 / 0.80 / 0.64 | 0.06 / 0.26 |
+| Turtwig team vs Lileep | 0.52 / 0.81 / 0.72 | 0.00 / 0.10 |
+| The 4 Bonsly battles | 0.95–1.00 throughout | about random |
+
+**Held out,** the final checkpoint, 42 episodes per battle:
+
+| Battle | Random: win / clean | Run 1 greedy: win | Run 2 greedy: win / clean |
+|---|---|---|---|
+| Weak lead vs Gible | 0.60 / 0.09 | 0.38 | 0.86 / 0.00 |
+| Piplup team vs Cranidos | 0.54 / 0.03 | 1.00 | 1.00 / 0.50 |
+| Turtwig team vs Cranidos | 0.36 / 0.00 | 0.76 | 0.76 / 0.33 |
+| Chimchar team vs Gible | 0.77 / 0.00 | 0.83 | 0.98 / 0.07 |
+| All | 0.56 / 0.03 | 0.74 | 0.90 / 0.23 |
+
+Sampled play on the held-out battles: win 0.74, clean win 0.13.
+
+What changed:
+- Both of run 1's weak spots are fixed. Chimchar team vs Lileep now beats
+  random, and greedy play on Weak lead vs Gible went from 0.38 to 0.86.
+- Clean wins rose 4 to 6 times on the Corsola battles, and from 0.03 to
+  0.23 on the held-out ones.
+- Some win rates are below run 1's while their clean wins rose: the
+  policy now gives up some wins rather than lose its strongest Pokémon,
+  which is the trade the new penalty sets.
+
+**A progress chart.** `scripts/plot_runs.py` draws the win and clean-win
+rates of any runs against decisions trained, as a 3-update mean with each
+update's value as a dot, and random play as a reference line. It writes a
+PNG, by default `runs/progress.png`. `--state` plots one battle; `--return`
+adds a return panel, which only compares runs with the same reward.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| There was no way to see the runs improve except reading JSON lines | No chart | `scripts/plot_runs.py` |
+| matplotlib wasn't installed | Nothing had plotted before | Installed, and added to `requirements.txt` |
+| The first chart's labels overlapped the lines and each other | The random-play label sat where the runs start, and both runs end near 0.85 | Random play is labeled at the right end, under its line; run ends are labeled in a column to the right, with leader lines |
+| The two runs' returns can't be compared | The faint penalty changed between them | The return panel is opt-in, and its title says so |

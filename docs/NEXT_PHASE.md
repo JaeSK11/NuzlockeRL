@@ -2,7 +2,7 @@
 
 Written 2026-11-12 as a plan to pick up later. Steps 1 to 4, and the STUCK
 question under "Before starting", were done on 2026-11-16 (PROGRESS.md §18
-to §20). The pilot (step 5) has not been run.
+to §22). The pilot (step 5) has not been run.
 
 ## The question
 
@@ -100,7 +100,9 @@ emulator only to evaluate.
    from 0.56 to 0.73. Before the pilot, count faints per episode so the
    logs show the clean-win rate, and look at the two battles that got
    worse. It ran 20,000 decisions on the train split with 14 envs, in 49
-   minutes:
+   minutes. A second check run, with the type matchups, the faint penalty by
+   strength, and faint counting, fixed both of those battles and took the
+   held-out clean-win rate from random's 0.03 to 0.23 (§22). The command:
 
    ```bash
    ~/venvs/nuzlockerl/bin/python scripts/train_ppo.py --states <train states> \
@@ -135,7 +137,9 @@ hurting it.
 
 ## What to watch
 
-`runs/<run>/metrics.jsonl` has one line per update:
+`scripts/plot_runs.py runs/pilot --baseline-win 0.61 --baseline-clean 0.37`
+draws the win and clean-win rates against decisions trained, as
+`runs/progress.png`. `runs/<run>/metrics.jsonl` has one line per update:
 
 | Field | Healthy |
 |---|---|

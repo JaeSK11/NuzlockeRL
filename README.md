@@ -48,7 +48,7 @@ src/drive.py        Scripted input driver for exploring the game and making save
 src/d               Shell wrapper for drive.py
 tests/              Regression tests against milestone save states
 emu_tests/          Original PyNDS smoke tests (boot, speed, touch, memory)
-scripts/            Environment setup, reference fetching, battle states and sets, the rollout runner, PPO training and evaluation, and the RAM audit
+scripts/            Environment setup, reference fetching, battle states and sets, the rollout runner, PPO training, evaluation and progress charts, and the RAM audit
 scripts/milestones/ Input scripts that rebuild milestone save states
 docs/               Documentation
 ```
@@ -83,6 +83,7 @@ src/d - mystate "w900 a*10 w120"                   # boot, press A, save state +
 ~/venvs/nuzlockerl/bin/python scripts/make_scenario.py --mon 387:10:33,72,44,75 --enemy 225:8 --out states/generated/turtwig10.state
 ~/venvs/nuzlockerl/bin/python scripts/make_battle_set.py scripts/pilot_battles.json   # the PPO pilot's battles, each checked
 ~/venvs/nuzlockerl/bin/python scripts/eval_ppo.py --run-dir runs/pilot --states states/generated/pilot/heldout/*.state
+~/venvs/nuzlockerl/bin/python scripts/plot_runs.py runs/pilot --baseline-win 0.61 --baseline-clean 0.37   # runs/progress.png
 ~/venvs/nuzlockerl/bin/python scripts/ram_audit.py --battles 200 --probe 4   # check RAM reads against invariants; exits 1 on a violation
 ```
 
