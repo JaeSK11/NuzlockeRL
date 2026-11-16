@@ -977,6 +977,10 @@ rates of any runs against decisions trained, as a 3-update mean with each
 update's value as a dot, and random play as a reference line. It writes a
 PNG, by default `runs/progress.png`. `--state` plots one battle; `--return`
 adds a return panel, which only compares runs with the same reward.
+`--by-battle` draws a heatmap per run instead: a row per battle, a column
+per few updates on a shared decisions scale, colored by the clean-win rate
+(or `--metric win`), with each row's first and last values. It shows which
+matchups are learned and when.
 
 | Issue | Cause | Resolution |
 |---|---|---|
@@ -984,3 +988,5 @@ adds a return panel, which only compares runs with the same reward.
 | matplotlib wasn't installed | Nothing had plotted before | Installed, and added to `requirements.txt` |
 | The first chart's labels overlapped the lines and each other | The random-play label sat where the runs start, and both runs end near 0.85 | Random play is labeled at the right end, under its line; run ends are labeled in a column to the right, with leader lines |
 | The two runs' returns can't be compared | The faint penalty changed between them | The return panel is opt-in, and its title says so |
+| The heatmap's runs didn't line up | Each panel drew one column per bin, so a column covered a different number of decisions in each run | Columns span the decisions they cover, on a shared axis |
+| A map of where the agent goes was asked for | The agent never walks: every episode starts and ends in a battle | The per-battle heatmap shows progress for now; a map trace belongs with the overworld (roadmap step 5), where the location RAM is ready |

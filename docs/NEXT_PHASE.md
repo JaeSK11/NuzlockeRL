@@ -139,7 +139,8 @@ hurting it.
 
 `scripts/plot_runs.py runs/pilot --baseline-win 0.61 --baseline-clean 0.37`
 draws the win and clean-win rates against decisions trained, as
-`runs/progress.png`. `runs/<run>/metrics.jsonl` has one line per update:
+`runs/progress.png`. Add `--by-battle --out runs/by_battle.png` for a heatmap of
+each battle's clean-win rate over training. `runs/<run>/metrics.jsonl` has one line per update:
 
 | Field | Healthy |
 |---|---|
