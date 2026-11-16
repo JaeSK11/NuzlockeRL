@@ -146,8 +146,8 @@ def test_truncation_bootstraps_from_the_final_observation_and_termination_does_n
     adv = rollout.tensors(gamma=0.9, lam=0.95)["advantage"].tolist()
     assert adv[0] == pytest.approx(1.0 + 0.9 * v_final - truncated.value, abs=1e-5)
     assert adv[1] == pytest.approx(2.0 - terminated.value, abs=1e-5)
-    assert episodes == [{"state": "a.state", "outcome": "WON", "return": 1.0, "length": 1, "faints": 0},
-                        {"state": "a.state", "outcome": "WON", "return": 2.0, "length": 1, "faints": 0}]
+    assert episodes == [{"state": "a.state", "outcome": "WON", "return": 1.0, "length": 1, "faints": 0, "tally": {}, "result_mask": None},
+                        {"state": "a.state", "outcome": "WON", "return": 2.0, "length": 1, "faints": 0, "tally": {}, "result_mask": None}]
 
 
 def test_an_env_with_no_valid_action_is_an_error():
@@ -261,8 +261,11 @@ class FaintEnv(gym.Env):
         self.t += 1
         info = {"action_mask": self.MASK, "state": "/states/faint.state",
                 "events": ["PLAYER_FAINTED"] if action == 0 else []}
+        # Action 0 is an attack that spends its last PP, and the ace faints; action 1 a switch.
+        info.update({"pick": "super", "move": "Ember", "pp_before": 1, "fainted_strengths": [1.0]} if action == 0
+                    else {"pick": "switch", "move": None, "pp_before": None, "fainted_strengths": []})
         if self.t == 3:
-            info["outcome"] = "WON"
+            info.update(outcome="WON", result_mask=1)
         return np.zeros(2, np.float32), 0.0, self.t == 3, False, info
 
 
@@ -273,6 +276,21 @@ def test_evaluation_counts_faints_and_clean_wins():
             agent.actor[-1].bias[action] = 30.0
         stats = episode_stats(evaluate(agent, ObsNorm(2), [FaintEnv] * 2, episodes_per_env=2, greedy=True))
         assert (stats["win_rate"], stats["mean_faints"], stats["clean_win_rate"]) == (1.0, faints, clean)
+        assert stats["mean_ace_faints"] == faints and stats["mean_other_faints"] == 0
+        assert stats["picks"] == ({"super": 12} if action == 0 else {"switch": 12})
+        assert stats["moves"] == ({"Ember": 12} if action == 0 else {})
+        assert stats["pp_ran_dry"] == (12 if action == 0 else 0) and stats["result_mismatches"] == 0
+
+
+def test_episode_stats_split_faints_by_strength_and_flag_results_the_game_contradicts():
+    eps = [{"state": "s", "outcome": "WON", "return": 0.0, "length": 2, "faints": 2, "result_mask": 1,
+            "tally": {"ace_faints": 1, "other_faints": 1, "pick.status": 1, "move.Growl": 1}},
+           {"state": "s", "outcome": "WON", "return": 0.0, "length": 1, "faints": 0, "result_mask": 2, "tally": {}},
+           {"state": "s", "outcome": "STUCK", "return": 0.0, "length": 1, "faints": 0, "result_mask": 0, "tally": {}}]
+    stats = episode_stats(eps)["states"]["s"]
+    assert (stats["mean_ace_faints"], stats["mean_other_faints"]) == (1 / 3, 1 / 3)
+    assert stats["picks"] == {"status": 1} and stats["moves"] == {"Growl": 1}
+    assert stats["result_mismatches"] == 1, "a WON the game recorded as a loss; STUCK has no result to check"
 
 
 def test_training_logs_count_faints_and_clean_wins(tmp_path):
@@ -280,3 +298,4 @@ def test_training_logs_count_faints_and_clean_wins(tmp_path):
     row = rows(tmp_path)[-1]
     assert row["win_rate"] == 1.0 and 0 < row["mean_faints"] < 3
     assert row["clean_win_rate"] < 1.0 and row["states"]["faint.state"]["clean_win_rate"] == row["clean_win_rate"]
+    assert row["mean_ace_faints"] == row["mean_faints"] and set(row["picks"]) <= {"super", "switch"}

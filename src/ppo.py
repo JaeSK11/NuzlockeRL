@@ -150,6 +150,28 @@ def _player_faints(info: dict) -> int:
     return list(info.get("events", ())).count("PLAYER_FAINTED")
 
 
+def _tally(info: dict) -> collections.Counter:
+    """Counts from one step's info, for the logs: the decision's kind (pick.<kind>) and move
+    (move.<name>), a move's last PP spent (pp_ran_dry), and each faint, of the team's
+    strongest Pokémon (ace_faints) or another (other_faints). Envs without these keys count nothing."""
+    t = collections.Counter()
+    if info.get("pick"):
+        t["pick." + info["pick"]] += 1
+    if info.get("move"):
+        t["move." + info["move"]] += 1
+    if info.get("pp_before") == 1:
+        t["pp_ran_dry"] += 1
+    for strength in info.get("fainted_strengths", ()):
+        t["ace_faints" if strength >= 1.0 else "other_faints"] += 1
+    return t
+
+
+def _result_mismatch(e: dict) -> bool:
+    """The env's WON or LOST disagrees with the game's own result (resultMask: 1 win, 2 loss)."""
+    want = {"WON": 1, "LOST": 2}.get(e.get("outcome"))
+    return want is not None and e.get("result_mask") is not None and not e["result_mask"] & want
+
+
 class Collector:
     """Acts on pool batches and pairs each env's result with the action that caused it."""
 
@@ -159,6 +181,7 @@ class Collector:
         self.returns = collections.defaultdict(float)
         self.lengths = collections.defaultdict(int)
         self.faints = collections.defaultdict(int)
+        self.tallies = collections.defaultdict(collections.Counter)
 
     @torch.no_grad()
     def act(self, batch, rollout: Rollout, episodes: list) -> np.ndarray:
@@ -185,10 +208,12 @@ class Collector:
                 self.returns[env] += reward
                 self.lengths[env] += 1
                 self.faints[env] += _player_faints(info)
+                self.tallies[env] += _tally(info)
                 if terminated or truncated:
                     episodes.append({"state": os.path.basename(str(info.get("state", ""))),
                                      "outcome": info.get("outcome"), "return": self.returns.pop(env),
-                                     "length": self.lengths.pop(env), "faints": self.faints.pop(env)})
+                                     "length": self.lengths.pop(env), "faints": self.faints.pop(env),
+                                     "tally": dict(self.tallies.pop(env)), "result_mask": info.get("result_mask")})
             self.pending[env] = (obs[row], mask[row], action[row].item(), logp[row].item(), value[row].item())
         return action.numpy()
 
@@ -230,15 +255,24 @@ def ppo_update(agent: Agent, optimizer, data: dict, cfg: Config, generator=None)
 
 def episode_stats(episodes: list) -> dict:
     """Mean return, win rate, clean-win rate (won with no player faint), faints, and length over
-    all episodes, and the same per state."""
+    all episodes, and the same per state. From the episodes' tallies (see _tally): decisions by
+    kind (picks) and by move (moves), faints of the ace and of the others per episode, moves
+    run out of PP, and episodes whose outcome the game's own result contradicts."""
     def summary(eps):
+        tally = sum((collections.Counter(e.get("tally", {})) for e in eps), collections.Counter())
         return {"episodes": len(eps),
                 "mean_return": float(np.mean([e["return"] for e in eps])),
                 "win_rate": float(np.mean([e["outcome"] == "WON" for e in eps])),
                 "clean_win_rate": float(np.mean([e["outcome"] == "WON" and e.get("faints", 0) == 0 for e in eps])),
                 "mean_faints": float(np.mean([e.get("faints", 0) for e in eps])),
                 "mean_length": float(np.mean([e["length"] for e in eps])),
-                "outcomes": dict(collections.Counter(str(e["outcome"]) for e in eps))}
+                "outcomes": dict(collections.Counter(str(e["outcome"]) for e in eps)),
+                "picks": {k[5:]: v for k, v in sorted(tally.items()) if k.startswith("pick.")},
+                "moves": {k[5:]: v for k, v in sorted(tally.items()) if k.startswith("move.")},
+                "mean_ace_faints": tally["ace_faints"] / len(eps),
+                "mean_other_faints": tally["other_faints"] / len(eps),
+                "pp_ran_dry": tally["pp_ran_dry"],
+                "result_mismatches": sum(_result_mismatch(e) for e in eps)}
     if not episodes:
         return {"episodes": 0, "states": {}}
     by_state = collections.defaultdict(list)
@@ -386,6 +420,7 @@ def evaluate(agent: Agent, norm: ObsNorm, env_fns, episodes_per_env: int, greedy
     generator = torch.Generator().manual_seed(seed)
     records, done, stepped = [], collections.Counter(), set()
     returns, lengths, faints = collections.defaultdict(float), collections.defaultdict(int), collections.defaultdict(int)
+    tallies = collections.defaultdict(collections.Counter)
     with AsyncEnvPool(env_fns, seed=seed) as pool:
         batch = pool.recv()
         while not (guard and guard.tripped.is_set()):
@@ -397,10 +432,12 @@ def evaluate(agent: Agent, norm: ObsNorm, env_fns, episodes_per_env: int, greedy
                     returns[env] += float(batch.rewards[row])
                     lengths[env] += 1
                     faints[env] += _player_faints(info)
+                    tallies[env] += _tally(info)
                     if ended:
                         records.append({"env": env, "state": os.path.basename(str(info.get("state", ""))),
                                         "outcome": info.get("outcome"), "return": returns.pop(env),
-                                        "length": lengths.pop(env), "faints": faints.pop(env)})
+                                        "length": lengths.pop(env), "faints": faints.pop(env),
+                                        "tally": dict(tallies.pop(env)), "result_mask": info.get("result_mask")})
                         done[env] += 1
                 if done[env] < episodes_per_env:
                     act.append(row)

@@ -38,6 +38,7 @@ PARTY_SETTLE, PARTY_GAP, PARTY_CHECK = 50, 30, 40   # the party screen takes 40 
 SNAPSHOT_EVERY = 10
 ENDED_CHECKS = 3                # snapshots in a row with no battle before it is called over; in_battle() reads False on a frame where the game holds the struct decrypted
 STEP_FRAME_GUARD = 6000         # frames one step or reset may run before it is called STUCK
+END_FRAME_GUARD = 2000          # frames to wait after a wipe for the game to record the result; it takes 300 to 800
 
 
 
@@ -164,11 +165,34 @@ def strengths(party) -> list[float]:
     return [t / top for t in totals]
 
 
+def fainted_strengths(prev: Snapshot, cur: Snapshot) -> list[float]:
+    """The strength of each player Pokémon that fainted between two snapshots."""
+    s = strengths(cur.player)
+    return [s[i] for i, (a, b) in enumerate(zip(prev.player, cur.player)) if a.hp > 0 and b.hp == 0]
+
+
 def faint_penalty(prev: Snapshot, cur: Snapshot) -> float:
     """The reward for the player faints between two snapshots, weighted by strength."""
-    s = strengths(cur.player)
-    return -sum(FAINT_BASE + FAINT_SCALE * s[i]
-                for i, (a, b) in enumerate(zip(prev.player, cur.player)) if a.hp > 0 and b.hp == 0)
+    return -sum(FAINT_BASE + FAINT_SCALE * s for s in fainted_strengths(prev, cur))
+
+
+def decision(prev: Snapshot, action: int, forced: bool) -> dict:
+    """What a decision was, for the logs: the move by name, its PP before the turn, and its
+    kind. The kind is switch, forced_switch, struggle, status, or for an attack its type
+    matchup against the enemy's active Pokémon: super, neutral, resisted or immune."""
+    if action >= 4:
+        return {"pick": "forced_switch" if forced else "switch", "move": None, "pp_before": None}
+    if is_struggling(prev):
+        return {"pick": "struggle", "move": "Struggle", "pp_before": None}
+    mon = prev.player[prev.player_active]
+    move = romdata.move(mon.moves[action])
+    if romdata.MOVE_CLASSES[move.cls] == "status":
+        pick = "status"
+    else:
+        enemy = prev.enemy[prev.enemy_active] if prev.enemy_active is not None else None
+        mult = romdata.type_effectiveness(move.type, romdata.species(enemy.species).types) if enemy else 1.0
+        pick = "immune" if mult == 0 else "super" if mult > 1 else "resisted" if mult < 1 else "neutral"
+    return {"pick": pick, "move": move.name, "pp_before": mon.pp[action]}
 
 
 def _wiped(snap: Snapshot) -> bool:
@@ -433,8 +457,23 @@ class BattleEnv(gym.Env):
                 self.snap = snap
                 self.result_mask = self.nds.memory.read_u8(False, self.addrs["battleResult"])
                 if _wiped(snap):
-                    return Event.LOST if all(m.hp == 0 for m in snap.player) else Event.WON
+                    self._await_result()
+                    return Event.LOST if all(m.hp == 0 for m in self.snap.player) else Event.WON
         raise _Stuck
+
+    def _await_result(self):
+        """A side reads 0 HP, but the turn may not be over: Selfdestruct zeroes its user's HP
+        before its blast lands, about 200 frames later. Run on until the game records the
+        result, keeping the last snapshot, so every faint of the turn is counted. Stops early
+        if the battle memory is freed first, or after END_FRAME_GUARD frames."""
+        start = self._frames
+        while not self.result_mask and self._frames - start < END_FRAME_GUARD:
+            self._tick(SNAPSHOT_EVERY)
+            snap = read_snapshot(self.nds, self.addrs)
+            if snap is None:
+                return
+            self.snap = snap
+            self.result_mask = self.nds.memory.read_u8(False, self.addrs["battleResult"])
 
     def _info(self, **extra) -> dict:
         return {"action_mask": action_mask(self.snap, self.forced), "state": self.state_name,
@@ -488,6 +527,7 @@ class BattleEnv(gym.Env):
         if not 0 <= action < N_ACTIONS or not mask[action]:
             raise ValueError(f"action {action} is masked: {mask.tolist()}")
         prev, forced, struggling = self.snap, self.forced, is_struggling(self.snap)
+        chosen = decision(prev, action, forced)
         target = prev.player[prev.slots()[action - 3]].pid if action >= 4 else None
         self.turn += not forced
         self._frames = 0
@@ -512,13 +552,14 @@ class BattleEnv(gym.Env):
         terminated = not stuck and (_wiped(self.snap) or Event.ENDED in events or Event.TURN_CAP in events)
         self._done = terminated or stuck
         names = [e.name for e in events]
-        info = self._info(events=names, frames=self._frames)
+        info = self._info(events=names, frames=self._frames, **chosen,
+                          fainted_strengths=[] if stuck else fainted_strengths(prev, self.snap))
         if target is not None and not stuck and self.snap.player_active is not None:
             info["switched_in"] = self.snap.player[self.snap.player_active].pid == target
         self._write({
             "episode": self.episode_id, "state": os.path.basename(self.state_name),
             "rng_seed": self.rng_seed, "turn": self.turn, "action": action, "forced": forced,
-            "events": names, "reward": reward, "player_hp": [m.hp for m in self.snap.player],
+            **chosen, "events": names, "reward": reward, "player_hp": [m.hp for m in self.snap.player],
             "enemy_hp": [m.hp for m in self.snap.enemy], "frames": self._frames,
             **({"signal": self._stuck_signal()} if stuck else {})})
         if self._done:

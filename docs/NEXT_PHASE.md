@@ -132,8 +132,9 @@ The first set, with the wild Pokémon's own moves, couldn't run the pilot
 ended 95% of its battles STUCK, and Cranidos's Roar ended all of its. The
 generator now sets the enemy's moves and item (§19), so the enemies use
 Roark's sets, and Shuckle is out until trapping is modeled. One open
-question: Bonsly faints on the first turn against the Starly lead without
-hurting it.
+question was why Bonsly faints on the first turn against the Starly lead
+without hurting it: it's Selfdestruct, whose damage the env misses
+(PROGRESS.md §23).
 
 ## What to watch
 

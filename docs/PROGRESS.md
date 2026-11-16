@@ -990,3 +990,67 @@ matchups are learned and when.
 | The two runs' returns can't be compared | The faint penalty changed between them | The return panel is opt-in, and its title says so |
 | The heatmap's runs didn't line up | Each panel drew one column per bin, so a column covered a different number of decisions in each run | Columns span the decisions they cover, on a shared axis |
 | A map of where the agent goes was asked for | The agent never walks: every episode starts and ends in a battle | The per-battle heatmap shows progress for now; a map trace belongs with the overworld (roadmap step 5), where the location RAM is ready |
+
+## 23. The pilot's first 60,000 decisions, and a missed Selfdestruct (2026-11-16)
+
+Goal: look at the pilot's data part-way through for anything wrong, and
+decide what else to track.
+
+**Training looks healthy.** In bins of 8 updates, from the first to the
+seventh: win rate 0.60 → 0.92, clean-win rate 0.35 → 0.74, faints per
+episode 1.58 → 0.46, decisions per episode 10.9 → 5.3. Entropy fell
+steadily from 1.52 to 0.68 without collapsing. KL stayed at 0.002–0.004
+and the clip fraction at 0.03–0.05. Explained variance rose from 0.16 to
+0.40 and value loss fell from 76 to 31. Throughput was 6.9–7.4
+decisions/s at 74–77 °C. Every episode ended WON or LOST, with no STUCK,
+TURN_CAP or ENDED.
+
+**Per battle,** clean-win rate in the first bin → the seventh:
+
+| Battle | Clean win | Note |
+|---|---|---|
+| Turtwig team vs Corsola | 0.07 → 0.92 | |
+| Chimchar team vs Corsola | 0.05 → 0.84 | |
+| Piplup team vs Corsola | 0.09 → 0.71 | Flat at 0.59–0.71 since the third bin |
+| Turtwig team vs Lileep | 0.10 → 0.47 | |
+| Weak lead vs Lileep | 0.00 → 0.42 | |
+| Chimchar team vs Lileep | 0.01 → 0.13 | Wins rose from 0.27 to 0.81, but almost never clean |
+| The three team-vs-Bonsly battles | 0.65–0.80 → 0.85–0.99 | |
+| Weak lead vs Bonsly | 1.00 throughout | Every episode: one decision, a win, no faint, +6 |
+
+**The Bonsly anomaly is an env bug.** In Weak lead vs Bonsly, Bonsly uses
+Selfdestruct on the first turn, whatever the agent does. The game sets the
+user's HP to 0 before the blast lands, and the env ends the episode as soon
+as a snapshot shows a side at 0 HP. So the env records a clean win and +6.
+Ticking on after the env stops shows the real turn: 200 frames later the
+blast knocks out Starly, or Turtwig if the agent switched to it, and the
+game records the win (`battleResult` 1) after about 740 frames. The faint,
+and its penalty, never reach the agent. This battle was meant to teach
+the fodder trade: keep the weak Starly in to take the blast rather than
+switch in the ace. The bug hides that trade, and any Selfdestruct in the
+other three Bonsly battles is missed the same way. It also inflates the
+pilot's overall rates: Weak lead vs Bonsly is a tenth of all episodes.
+
+**What the logs can't show yet.** Training logs aggregates per update, so
+nothing records which moves were picked, how much PP was left, or which
+Pokémon fainted. The env can write a log of every step (`log_path`), but
+neither the trainer nor `eval_ppo.py` turns it on, and the step record has
+the action slot but not the move or its PP. Two limits of the battle set
+also came up:
+
+- **No setup moves.** The teams' only status moves are Helping Hand,
+  which fails in a single battle, Sand-Attack and Flash (accuracy drops,
+  5 PP each in the hack), and PoisonPowder and Stun Spore. Nothing raises
+  the user's stats, so this set can't show attack-versus-setup choices
+  such as Swords Dance.
+- **The agent can't see what a status move does.** The observation gives
+  each move's type, power, accuracy, class, PP and type matchup, not its
+  effect. A status move can only be told apart by those numbers, which
+  doesn't carry over to a move it hasn't seen.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| Weak lead vs Bonsly is always a clean win in one decision | The env ends an episode at the first snapshot with a side at 0 HP; Selfdestruct zeroes the user's HP before its damage lands | Open: on a wipe, keep running until the game records the result (`battleResult`), and take the faints from then |
+| Move choice, PP and who faints aren't recorded | The trainer logs per-update aggregates; the step log is off and lacks the move and PP | Open: add the move and PP to the step record, and turn the step log on in `eval_ppo.py` |
+| The battle set has no setup moves | The teams get their level-up moves, which have none at these levels | Open: give some teams a setup move, the way the generator sets the enemy's |
+| Status moves are told apart only by their numbers | The observation has no move-effect field | Open: an effect category from the ROM's battle effect id |

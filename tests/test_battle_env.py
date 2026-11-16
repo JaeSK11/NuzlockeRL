@@ -23,7 +23,8 @@ needs_rom = pytest.mark.skipif(
     reason="needs the Kaizo ROM and local milestone save states (not in git)")
 
 GEN = os.path.join(ROOT, "states/generated")
-CHIMCHAR, PIPLUP, PIKACHU, TURTWIG, STARLY, BIDOOF, EEVEE = 390, 393, 25, 387, 396, 399, 133
+CHIMCHAR, PIPLUP, PIKACHU, TURTWIG, STARLY, BIDOOF, EEVEE, BONSLY = 390, 393, 25, 387, 396, 399, 133, 438
+TACKLE, SELFDESTRUCT = 33, 120
 TEAM3 = [{"species": CHIMCHAR, "level": 12, "moves": [52, 10, 43, 183]},
          {"species": PIPLUP, "level": 11, "moves": [55, 1, 145, 64]},
          {"species": PIKACHU, "level": 10, "moves": [84, 98, 86, 45]}]
@@ -33,17 +34,20 @@ TEAM6 = [{"species": CHIMCHAR, "level": 12, "moves": [52, 10]}, {"species": PIPL
 # Turtwig's two moves have 1 PP each (Tail Whip, Meditate), so two turns leave it with none. Pikachu is alive.
 NO_PP = [{"species": TURTWIG, "level": 10, "moves": [39, 96]}, {"species": PIKACHU, "level": 10, "moves": [84, 98]}]
 WEAKLEAD = [{"species": PIKACHU, "level": 2, "moves": [84, 45]}, {"species": TURTWIG, "level": 15, "moves": [33, 72, 75, 44]}]
-SCENARIOS = {   # name: (party, wild enemy (species, level) or None, seed); built on first use, as make_scenario.py does
+# A weak Starly lead against a Bonsly whose only move is Selfdestruct; Turtwig is the strongest.
+WEAK_STARLY = [{"species": STARLY, "level": 8, "moves": [TACKLE]}, {"species": TURTWIG, "level": 14, "moves": [TACKLE]}]
+SCENARIOS = {   # name: (party, wild enemy (species, level) or None, seed[, enemy moves]); built on first use, as make_scenario.py does
     "team3": (TEAM3, None, 2), "team_vs_starly12": (TEAM3, (STARLY, 12), 4),
     "team6_vs_starly12": (TEAM6, (STARLY, 12), 5), "no_pp_vs_starly12": (NO_PP, (STARLY, 12), 3),
-    "weaklead_vs_eevee": (WEAKLEAD, (EEVEE, 13), 7)}
+    "weaklead_vs_eevee": (WEAKLEAD, (EEVEE, 13), 7),
+    "starly_vs_selfdestruct": (WEAK_STARLY, (BONSLY, 15), 8, [SELFDESTRUCT])}
 
 
 def scenario_state(name):
     path = os.path.join(GEN, name + ".state")
     if not os.path.exists(path):
-        party, enemy, seed = SCENARIOS[name]
-        scenario.make_scenario(party, path, seed, ROM, enemy=enemy)
+        party, enemy, seed, *enemy_moves = SCENARIOS[name]
+        scenario.make_scenario(party, path, seed, ROM, enemy=enemy, enemy_moves=enemy_moves[0] if enemy_moves else None)
     return path
 
 
@@ -197,8 +201,8 @@ def test_log_file(tmp_path):
     play(e, BARRY, [0], keep_rng=True)
     e.close()
     step, summary = [json.loads(line) for line in log.read_text().splitlines()]
-    assert set(step) == {"episode", "state", "rng_seed", "turn", "action", "forced", "events", "reward",
-                         "player_hp", "enemy_hp", "frames"}
+    assert set(step) == {"episode", "state", "rng_seed", "turn", "action", "forced", "pick", "move", "pp_before",
+                         "events", "reward", "player_hp", "enemy_hp", "frames"}
     assert step["forced"] is False
     assert step["events"] == ["TURN_CAP"] and step["player_hp"] == [18] and step["enemy_hp"] == [15]
     assert set(summary) >= {"episode", "outcome", "turns", "return", "frames"}
@@ -206,7 +210,9 @@ def test_log_file(tmp_path):
 
 
 def battle_frames(info0, rows):
-    return info0["frames"] + sum(r[6]["frames"] for r in rows)
+    """Frames to the last decision. The last step also waits for the game to record the
+    result (BattleEnv._await_result), which the battle options don't shorten."""
+    return info0["frames"] + sum(r[6]["frames"] for r in rows[:-1])
 
 
 @needs_rom
@@ -513,3 +519,32 @@ def test_a_state_loads_the_same_whatever_ran_before():
     e.nds.load_state_from_file(state)
     assert ram_after_a_fight_tap(e.nds) == want
     e.close()
+
+
+@needs_rom
+def test_a_selfdestruct_that_ends_the_battle_still_costs_the_faint_it_causes(team_env):
+    """Selfdestruct zeroes its user's HP before the blast lands. The episode must end on the
+    game's own result, after the blast, not as a clean win at the first 0 HP."""
+    reset_on(team_env, "starly_vs_selfdestruct")
+    starly = strengths(team_env.snap.player)[0]
+    for _ in range(5):      # Tackle does 1 HP a turn, so only the Selfdestruct, when it comes, ends the battle
+        _, reward, terminated, truncated, info = team_env.step(0)
+        if terminated or truncated:
+            break
+    assert terminated and info["outcome"] == "WON" and info["result_mask"] == 1
+    assert info["events"] == ["PLAYER_FAINTED", "ENEMY_FAINTED", "WON"]
+    assert info["fainted_strengths"] == [starly] and starly < 1
+    assert reward == pytest.approx(REWARDS[Event.WON] + REWARDS[Event.ENEMY_FAINTED] - FAINT_BASE - FAINT_SCALE * starly)
+    assert (info["pick"], info["move"]) == ("resisted", "Tackle"), "Normal into Rock"
+
+
+@needs_rom
+def test_info_names_each_decision(team_env):
+    reset_on(team_env, "team_vs_starly12")
+    mon = team_env.snap.player[team_env.snap.player_active]
+    _, _, _, _, info = team_env.step(0)
+    assert (info["move"], info["pp_before"]) == (romdata.move(mon.moves[0]).name, mon.pp[0])
+    assert info["pick"] in ("super", "neutral", "resisted", "immune", "status")
+    if not (info["outcome"] if "outcome" in info else None):
+        _, _, _, _, info = team_env.step(int(np.flatnonzero(info["action_mask"][4:])[0]) + 4)
+        assert (info["pick"], info["move"], info["pp_before"]) == ("switch", None, None)
