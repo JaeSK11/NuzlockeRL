@@ -1,9 +1,8 @@
 # Next phase: the PPO pilot
 
-Written 2026-11-12 as a plan to pick up later. Steps 1 to 3, and the STUCK
-question under "Before starting", were done on 2026-11-16 (see
-[PROGRESS.md](PROGRESS.md#18-getting-the-ppo-pilot-ready-2026-11-16)). The
-short run (step 4) and the pilot (step 5) have not been run.
+Written 2026-11-12 as a plan to pick up later. Steps 1 to 4, and the STUCK
+question under "Before starting", were done on 2026-11-16 (PROGRESS.md §18
+to §20). The pilot (step 5) has not been run.
 
 ## The question
 
@@ -95,8 +94,13 @@ emulator only to evaluate.
        --states states/generated/pilot/heldout/*.state --json runs/pilot/eval.json
    ```
 
-4. **Short run first.** About 20,000 decisions on the train split with 14
-   envs, roughly 45 minutes:
+4. **Short run first.** Done, see
+   [PROGRESS.md](PROGRESS.md#20-the-ppo-check-run-2026-11-16): the win rate
+   went from 0.61 to 0.87 in 20,000 decisions, and the held-out win rate
+   from 0.56 to 0.73. Before the pilot, count faints per episode so the
+   logs show the clean-win rate, and look at the two battles that got
+   worse. It ran 20,000 decisions on the train split with 14 envs, in 49
+   minutes:
 
    ```bash
    ~/venvs/nuzlockerl/bin/python scripts/train_ppo.py --states <train states> \

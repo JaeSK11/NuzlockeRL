@@ -827,3 +827,51 @@ return, which counts −3 per faint, measure that better than the win rate.
 | Roar ended every Cranidos battle | The generator kept the wild Pokémon's level-up moves | The generator sets the enemy's moves and item; Cranidos now has Roark's Head Smash set |
 | `git push` failed after the reboot | The remote is HTTPS and no credential helper was set; the earlier pushes went through the editor's login | After `gh auth login`, this repo's `credential.https://github.com.helper` uses `gh auth git-credential` |
 | Bonsly faints on the first turn of `weak_lead_vs_bonsly` without hurting the lead | Not found. It knows Selfdestruct, but the Starly lead took no damage, even when the player switched | Open. Bonsly battles are near-certain wins, so they teach little about winning; their clean-win rate still leaves room |
+
+## 20. The PPO check run (2026-11-16)
+
+Goal: step 4 of [NEXT_PHASE.md](NEXT_PHASE.md). A short run on the 10
+training battles, to check that training is healthy before the long pilot.
+
+**The run.** 14 envs, 20,480 decisions in 20 updates, 49 minutes, with the
+default settings (learning rate 2.5e-4, 1,024 decisions per update).
+- 2,076 episodes, all WON or LOST: 0 STUCK and 0 ENDED.
+- 6.8 to 7.1 decisions/s, and the CPU peaked at 88 °C.
+- The return stayed at random play's level for 6 updates, while the
+  critic learned (explained variance 0.02 to 0.32) and the policy barely
+  moved (KL about 0.0002, no clipping). From update 7 it rose, and the
+  last 4 updates gave returns of +0.13, −0.03, +0.63, and +1.25, with win
+  rates of 0.82 to 0.87. Random play gives −4.71 and 0.61.
+
+**Per training battle,** over the last 5 updates:
+
+| Battle | Win (random) | Return (random) |
+|---|---|---|
+| Weak lead vs Lileep | 0.80 (0.16) | −1.2 (−15.5) |
+| Chimchar team vs Corsola | 0.67 (0.23) | −3.2 (−13.9) |
+| Piplup team vs Corsola | 0.71 (0.26) | −2.7 (−13.4) |
+| Turtwig team vs Corsola | 0.90 (0.58) | +0.5 (−6.5) |
+| Turtwig team vs Lileep | 0.81 (0.52) | −1.1 (−8.7) |
+| Chimchar team vs Lileep | 0.39 (0.52) | −10.7 (−8.5) |
+| The 4 Bonsly battles | 0.98–1.00 (0.96–1.00) | about the same |
+
+**Held out,** the final checkpoint with `eval_ppo.py`, 42 episodes per
+battle:
+
+| Battle | Random | Sampled | Greedy |
+|---|---|---|---|
+| Piplup team vs Cranidos | 0.54, −7.8 | 0.83, −1.2 | 1.00, +3.4 |
+| Turtwig team vs Cranidos | 0.36, −11.6 | 0.71, −3.6 | 0.76, −1.2 |
+| Chimchar team vs Gible | 0.77, −3.6 | 0.79, −2.4 | 0.83, −0.8 |
+| Weak lead vs Gible | 0.60, −6.3 | 0.60, −6.3 | 0.38, −11.8 |
+| All | 0.56 | 0.73 | 0.74 |
+
+Cranidos never appeared in training, so learning on the emulator
+generalizes past the battles it trained on.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| The policy didn't move for the first 6 updates | The critic had to learn first: the advantages that steer the policy are only as good as the value estimates | None needed; it learned once explained variance rose |
+| Chimchar team vs Lileep got worse than random | Not found. A guess: a habit learned on the other battles, such as staying in to attack, costs this one | Open. Check what the policy does there |
+| Greedy play on Weak lead vs Gible did worse than random | Not found. The same guess: it may not switch the weak lead out | Open. Same check |
+| The training log can't show the clean-win rate | Episode records keep the outcome and return, not the player's faints | Open. Count faints per episode before the pilot |
