@@ -8,6 +8,9 @@
 tables). A JSON spec is either a list of mons or {"party": [...], "enemy": [species, level]};
 each mon takes species, level, moves and optionally pid, ivs, evs, nature, ability_slot, item.
 Without --enemy the game picks from Route 201's table.
+
+The state is then checked in a fresh env (scenario.check_state), and the script exits 1 if
+it can't be played.
 """
 import argparse, json, os, sys
 
@@ -43,6 +46,9 @@ def main():
         ap.error("give --mon or --spec")
     record = scenario.make_scenario(party, args.out, args.seed, args.rom, args.base_state, enemy)
     print(json.dumps(record))
+    result = scenario.check_state(args.out, args.rom)
+    print(f"check: {result}")
+    sys.exit(0 if result == "ok" else 1)
 
 
 if __name__ == "__main__":

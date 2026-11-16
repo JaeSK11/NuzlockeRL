@@ -699,3 +699,70 @@ does. `scripts/setup_env.sh` applies every `patches/noods-*.patch`.
 | My first check of the state found nothing (20 of 20 fine) | It reset mid-battle each time, never after a finished battle | Tested resets after finished battles |
 | The double load looked like a fix | It only made the bad case rarer: after a STUCK it still gave different RAM | Compared RAM after the same input instead of counting STUCK |
 | The old `weaklead_vs_eevee.state` came from the live clock | Generated before §16 | Moved out of the way; the test builds it again from its recipe |
+
+## 18. Getting the PPO pilot ready (2026-11-16)
+
+Goal: steps 1 to 3 of [NEXT_PHASE.md](NEXT_PHASE.md), and its open question
+on how STUCK counts, so that the pilot can start.
+
+**What was built.**
+- `scenario.check_state` loads a state in a fresh env and plays one
+  decision. It returns "ok", or why the state can't be played.
+  `make_scenario.py` now runs it on every state it saves, and exits 1 on a
+  failure.
+- `scripts/make_battle_set.py` builds a set of battles from a JSON file,
+  such as `scripts/pilot_battles.json`, and checks each one. Species are
+  given by name, and each Pokémon gets its level-up moves at that level.
+- `ppo.load_policy` and `ppo.evaluate` play a fixed number of episodes per
+  env with a saved policy, sampled or always taking the most likely valid
+  action. Nothing is learned. `scripts/eval_ppo.py` runs them on a list of
+  states and prints the results per state. Three new tests cover the episode
+  count, the mask in greedy play, and a trained checkpoint. Each of two
+  deliberate breaks made a test fail. The script also ran end to end on the
+  emulator.
+
+**STUCK keeps bootstrapping.** The plan first said to end a STUCK as a
+terminal step with 0 reward. That would make a STUCK worth 0, more than any
+loss, so in a losing position the agent could learn to cause one. As a
+truncation, a STUCK bootstraps from the value of its last state, so it is
+worth about as much as playing on, neither rewarded nor punished. The real
+fix for STUCKs the agent causes is in the action mask (below).
+
+**Random-policy baseline,** with 8 envs:
+
+| Split | Battle | Episodes | Won | Lost | STUCK | ENDED |
+|---|---|---|---|---|---|---|
+| train | Turtwig team vs Bonsly 15 | 60 | 56 | 4 | | |
+| train | Turtwig team vs Lileep 13 | 44 | 44 | | | |
+| train | Turtwig team vs Corsola 14 | 51 | 49 | 2 | | |
+| train | Turtwig team vs Shuckle 13 | 47 | 1 | | 46 | |
+| train | Chimchar team vs Bonsly 15 | 42 | 38 | 4 | | |
+| train | Chimchar team vs Lileep 13 | 50 | 50 | | | |
+| train | Piplup team vs Corsola 14 | 48 | 43 | 5 | | |
+| train | Piplup team vs Shuckle 13 | 53 | 3 | | 50 | |
+| train | Weak lead vs Bonsly 15 | 55 | 54 | 1 | | |
+| train | Weak lead vs Lileep 13 | 50 | 49 | 1 | | |
+| held out | Turtwig team vs Cranidos 16 | 46 | | | | 46 |
+| held out | Chimchar team vs Gible 14 | 46 | 35 | 11 | | |
+| held out | Piplup team vs Cranidos 16 | 49 | 1 | | | 48 |
+| held out | Weak lead vs Gible 14 | 59 | 43 | 16 | | |
+
+The set as written can't run the pilot:
+- **The battles are too easy.** A random policy wins 87–100% of the eight
+  playable training battles. With so little room above random, the pilot
+  couldn't show learning.
+- **Shuckle's battles end STUCK.** Shuckle knows Wrap and Encore, and the env
+  models neither. Every STUCK came on turn 3 or later.
+- **Cranidos ends its battles.** It knows Roar, which ends a wild battle.
+  `resultMask` read 5, `BATTLE_RESULT_PLAYER_FLED` in the decomp.
+
+Throughput was 5.4 decisions/s with 8 envs. A battle took about 9
+decisions, against 4 to 6 in the milestone battles.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| The plan's fix for STUCK would have rewarded it | A terminal 0 is worth more than any loss | Kept bootstrapping; the plan explains why |
+| Every Cranidos battle ended after one decision as ENDED | The wild Cranidos's level-up moves include Roar, which ends a wild battle. It used Roar every time, so the hack's wild Pokémon may choose moves with an AI | The battles need another enemy, or the generator needs to set the enemy's moves (roadmap) |
+| 95% of the Shuckle battles ended STUCK | Wrap traps the player, and the game refuses a switch. The 50 switch STUCKs stopped on the party menu. Encore locks a move, and the game refuses any other. The 45 move STUCKs stopped at the action menu | Needs the trapping and Encore RAM, so the mask can rule those actions out (roadmap steps 1 and 3) |
+| A random policy wins almost every other battle | One wild Pokémon against a team of three at similar levels | The battles need stronger enemies before the pilot |
+| The upstream bug-report drafts were lost during a trip | They were kept in a temporary folder that was cleared | Upstream was checked again for changes, and the reports were rewritten and posted the same day: [Hydr8gon/NooDS#210](https://github.com/Hydr8gon/NooDS/issues/210) and [unexploredtest/PyNDS#5](https://github.com/unexploredtest/PyNDS/issues/5) |

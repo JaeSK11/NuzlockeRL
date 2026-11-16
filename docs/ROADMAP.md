@@ -105,19 +105,26 @@ The hack changed abilities, so assume it changed more.
       question in Shift style, and move-learn and evolution questions. They
       end the episode as STUCK. No multi-Pokémon trainer state exists yet
       to test the first.
-- [ ] **Switching while trapped** (Mean Look, Arena Trap) and **move
+- [ ] **Switching while trapped** (Wrap, Mean Look, Arena Trap) and **move
       locks** (Disable, Encore, Choice items) aren't in the action mask. A
-      refused tap ends the step as STUCK.
+      refused tap ends the step as STUCK. Against a wild Shuckle, which knows
+      Wrap and Encore, 95% of random-policy battles ended STUCK.
 - [x] **No PP left.** The mask allows action 0 only, which taps a move
       and makes the game use Struggle. Switching is masked off in that case
       for now; allowing it is a one-line change in `action_mask`.
 - [x] **Lockstep stepping wastes CPU.** `src/pool.py` steps each env as
       soon as it's ready: 1.30× more decisions per second with 14 envs,
       and 13.2 busy cores instead of 8.3.
-- [ ] **Check generated states when they are saved.** The generator could
-      load each state in a fresh emulator and check that a FIGHT tap opens
-      the move menu. A state that fails then stops generation instead of a
-      training run, since any worker error stops training.
+- [x] **Check generated states when they are saved.**
+      `scenario.check_state` loads a state in a fresh env and plays one
+      decision. `make_scenario.py` and `make_battle_set.py` exit 1 when a
+      state fails, so a bad state stops generation instead of a training
+      run.
+- [ ] **Control the wild enemy's moves.** The generator keeps the game's
+      own moves for the enemy, its level-up moves. Some of those end a wild
+      battle: Roar ended every battle against a wild Cranidos 16 on the first
+      turn. Writing the moves into RAM would also let a wild battle use a
+      trainer's real movesets.
 - [ ] **Save states on tmpfs.** Loading a state takes about 2.7 ms, so this
       matters only if profiling shows state loads.
 

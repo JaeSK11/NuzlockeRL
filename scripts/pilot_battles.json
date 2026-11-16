@@ -1,0 +1,21 @@
+{
+  "about": "PPO pilot battles (docs/NEXT_PHASE.md). Wild battles that stand in for Roark: teams of three that a Nuzlocke run could have by then, from Route 201-204 and Oreburgh Gate, against Roark's species at his levels. Cranidos and Gible appear only in heldout. SPECIES:LEVEL by name; moves are each species' level-up moves in the hack.",
+  "train": [
+    {"name": "turtwig_team_vs_bonsly15",   "party": ["Turtwig:14", "Shinx:13", "Starly:13"],    "enemy": "Bonsly:15",   "seed": 1},
+    {"name": "turtwig_team_vs_lileep13",   "party": ["Turtwig:14", "Machop:13", "Budew:12"],    "enemy": "Lileep:13",   "seed": 2},
+    {"name": "turtwig_team_vs_corsola14",  "party": ["Turtwig:14", "Shinx:13", "Budew:12"],     "enemy": "Corsola:14",  "seed": 3},
+    {"name": "turtwig_team_vs_shuckle13",  "party": ["Turtwig:13", "Machop:13", "Starly:13"],   "enemy": "Shuckle:13",  "seed": 4},
+    {"name": "chimchar_team_vs_bonsly15",  "party": ["Chimchar:14", "Psyduck:13", "Budew:12"],  "enemy": "Bonsly:15",   "seed": 5},
+    {"name": "chimchar_team_vs_lileep13",  "party": ["Chimchar:14", "Geodude:13", "Shinx:13"],  "enemy": "Lileep:13",   "seed": 6},
+    {"name": "piplup_team_vs_corsola14",   "party": ["Piplup:14", "Machop:13", "Starly:13"],    "enemy": "Corsola:14",  "seed": 7},
+    {"name": "piplup_team_vs_shuckle13",   "party": ["Piplup:14", "Budew:12", "Geodude:13"],    "enemy": "Shuckle:13",  "seed": 8},
+    {"name": "weak_lead_vs_bonsly15",      "party": ["Starly:12", "Turtwig:14", "Machop:13"],   "enemy": "Bonsly:15",   "seed": 9},
+    {"name": "weak_lead_vs_lileep13",      "party": ["Shinx:12", "Piplup:14", "Machop:13"],     "enemy": "Lileep:13",   "seed": 10}
+  ],
+  "heldout": [
+    {"name": "turtwig_team_vs_cranidos16", "party": ["Turtwig:14", "Machop:13", "Shinx:13"],    "enemy": "Cranidos:16", "seed": 11},
+    {"name": "chimchar_team_vs_gible14",   "party": ["Chimchar:14", "Psyduck:13", "Starly:13"], "enemy": "Gible:14",    "seed": 12},
+    {"name": "piplup_team_vs_cranidos16",  "party": ["Piplup:14", "Geodude:13", "Budew:12"],    "enemy": "Cranidos:16", "seed": 13},
+    {"name": "weak_lead_vs_gible14",       "party": ["Budew:12", "Chimchar:14", "Geodude:13"],  "enemy": "Gible:14",    "seed": 14}
+  ]
+}

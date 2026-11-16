@@ -287,3 +287,18 @@ def make_scenario(party_spec: list[dict], out_path: str, seed: int = 0, rom: str
     with open(out_path + ".json", "w") as f:
         json.dump(record, f, indent=1)
     return record
+
+
+def check_state(path: str, rom: str = DEFAULT_ROM) -> str:
+    """"ok" if a fresh env reaches a decision from this state and its first tap registers,
+    else why not. Training stops on any worker error, so check a state before a run uses it."""
+    from battle_env import BattleEnv    # imported here: the env isn't needed to build states
+    env = BattleEnv([path], rom)
+    try:
+        _, info = env.reset(seed=0)
+        _, _, _, truncated, _ = env.step(next(i for i, ok in enumerate(info["action_mask"]) if ok))
+        return "the first tap didn't register (STUCK)" if truncated else "ok"
+    except Exception as e:
+        return f"{type(e).__name__}: {e}"
+    finally:
+        env.close()

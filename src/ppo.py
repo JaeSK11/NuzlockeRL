@@ -354,3 +354,53 @@ def train(env_fns, run_dir: str, total_decisions: int, seed: int = 0, cfg: Confi
         if update > saved:
             checkpoint()
     return decisions
+
+
+def load_policy(ckpt_path: str) -> tuple[Agent, ObsNorm]:
+    """The agent and observation normalization saved in a checkpoint."""
+    ckpt = torch.load(ckpt_path, weights_only=True)
+    agent, norm = Agent(ckpt["obs_dim"], ckpt["n_actions"], ckpt["config"]["hidden"]), ObsNorm(ckpt["obs_dim"])
+    agent.load_state_dict(ckpt["agent"])
+    norm.load_state_dict(ckpt["obs_norm"])
+    return agent, norm
+
+
+@torch.no_grad()
+def evaluate(agent: Agent, norm: ObsNorm, env_fns, episodes_per_env: int, greedy: bool = False,
+             seed: int = 0, guard=None) -> list[dict]:
+    """Play episodes_per_env episodes in every env with a fixed policy. Greedy takes the most
+    likely valid action, otherwise actions are sampled. Nothing is learned, and the
+    normalization statistics stay as saved. Returns one record per episode, as episode_stats
+    takes them, plus the env index. Stops early once guard.tripped is set."""
+    generator = torch.Generator().manual_seed(seed)
+    records, done, stepped = [], collections.Counter(), set()
+    returns, lengths = collections.defaultdict(float), collections.defaultdict(int)
+    with AsyncEnvPool(env_fns, seed=seed) as pool:
+        batch = pool.recv()
+        while not (guard and guard.tripped.is_set()):
+            act = []
+            for row, env in enumerate(batch.env_ids.tolist()):
+                if env in stepped:
+                    returns[env] += float(batch.rewards[row])
+                    lengths[env] += 1
+                    if batch.terminated[row] or batch.truncated[row]:
+                        info = batch.final_infos[row]
+                        records.append({"env": env, "state": os.path.basename(str(info.get("state", ""))),
+                                        "outcome": info.get("outcome"), "return": returns.pop(env),
+                                        "length": lengths.pop(env)})
+                        done[env] += 1
+                if done[env] < episodes_per_env:
+                    act.append(row)
+            if all(done[env] >= episodes_per_env for env in range(len(env_fns))):
+                break
+            if act:
+                masks = batch.action_masks[act]
+                if not masks.any(axis=1).all():
+                    raise RuntimeError("an env has no valid action")
+                obs = norm(torch.as_tensor(batch.obs[act], dtype=torch.float64).flatten(1))
+                logp = agent.log_probs(obs, torch.as_tensor(masks))
+                action = logp.argmax(-1) if greedy else torch.multinomial(logp.exp(), 1, generator=generator).squeeze(-1)
+                pool.send(batch.env_ids[act], action.numpy())
+                stepped.update(batch.env_ids[act].tolist())
+            batch = pool.recv()
+    return records

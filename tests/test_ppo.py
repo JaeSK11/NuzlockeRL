@@ -1,6 +1,6 @@
 """Tests for ppo.py on fake envs. No emulator needed.
 Run: ~/venvs/nuzlockerl/bin/python -m pytest -q tests/test_ppo.py"""
-import json, os, sys, threading, types
+import collections, json, os, sys, threading, types
 import gymnasium as gym
 import numpy as np
 import pytest
@@ -8,7 +8,8 @@ import torch
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
 from pool import Batch
-from ppo import Agent, Collector, Config, ObsNorm, Rollout, Transition, gae, latest_checkpoint, train
+from ppo import (Agent, Collector, Config, ObsNorm, Rollout, Transition, episode_stats, evaluate, gae,
+                 latest_checkpoint, load_policy, train)
 
 
 class BanditEnv(gym.Env):
@@ -219,3 +220,27 @@ def test_resume_refuses_a_checkpoint_from_another_observation_layout(tmp_path):
     torch.save(state, path)
     with pytest.raises(RuntimeError, match="Start a new --run-dir"):
         train(BANDITS, str(tmp_path), 64, cfg=cfg, log=lambda *_: None)
+
+
+def test_evaluation_plays_the_requested_episodes_in_every_env():
+    torch.manual_seed(0)
+    episodes = evaluate(Agent(3, 4), ObsNorm(3), BANDITS, episodes_per_env=3, seed=1)
+    assert collections.Counter(e["env"] for e in episodes) == {0: 3, 1: 3, 2: 3, 3: 3}
+    assert {e["length"] for e in episodes} == {5} and {e["outcome"] for e in episodes} <= {"WON", "LOST"}
+
+
+def test_greedy_evaluation_never_takes_a_masked_action():
+    agent = Agent(3, 4)
+    with torch.no_grad():
+        agent.actor[-1].bias[3] = 30.0      # BanditEnv raises if the masked action 3 is taken
+    assert len(evaluate(agent, ObsNorm(3), BANDITS, episodes_per_env=2, greedy=True)) == 8
+
+
+def test_a_trained_checkpoint_evaluates_as_well_as_it_trained(tmp_path):
+    cfg = Config(rollout=256, lr=3e-3, checkpoint_every=100)
+    train(BANDITS, str(tmp_path), 256 * 20, seed=0, cfg=cfg, log=lambda *_: None)
+    agent, norm = load_policy(latest_checkpoint(str(tmp_path)))
+    sampled = episode_stats(evaluate(agent, norm, BANDITS, episodes_per_env=10, seed=2))
+    greedy = episode_stats(evaluate(agent, norm, BANDITS, episodes_per_env=10, greedy=True, seed=2))
+    assert sampled["win_rate"] > 0.5 and greedy["win_rate"] >= sampled["win_rate"]
+    assert set(greedy["states"]) == {"bandit.state"}

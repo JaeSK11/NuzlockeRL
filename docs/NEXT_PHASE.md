@@ -1,7 +1,9 @@
 # Next phase: the PPO pilot
 
-Written 2026-11-12 as a plan to pick up later. None of these steps has been
-run yet.
+Written 2026-11-12 as a plan to pick up later. Steps 1 to 3, and the STUCK
+question under "Before starting", were done on 2026-11-16 (see
+[PROGRESS.md](PROGRESS.md#18-getting-the-ppo-pilot-ready-2026-11-16)). The
+short run (step 4) and the pilot (step 5) have not been run.
 
 ## The question
 
@@ -29,10 +31,13 @@ emulator only to evaluate.
    patches. Then run `pytest -q tests`, and make sure
    `test_clock_is_fixed` and `test_a_state_loads_the_same_whatever_ran_before`
    pass. A PyNDS built without the patches fails them.
-2. **Decide how STUCK counts.** STUCK is a truncation today, so it
-   bootstraps from the value of its last state, and the agent could come to
-   prefer it to a loss. STUCK should now be rare, but the pilot should
-   either end it as a terminal step with 0 reward or drop those episodes.
+2. **How STUCK counts: settled, no change.** STUCK is a truncation, so it
+   bootstraps from the value of its last state. That values a STUCK like
+   playing on from there, neither rewarded nor punished. Ending it as a
+   terminal step with 0 reward, as this plan first said, would make a STUCK
+   worth more than any loss, and the agent could learn to cause one, for
+   example by switching while trapped. The fix for agent-caused STUCK is to
+   mask switches while trapped and moves under Encore (roadmap step 3).
 3. **Make a worker error survivable, or rule it out.** Any worker error
    stops training (`WorkerError`). Step 1 below checks every state up
    front. Optionally, let the trainer restart a failed worker and log it.
@@ -41,14 +46,16 @@ emulator only to evaluate.
 
 ## Steps
 
-1. **Build the battle set, and check each state.** Write a small builder
-   that reads a JSON spec of scenarios and calls `scenario.make_scenario` for
-   each. It should then load each state in a fresh env and play one decision.
-   A state that doesn't reach a decision, or whose first tap doesn't take,
-   fails the build. This also covers the roadmap item "check generated states
-   when they are saved". Use each species' level-up moves at that level from
-   `romdata.default_moves`. Proposed set, with wild battles standing in for
-   Roark:
+1. **Build the battle set, and check each state.** Done:
+
+   ```bash
+   ~/venvs/nuzlockerl/bin/python scripts/make_battle_set.py scripts/pilot_battles.json
+   ```
+
+   It builds `states/generated/pilot/<split>/<name>.state` from
+   `scripts/pilot_battles.json`, and checks each state in a fresh env
+   (`scenario.check_state`). Each species gets its level-up moves at that
+   level. The set, with wild battles standing in for Roark:
 
    | Split | Party | Enemy |
    |---|---|---|
@@ -71,15 +78,24 @@ emulator only to evaluate.
    hack. The enemies are Roark's species at his levels. Cranidos and Gible
    never appear in training.
 
-2. **Measure a random baseline.** Run `scripts/rollout.py --states ...` on
-   each split, about 300 episodes, and record the win rate per state. The
-   pilot is judged against these numbers.
+2. **Measure a random baseline.** Done; the numbers are in
+   [PROGRESS.md](PROGRESS.md#18-getting-the-ppo-pilot-ready-2026-11-16). The
+   pilot is judged against them.
 
-3. **Write an evaluation script.** `train_ppo.py` reports win rates only on
-   the battles it trains on. A small `scripts/eval_ppo.py` should load a
-   checkpoint and play N episodes per state. It should report the win rate
-   per state with the policy sampled, and with the best valid action taken
-   every time. The held-out split needs it.
+3. **An evaluation script.** Done. `scripts/eval_ppo.py` loads a checkpoint
+   and plays `--episodes` episodes per state, with the policy sampled and
+   with the most likely valid action every time:
+
+   ```bash
+   ~/venvs/nuzlockerl/bin/python scripts/eval_ppo.py --run-dir runs/pilot \
+       --states states/generated/pilot/heldout/*.state --json runs/pilot/eval.json
+   ```
+
+   **The baseline found that the set can't run the pilot yet.** A random
+   policy wins 87–100% of the playable training battles. Shuckle's Wrap
+   and Encore end 95% of its battles STUCK. Cranidos's Roar ends every one
+   of its battles. Fix these before step 4; the options are below, under
+   "Revising the battle set".
 
 4. **Short run first.** About 20,000 decisions on the train split with 14
    envs, roughly 45 minutes:
@@ -104,6 +120,18 @@ emulator only to evaluate.
    with `eval_ppo.py`.
 
 6. **Decide.** Write the result up in PROGRESS.md as its own section.
+
+## Revising the battle set
+
+- **Make the battles harder,** so that a random policy wins about 20–50%.
+  Raise the enemies' levels, or lower the team's, and measure again.
+- **Control the enemy's moves in the generator** (roadmap step 3). This
+  removes Roar, and lets a wild battle use a trainer's real movesets, such
+  as Roark's Stealth Rock and Head Smash. A closer stand-in for the real
+  fight would also be harder.
+- **Shuckle:** leave it out until the trapping and Encore RAM is mapped and
+  the mask rules out a refused switch or move. Or keep it only once the
+  enemy's moves can be set without Wrap and Encore.
 
 ## What to watch
 

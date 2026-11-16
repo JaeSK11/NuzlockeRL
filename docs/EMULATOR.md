@@ -40,7 +40,8 @@ so tests and generated states depended on the hour and the time zone.
 the clock then stays at that time. `src/gen4.py` sets it to Wednesday
 2026-11-11 22:00:00, night in Platinum, unless it is already set. Every
 module that creates an emulator imports `gen4` first, and spawned workers
-inherit it. `tests/test_gen4.py::test_clock_is_fixed` fails on a build
+inherit it. Requested upstream as
+[unexploredtest/PyNDS#5](https://github.com/unexploredtest/PyNDS/issues/5). `tests/test_gen4.py::test_clock_is_fixed` fails on a build
 without the patch.
 
 ### The state-load fix
@@ -58,7 +59,9 @@ a finished battle ended STUCK, with the action menu up and no tap taking.
 once every component is loaded. After it, a load gives the same RAM, byte
 for byte, whatever ran before.
 `tests/test_battle_env.py::test_a_state_loads_the_same_whatever_ran_before`
-fails without the patch.
+fails without the patch. Reported upstream as
+[Hydr8gon/NooDS#210](https://github.com/Hydr8gon/NooDS/issues/210). Drop the
+patch once a fix reaches the NooDS commit that PyNDS uses.
 
 ## Test results on the Kaizo ROM (2026-11-11, 32-core machine)
 
