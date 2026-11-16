@@ -766,3 +766,64 @@ decisions, against 4 to 6 in the milestone battles.
 | 95% of the Shuckle battles ended STUCK | Wrap traps the player, and the game refuses a switch. The 50 switch STUCKs stopped on the party menu. Encore locks a move, and the game refuses any other. The 45 move STUCKs stopped at the action menu | Needs the trapping and Encore RAM, so the mask can rule those actions out (roadmap steps 1 and 3) |
 | A random policy wins almost every other battle | One wild Pokémon against a team of three at similar levels | The battles need stronger enemies before the pilot |
 | The upstream bug-report drafts were lost during a trip | They were kept in a temporary folder that was cleared | Upstream was checked again for changes, and the reports were rewritten and posted the same day: [Hydr8gon/NooDS#210](https://github.com/Hydr8gon/NooDS/issues/210) and [unexploredtest/PyNDS#5](https://github.com/unexploredtest/PyNDS/issues/5) |
+
+## 19. Setting the wild enemy's moves and held item (2026-11-16)
+
+Goal: fix the battle set from §18. The wild enemies used their own level-up
+moves, so Cranidos's Roar ended its battles and the stand-ins were far from
+Roark's real team.
+
+**What was built.** `scenario.set_enemy_moves` writes the enemy's moves at
+full PP, and its held item, into both copies the battle keeps: its
+`BattleMon`, which the battle and the enemy's AI use, and its party struct
+in `enemyBase`, which the game later updates from the `BattleMon`.
+`make_scenario` takes `enemy_moves` and `enemy_item`, `make_scenario.py`
+takes `--enemy-moves` and `--enemy-item`, and a battle-set file can name
+`enemy_sets` with moves and items by name.
+
+**Verified by behavior.** A wild Delibird given only Growl and Leftovers:
+- It used Growl every turn: the player's Attack stage went 6, 5, 4, 3.
+- With its HP set to 10, Leftovers healed it by max HP / 16 each turn,
+  10 to 11 to 12 to 13. That also confirms the `heldItem` offset, which
+  had only been read as 0.
+
+`test_set_enemy_moves_and_item_change_what_the_enemy_does` replays both. It
+fails if either the moves or the item is left out of the `BattleMon` write.
+
+**The pilot set now uses Roark's own sets** (ROM trainer 246): Bonsly,
+Lileep, and Corsola in training, Gible and Cranidos held out, each with his
+moves and held item. Shuckle is out: its Sand Tomb traps, which the env
+can't model yet.
+
+**Random-policy baseline,** 8 envs, 301 training and 160 held-out
+episodes, 0 STUCK and 0 ENDED. "Clean win" is a win with no player faint,
+what a Nuzlocke needs.
+
+| Split | Battle | Win | Clean win | Return | Own faints |
+|---|---|---|---|---|---|
+| train | Turtwig team vs Bonsly | 1.00 | 0.69 | +4.86 | 0.38 |
+| train | Turtwig team vs Lileep | 0.52 | 0.00 | −8.70 | 2.33 |
+| train | Turtwig team vs Corsola | 0.58 | 0.08 | −6.54 | 1.96 |
+| train | Chimchar team vs Bonsly | 0.96 | 0.77 | +4.35 | 0.35 |
+| train | Chimchar team vs Lileep | 0.52 | 0.04 | −8.52 | 2.28 |
+| train | Chimchar team vs Corsola | 0.23 | 0.06 | −13.94 | 2.52 |
+| train | Piplup team vs Bonsly | 0.96 | 0.75 | +4.36 | 0.36 |
+| train | Piplup team vs Corsola | 0.26 | 0.05 | −13.44 | 2.51 |
+| train | Weak lead vs Bonsly | 1.00 | 1.00 | +6.00 | 0.00 |
+| train | Weak lead vs Lileep | 0.16 | 0.06 | −15.45 | 2.68 |
+| train | all | 0.61 | 0.37 | −4.71 | |
+| held out | Chimchar team vs Gible | 0.77 | 0.00 | −3.57 | 1.97 |
+| held out | Piplup team vs Cranidos | 0.54 | 0.03 | −7.77 | 2.13 |
+| held out | Turtwig team vs Cranidos | 0.36 | 0.00 | −11.64 | 2.46 |
+| held out | Weak lead vs Gible | 0.60 | 0.09 | −6.28 | 1.94 |
+| held out | all | 0.56 | 0.03 | −7.36 | |
+
+Apart from Bonsly, random play wins 16–77% of the battles and almost never
+wins clean, so there is room above random. The clean-win rate and the
+return, which counts −3 per faint, measure that better than the win rate.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| Roar ended every Cranidos battle | The generator kept the wild Pokémon's level-up moves | The generator sets the enemy's moves and item; Cranidos now has Roark's Head Smash set |
+| `git push` failed after the reboot | The remote is HTTPS and no credential helper was set; the earlier pushes went through the editor's login | After `gh auth login`, this repo's `credential.https://github.com.helper` uses `gh auth git-credential` |
+| Bonsly faints on the first turn of `weak_lead_vs_bonsly` without hurting the lead | Not found. It knows Selfdestruct, but the Starly lead took no damage, even when the player switched | Open. Bonsly battles are near-certain wins, so they teach little about winning; their clean-win rate still leaves room |

@@ -7,7 +7,9 @@
 --mon is SPECIES:LEVEL:MOVE,MOVE,... with numeric ids (species 1..493 as in the hack's
 tables). A JSON spec is either a list of mons or {"party": [...], "enemy": [species, level]};
 each mon takes species, level, moves and optionally pid, ivs, evs, nature, ability_slot, item.
-Without --enemy the game picks from Route 201's table.
+Without --enemy the game picks from Route 201's table. --enemy-moves (move ids) and
+--enemy-item (an item id) replace the enemy's own moves and held item; a spec can give them
+as "enemy_moves" and "enemy_item".
 
 The state is then checked in a fresh env (scenario.check_state), and the script exits 1 if
 it can't be played.
@@ -29,22 +31,31 @@ def main():
     ap.add_argument("--mon", action="append", default=[], type=parse_mon, metavar="SPECIES:LEVEL:MOVES")
     ap.add_argument("--spec", help="JSON file with the party, and optionally the enemy")
     ap.add_argument("--enemy", metavar="SPECIES:LEVEL", help="force every grass encounter to this Pokémon")
+    ap.add_argument("--enemy-moves", metavar="MOVE,MOVE,...", help="the enemy's moves, at full PP")
+    ap.add_argument("--enemy-item", type=int, help="the enemy's held item")
     ap.add_argument("--seed", type=int, default=0, help="picks PIDs and the idle time before walking")
     ap.add_argument("--rom", default=scenario.DEFAULT_ROM)
     ap.add_argument("--base-state", help="overworld state to start from (default: the Route 201 grass state)")
     args = ap.parse_args()
 
-    party, enemy = list(args.mon), None
+    party, enemy, enemy_moves, enemy_item = list(args.mon), None, None, None
     if args.spec:
         with open(args.spec) as f:
             spec = json.load(f)
         party += spec if isinstance(spec, list) else spec["party"]
-        enemy = tuple(spec["enemy"]) if isinstance(spec, dict) and spec.get("enemy") else None
+        if isinstance(spec, dict):
+            enemy = tuple(spec["enemy"]) if spec.get("enemy") else None
+            enemy_moves, enemy_item = spec.get("enemy_moves"), spec.get("enemy_item")
     if args.enemy:
         enemy = tuple(int(v) for v in args.enemy.split(":"))
+    if args.enemy_moves:
+        enemy_moves = [int(m) for m in args.enemy_moves.split(",")]
+    if args.enemy_item is not None:
+        enemy_item = args.enemy_item
     if not party:
         ap.error("give --mon or --spec")
-    record = scenario.make_scenario(party, args.out, args.seed, args.rom, args.base_state, enemy)
+    record = scenario.make_scenario(party, args.out, args.seed, args.rom, args.base_state, enemy,
+                                    enemy_moves, enemy_item)
     print(json.dumps(record))
     result = scenario.check_state(args.out, args.rom)
     print(f"check: {result}")

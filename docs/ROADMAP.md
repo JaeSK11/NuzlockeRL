@@ -120,11 +120,12 @@ The hack changed abilities, so assume it changed more.
       decision. `make_scenario.py` and `make_battle_set.py` exit 1 when a
       state fails, so a bad state stops generation instead of a training
       run.
-- [ ] **Control the wild enemy's moves.** The generator keeps the game's
-      own moves for the enemy, its level-up moves. Some of those end a wild
-      battle: Roar ended every battle against a wild Cranidos 16 on the first
-      turn. Writing the moves into RAM would also let a wild battle use a
-      trainer's real movesets.
+- [x] **Control the wild enemy's moves and held item.**
+      `scenario.set_enemy_moves` writes them into the enemy's `BattleMon`
+      and party struct at the first prompt. The generator's own level-up
+      moves could end a wild battle: Roar ended every battle against a wild
+      Cranidos 16 on the first turn. With this, a wild battle can use a
+      trainer's real sets, as the pilot does with Roark's.
 - [ ] **Save states on tmpfs.** Loading a state takes about 2.7 ms, so this
       matters only if profiling shows state loads.
 

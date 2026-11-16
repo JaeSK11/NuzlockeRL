@@ -177,3 +177,35 @@ def test_action_mask_and_move_slot_taps(env, scenarios):
         env.step(slot)
         after = env.snap.player[0].pp
         assert [b - a for b, a in zip(before, after)] == [int(i == slot) for i in range(4)]
+
+
+@needs_states
+def test_set_enemy_moves_and_item_change_what_the_enemy_does(tmp_path):
+    """Growl only must lower the player's Attack every turn, and Leftovers must heal a hurt enemy
+    by max HP / 16, so both copies the battle reads were written."""
+    from battle_env import BattleEnv
+    GROWL, WITHDRAW, LEFTOVERS = 45, 110, 234
+    path = str(tmp_path / "growl.state")
+    rec = sc.make_scenario([{"species": 387, "level": 12, "moves": [WITHDRAW]}], path, seed=3,
+                           enemy=(225, 10), enemy_moves=[GROWL], enemy_item=LEFTOVERS)
+    assert (rec["enemy"]["moves"], rec["enemy"]["item"]) == ([GROWL, 0, 0, 0], LEFTOVERS)
+    e = BattleEnv([path], ROM)
+    _, info = e.reset(seed=0)
+    a = e.addrs
+    bm = e.nds.memory.read_u32(False, a["battleCtxPtr"]) + sc.ENEMY_BATTLE_MON
+    foe = gen4.read_party(e.nds, a["enemyBase"])[0]
+    assert (foe.moves, foe.pp, foe.item) == ([GROWL, 0, 0, 0], [R.move(GROWL).pp, 0, 0, 0], LEFTOVERS)
+    assert e.nds.memory.read_u16(False, bm + sc.BM_MOVES) == GROWL
+    assert e.nds.memory.read_u16(False, bm + sc.BM_HELD_ITEM) == LEFTOVERS
+    mon = sc.parse_mon(gen4.read_bytes(e.nds, a["enemyBase"], gen4.PARTY_MON_SIZE))
+    mon["hp"] = 10
+    for i, b in enumerate(sc.encode_mon(mon)):
+        e.nds.memory.write_u8(False, a["enemyBase"] + i, b)
+    e.nds.memory.write_u32(False, bm + 0x4C, 10)              # BattleMon.curHP
+    heal = e.nds.memory.read_u32(False, bm + 0x50) // 16      # BattleMon.maxHP
+    for turn in range(1, 3):
+        _, _, term, trunc, _ = e.step(0)                      # Withdraw: no damage to the enemy
+        assert not (term or trunc)
+        assert gen4.read_bytes(e.nds, a["statStagesPlayer"], 8)[1] == 6 - turn
+        assert e.nds.memory.read_u32(False, bm + 0x4C) == 10 + turn * heal
+    e.close()

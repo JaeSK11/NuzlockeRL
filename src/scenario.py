@@ -30,6 +30,9 @@ MAX_SPECIES = 493
 PARTY_SLOTS = 6
 ENCOUNTER_OFFSET = 0x233E4      # from gen4's version pointer: the current map's wild table, copied out of the ROM's wild encounter data
 SAVE_DELAY = 5                  # frames after the prompt signal rises; the rising frame itself saved a state that loaded stuck
+# The enemy's BattleMon, BattleContext.battleMons[1] (layout in RAM_MAP.md, include/battle/battle_mon.h)
+ENEMY_BATTLE_MON = 0x2E00
+BM_MOVES, BM_PP_CUR, BM_PP_UPS, BM_HELD_ITEM = 0xC, 0x2C, 0x30, 0x78
 
 # (struct format, offset) into the 228-byte plaintext. Block A at 0, B at 32, C at 64, D at 96, battle stats at 128.
 FIELDS = {
@@ -203,6 +206,34 @@ def set_wild_encounter(nds, species: int, level: int) -> None:
         nds.memory.write_u32(False, t + 100 + 4 * k, species)
 
 
+def set_enemy_moves(nds, moves, item: int | None = None) -> None:
+    """Give the wild enemy these moves (up to 4 ids) at full PP, and a held item if given. Both
+    copies the battle keeps are written: its BattleMon, which the battle and the enemy's AI use,
+    and its party struct in enemyBase, which the game later updates from the BattleMon. Call it
+    in battle, before any move is chosen."""
+    moves = list(moves) + [0] * (4 - len(moves))
+    if len(moves) != 4 or not any(moves):
+        raise ValueError(f"need 1 to 4 moves, got {moves}")
+    pp = [R.move(m).pp if m else 0 for m in moves]
+    addrs = gen4.resolve(nds)
+    ctx = nds.memory.read_u32(False, addrs["battleCtxPtr"])
+    if not gen4.in_battle(nds, addrs) or not gen4.MAIN_RAM <= ctx < gen4.MAIN_RAM + 0x400000:
+        raise RuntimeError("no battle is running")
+    mon = parse_mon(gen4.read_bytes(nds, addrs["enemyBase"], gen4.PARTY_MON_SIZE))
+    mon["moves"], mon["pp"], mon["pp_ups"] = moves, pp, [0] * 4
+    if item is not None:
+        mon["item"] = item
+    for i, b in enumerate(encode_mon(mon)):
+        nds.memory.write_u8(False, addrs["enemyBase"] + i, b)
+    bm = ctx + ENEMY_BATTLE_MON
+    for i in range(4):
+        nds.memory.write_u16(False, bm + BM_MOVES + 2 * i, moves[i])
+        nds.memory.write_u8(False, bm + BM_PP_CUR + i, pp[i])
+        nds.memory.write_u8(False, bm + BM_PP_UPS + i, 0)
+    if item is not None:
+        nds.memory.write_u16(False, bm + BM_HELD_ITEM, item)
+
+
 def ensure_grass_state(rom: str = DEFAULT_ROM, path: str = GRASS_STATE) -> str:
     """The overworld state in Route 201 grass: the milestone script up to the first step into the grass."""
     if os.path.exists(path):
@@ -262,11 +293,13 @@ def mons_from_spec(spec: list[dict], trainer: Trainer, rng: random.Random) -> li
 
 
 def make_scenario(party_spec: list[dict], out_path: str, seed: int = 0, rom: str = DEFAULT_ROM,
-                  base_state: str | None = None, enemy: tuple[int, int] | None = None) -> dict:
+                  base_state: str | None = None, enemy: tuple[int, int] | None = None,
+                  enemy_moves: list[int] | None = None, enemy_item: int | None = None) -> dict:
     """Save a battle state at the first command prompt of a wild battle fought with the given
     party. `seed` picks the PIDs and how long the player idles first, which changes the
-    encounter. `enemy=(species, level)` forces every grass encounter to it. Writes out_path and
-    out_path + '.json'. Returns the JSON record."""
+    encounter. `enemy=(species, level)` forces every grass encounter to it. `enemy_moves` and
+    `enemy_item` replace the enemy's own level-up moves and held item (set_enemy_moves).
+    Writes out_path and out_path + '.json'. Returns the JSON record."""
     rng = random.Random(seed)
     nds = pynds.PyNDS(rom)
     nds.load_state_from_file(base_state or ensure_grass_state(rom))
@@ -279,11 +312,14 @@ def make_scenario(party_spec: list[dict], out_path: str, seed: int = 0, rom: str
     nds.tick(rng.randrange(120))
     frames = start_wild_battle(nds)
     addrs = gen4.resolve(nds)
+    if enemy_moves is not None or enemy_item is not None:
+        own = gen4.read_party(nds, addrs["enemyBase"])[0].moves
+        set_enemy_moves(nds, enemy_moves if enemy_moves is not None else own, enemy_item)
     foe = gen4.read_party(nds, addrs["enemyBase"])[0]
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     nds.save_state_to_file(out_path)
     record = {"party": party_spec, "seed": seed, "forced_enemy": enemy, "frames": frames,
-              "enemy": {"species": foe.species, "level": foe.level, "moves": foe.moves}}
+              "enemy": {"species": foe.species, "level": foe.level, "moves": foe.moves, "item": foe.item}}
     with open(out_path + ".json", "w") as f:
         json.dump(record, f, indent=1)
     return record

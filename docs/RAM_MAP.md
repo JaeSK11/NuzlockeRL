@@ -110,6 +110,9 @@ enemy's `species`, and `personality` is `playerBattleMonPID`. The game
 copies a `BattleMon` back into the party struct a few frames after it
 changes (`BattleMon_CopyToParty`), so the two agree at every prompt.
 Checked by `scripts/ram_audit.py` (see [PROGRESS.md](PROGRESS.md#13-ram-audit-2026-11-12)).
+Writing the enemy's `moves`, `ppCur`, and `heldItem` at the first prompt
+changes what it does: with only Growl, it used Growl every turn
+(`scenario.set_enemy_moves`, which writes the party struct too).
 
 | Offset | Field | Status |
 |---|---|---|
@@ -119,6 +122,7 @@ Checked by `scripts/ram_audit.py` (see [PROGRESS.md](PROGRESS.md#13-ram-audit-20
 | 0x18 | `statBoosts` 8 × s8, 6 = ±0 | ✅ Changes verified |
 | 0x27 | `ability` u8 | ✅ |
 | 0x2C | `ppCur` 4 × u8 | ✅ |
+| 0x30 | `ppUps` 4 × u8 | ✅ Written by `scenario.set_enemy_moves`; not read back by behavior |
 | 0x34 | `level` u8 | ✅ |
 | 0x4C | `curHP` i32 | ✅ |
 | 0x50 | `maxHP` u32 | ✅ |
@@ -126,7 +130,7 @@ Checked by `scripts/ram_audit.py` (see [PROGRESS.md](PROGRESS.md#13-ram-audit-20
 | 0x68 | `personality` u32 | ✅ |
 | 0x6C | `status` u32 | ✅ Every major status seen |
 | 0x70 | `statusVolatile` u32 | ✅ Confusion turns in bits 0–2 (1–5 seen), flinch bit 3. Other bits not yet seen |
-| 0x78 | `heldItem` u16 | ⚠️ 0 in every battle so far |
+| 0x78 | `heldItem` u16 | ✅ Writing Leftovers here made a hurt wild enemy heal max HP / 16 each turn |
 | 0x7C | `timesDamaged` u8 | ⚠️ Rises with hits; not checked against exact counts |
 | 0x80 | `moveEffectsMask` u32 | ⏳ 0 in every battle so far |
 | 0x84 | `moveEffectsTemp` u32 | ⏳ 0 in every battle so far |

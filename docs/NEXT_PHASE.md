@@ -54,19 +54,19 @@ emulator only to evaluate.
 
    It builds `states/generated/pilot/<split>/<name>.state` from
    `scripts/pilot_battles.json`, and checks each state in a fresh env
-   (`scenario.check_state`). Each species gets its level-up moves at that
-   level. The set, with wild battles standing in for Roark:
+   (`scenario.check_state`). The party gets its level-up moves. The enemy
+   gets Roark's own moves and held item (ROM trainer 246), at his level:
 
    | Split | Party | Enemy |
    |---|---|---|
    | train | Turtwig 14, Shinx 13, Starly 13 | Bonsly 15 |
    | train | Turtwig 14, Machop 13, Budew 12 | Lileep 13 |
    | train | Turtwig 14, Shinx 13, Budew 12 | Corsola 14 |
-   | train | Turtwig 13, Machop 13, Starly 13 | Shuckle 13 |
    | train | Chimchar 14, Psyduck 13, Budew 12 | Bonsly 15 |
    | train | Chimchar 14, Geodude 13, Shinx 13 | Lileep 13 |
+   | train | Chimchar 14, Machop 13, Starly 13 | Corsola 14 |
+   | train | Piplup 14, Shinx 13, Budew 12 | Bonsly 15 |
    | train | Piplup 14, Machop 13, Starly 13 | Corsola 14 |
-   | train | Piplup 14, Budew 12, Geodude 13 | Shuckle 13 |
    | train | Starly 12 (weak lead), Turtwig 14, Machop 13 | Bonsly 15 |
    | train | Shinx 12 (weak lead), Piplup 14, Machop 13 | Lileep 13 |
    | held out | Turtwig 14, Machop 13, Shinx 13 | Cranidos 16 |
@@ -75,12 +75,16 @@ emulator only to evaluate.
    | held out | Budew 12 (weak lead), Chimchar 14, Geodude 13 | Gible 14 |
 
    The party species come from Route 201–204 and Oreburgh Gate in the
-   hack. The enemies are Roark's species at his levels. Cranidos and Gible
-   never appear in training.
+   hack, within Roark's level cap of 16. Cranidos and Gible never appear in
+   training. Shuckle is left out: its Sand Tomb traps, which the env can't
+   model yet.
 
 2. **Measure a random baseline.** Done; the numbers are in
-   [PROGRESS.md](PROGRESS.md#18-getting-the-ppo-pilot-ready-2026-11-16). The
-   pilot is judged against them.
+   [PROGRESS.md](PROGRESS.md#19-setting-the-wild-enemys-moves-and-held-item-2026-11-16).
+   Random play wins 61% of the training battles but wins clean, with no
+   faint, only 37%, and 3% of the held-out ones. Judge the pilot by the
+   clean-win rate and the return, which counts −3 per faint, more than by
+   the win rate.
 
 3. **An evaluation script.** Done. `scripts/eval_ppo.py` loads a checkpoint
    and plays `--episodes` episodes per state, with the policy sampled and
@@ -90,12 +94,6 @@ emulator only to evaluate.
    ~/venvs/nuzlockerl/bin/python scripts/eval_ppo.py --run-dir runs/pilot \
        --states states/generated/pilot/heldout/*.state --json runs/pilot/eval.json
    ```
-
-   **The baseline found that the set can't run the pilot yet.** A random
-   policy wins 87–100% of the playable training battles. Shuckle's Wrap
-   and Encore end 95% of its battles STUCK. Cranidos's Roar ends every one
-   of its battles. Fix these before step 4; the options are below, under
-   "Revising the battle set".
 
 4. **Short run first.** About 20,000 decisions on the train split with 14
    envs, roughly 45 minutes:
@@ -121,17 +119,15 @@ emulator only to evaluate.
 
 6. **Decide.** Write the result up in PROGRESS.md as its own section.
 
-## Revising the battle set
+## How the battle set was revised
 
-- **Make the battles harder,** so that a random policy wins about 20–50%.
-  Raise the enemies' levels, or lower the team's, and measure again.
-- **Control the enemy's moves in the generator** (roadmap step 3). This
-  removes Roar, and lets a wild battle use a trainer's real movesets, such
-  as Roark's Stealth Rock and Head Smash. A closer stand-in for the real
-  fight would also be harder.
-- **Shuckle:** leave it out until the trapping and Encore RAM is mapped and
-  the mask rules out a refused switch or move. Or keep it only once the
-  enemy's moves can be set without Wrap and Encore.
+The first set, with the wild Pokémon's own moves, couldn't run the pilot
+(§18): random play won 87–100% of most battles, Shuckle's Wrap and Encore
+ended 95% of its battles STUCK, and Cranidos's Roar ended all of its. The
+generator now sets the enemy's moves and item (§19), so the enemies use
+Roark's sets, and Shuckle is out until trapping is modeled. One open
+question: Bonsly faints on the first turn against the Starly lead without
+hurting it.
 
 ## What to watch
 
