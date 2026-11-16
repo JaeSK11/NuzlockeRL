@@ -2,7 +2,8 @@
 
 Written 2026-11-12 as a plan to pick up later. Steps 1 to 4, and the STUCK
 question under "Before starting", were done on 2026-11-16 (PROGRESS.md §18
-to §22). The pilot (step 5) has not been run.
+to §22). The pilot (step 5) started on 2026-11-16 and was restarted the same
+day after a Selfdestruct bug (§23).
 
 ## The question
 
@@ -113,7 +114,7 @@ emulator only to evaluate.
    guard's limit, entropy doesn't collapse in the first updates, and no
    episode ends STUCK.
 
-5. **The pilot run.** About 300,000 decisions, roughly 11 hours:
+5. **The pilot run.** About 300,000 decisions, roughly 14 hours:
 
    ```bash
    ~/venvs/nuzlockerl/bin/python scripts/train_ppo.py --states <train states> \
@@ -138,10 +139,21 @@ without hurting it: it's Selfdestruct, whose damage the env misses
 
 ## What to watch
 
-`scripts/plot_runs.py runs/pilot --baseline-win 0.61 --baseline-clean 0.37`
-draws the win and clean-win rates against decisions trained, as
-`runs/progress.png`. Add `--by-battle --out runs/by_battle.png` for a heatmap of
-each battle's clean-win rate over training. `runs/<run>/metrics.jsonl` has one line per update:
+`scripts/plot_runs.py runs/pilot` draws the win and clean-win rates against
+decisions trained, as `runs/progress.png`. The random-play baselines of step 2
+were measured before the Selfdestruct fix (PROGRESS.md §23) and are too high;
+until they are measured again, the run's first update, with a near-uniform
+policy, stands in for random play. The other charts, each with `--out`:
+
+| Command | Shows | Look for |
+|---|---|---|
+| `--view health` | Entropy, KL, clip fraction, explained variance, value loss, decisions/s, CPU temperature, episodes to look at | The table below. Episodes to look at (STUCK, TURN_CAP, ENDED, or a result the game contradicts) should stay 0 |
+| `--by-battle` | Each battle's clean-win rate (`--metric win`, `length`, `dry`) | Battles that stay light. With `--metric length`, a battle stuck at 1 decision: nothing the agent does matters there |
+| `--view faints` | Per battle, faints per episode of the strongest Pokémon and of the rest | The strongest's line falling below the others': the fodder trade |
+| `--view picks` | Per battle, decisions by kind: attacks by type matchup, status moves, switches, Struggle | Immune picks near 0; super-effective picks rising where the team has them |
+| `--view moves` | Per battle, each move's share of the decisions | One move used everywhere, or Helping Hand, which fails in a single battle, not dying out |
+
+`runs/<run>/metrics.jsonl` has one line per update:
 
 | Field | Healthy |
 |---|---|
@@ -149,8 +161,12 @@ each battle's clean-win rate over training. `runs/<run>/metrics.jsonl` has one l
 | `entropy` | Falls slowly. Near 0 early means the policy collapsed; raise `ent_coef` |
 | `approx_kl`, `clip_frac` | Small and steady. Large jumps mean the learning rate is too high |
 | `explained_variance` | Rises toward 1 as the value function learns |
-| `decisions_per_s` | Near 7.8 with 14 envs. A drop means STUCK episodes or CPU throttling |
+| `decisions_per_s` | About 6 with 14 envs, since episodes wait for the game's result (PROGRESS.md §23). A drop means STUCK episodes or CPU throttling |
 | `cpu_temp` | Below the guard's 99 °C |
+| `result_mismatches` | 0. A WON or LOST that the game's own result contradicts |
+| `states.<state>.picks`, `.moves` | Decisions by kind and by move |
+| `states.<state>.mean_ace_faints`, `.mean_other_faints` | Faints per episode of the strongest Pokémon and of the rest |
+| `states.<state>.pp_ran_dry` | Moves run out of PP, a baseline for the gauntlet, where PP carries over |
 
 ## How to decide
 

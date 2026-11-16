@@ -1048,9 +1048,58 @@ also came up:
   effect. A status move can only be told apart by those numbers, which
   doesn't carry over to a move it hasn't seen.
 
+**The fix.** On a wipe, the env now runs on until the game records the
+result, and takes the faints from the last snapshot before that
+(`BattleEnv._await_result`). In a wild battle the result comes 300 to 800
+frames after the first 0 HP. The pilot was stopped at 61,441 decisions; its
+run is kept as `runs/pilot_v1` and is not comparable with later runs. The
+fix changes the starting point a lot. In the first update, with a
+near-uniform policy, the clean-win rate was 0.42 before the fix and 0.04 to
+0.08 after. Most of random play's clean wins were Bonsly battles whose
+Selfdestruct went uncounted, so the random baseline of §19 (0.37 clean) is
+too high and has to be measured again.
+
+**The game's result as a check.** Every episode now records the game's
+result next to the env's outcome, and a WON or LOST that the game
+contradicts is counted (`result_mismatches`). The first restart showed 2 or
+3 a update, about 3% of episodes, in its first update. The cause: the wait
+stopped at the first snapshot that read invalid, but the game decrypts a
+party struct in place while it writes the exp after a win, so the wait
+ended before the result. It now skips such reads, as the main loop does
+(`ENDED_CHECKS`), and the next restart had 0 in its first updates.
+
+**What is tracked now.** Each step's info names the decision: the move, its
+PP before the turn, and its kind (an attack's type matchup against the
+enemy, super, neutral, resisted or immune; a status move; a switch; a forced
+switch; Struggle), and the strength of each Pokémon that fainted. Training
+and `eval_ppo.py` add these up per battle in `metrics.jsonl`: `picks` and
+`moves` count decisions by kind and by move, `mean_ace_faints` and
+`mean_other_faints` split faints between the team's strongest Pokémon and
+the rest, `pp_ran_dry` counts moves run out of PP. The step log has the
+move and PP too, and `eval_ppo.py --step-log DIR` writes it.
+
+**New charts.** `scripts/plot_runs.py --view` draws them. `health`: entropy,
+KL, clip fraction, explained variance, value loss, decisions/s, CPU
+temperature, and the episodes that need a look (STUCK, TURN_CAP or ENDED,
+or a result mismatch), runs overlaid. `faints`: per battle, faints per
+episode of the strongest Pokémon and of the rest. `picks`: per battle, the
+share of decisions by kind. `moves`: per battle, a heatmap of each move's
+share of the decisions. `--by-battle --metric length` shows decisions per
+episode; it would have shown the Bonsly anomaly from the first update, a
+battle stuck at exactly 1.
+
+**The cost.** The wait adds a few hundred frames to every episode. The
+first updates ran at 6.2 to 6.3 decisions/s, where the stopped run ran at
+7.0; the gap will widen as episodes get shorter. The pilot was restarted at
+1d1ec49, and 300,000 decisions should take about 14 hours.
+
 | Issue | Cause | Resolution |
 |---|---|---|
-| Weak lead vs Bonsly is always a clean win in one decision | The env ends an episode at the first snapshot with a side at 0 HP; Selfdestruct zeroes the user's HP before its damage lands | Open: on a wipe, keep running until the game records the result (`battleResult`), and take the faints from then |
-| Move choice, PP and who faints aren't recorded | The trainer logs per-update aggregates; the step log is off and lacks the move and PP | Open: add the move and PP to the step record, and turn the step log on in `eval_ppo.py` |
+| Weak lead vs Bonsly is always a clean win in one decision | The env ends an episode at the first snapshot with a side at 0 HP; Selfdestruct zeroes the user's HP before its damage lands | On a wipe, run on until the game records the result (`battleResult`), and take the faints from then. The pilot was restarted |
+| Random play's clean-win rate (§19) is too high | Measured with the Selfdestruct bug, which made most Bonsly battles clean wins | Open: measure it again after the pilot; until then the first update stands in |
+| About 3% of episodes ended before the game recorded the result | The wait for the result stopped at the first snapshot that read invalid, as one does while the game writes the exp after a win | Invalid reads are skipped while the battle runs. Found by the new mismatch count in the first update |
+| Move choice, PP and who faints weren't recorded | The trainer logged per-update aggregates; the step log was off and lacked the move and PP | Counted per battle in `metrics.jsonl`, in the step log, and charted (`--view`) |
+| Episodes are slower to finish | The wait for the result | Accepted: about 10% fewer decisions/s early on. A battle command that marks the end of the turn could cut the wait; it needs the decomp's command list |
+| After a trainer battle the wait runs to its 2,000-frame limit | The game records a trainer battle's result later, after the trainer's closing text | Open: wild battles only for now; needs a better end signal before trainer battles |
 | The battle set has no setup moves | The teams get their level-up moves, which have none at these levels | Open: give some teams a setup move, the way the generator sets the enemy's |
 | Status moves are told apart only by their numbers | The observation has no move-effect field | Open: an effect category from the ROM's battle effect id |
