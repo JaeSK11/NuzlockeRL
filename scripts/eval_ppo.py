@@ -4,7 +4,8 @@
 
 Plays --episodes episodes on each state, once with the policy sampled as in training and once
 always taking the most likely valid action (--mode sample, greedy, or both). Prints the win
-rate, mean return, and mean length per state, and with --json writes the per-state numbers.
+rate, the clean-win rate (won with no player faint), faints, mean return, and mean length per
+state, and with --json writes the per-state numbers.
 Uses the newest checkpoint in --run-dir unless --checkpoint names one. Stops early if the CPU
 stays above --max-temp for more than --hot-seconds, as training does.
 """
@@ -48,10 +49,11 @@ def main():
                                 greedy=mode == "greedy", seed=args.seed, guard=guard)
         stats = ppo.episode_stats(episodes)
         out[mode] = stats
-        print(f"\n{mode}: {stats['episodes']} episodes, win rate {stats.get('win_rate', 0):.2f}  ({path})")
+        print(f"\n{mode}: {stats['episodes']} episodes, win rate {stats.get('win_rate', 0):.2f}, "
+              f"clean-win rate {stats.get('clean_win_rate', 0):.2f}  ({path})")
         for state, s in stats["states"].items():
-            print(f"  {state:32} win {s['win_rate']:.2f}  return {s['mean_return']:+6.2f}  "
-                  f"length {s['mean_length']:4.1f}  {s['outcomes']}")
+            print(f"  {state:32} win {s['win_rate']:.2f}  clean {s['clean_win_rate']:.2f}  faints {s['mean_faints']:.2f}  "
+                  f"return {s['mean_return']:+6.2f}  length {s['mean_length']:4.1f}  {s['outcomes']}")
         if guard.tripped.is_set():
             print(f"stopped early: CPU above {args.max_temp:.0f} C for more than {args.hot_seconds:.0f} s")
             break

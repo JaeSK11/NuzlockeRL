@@ -35,6 +35,7 @@ git, because they are game data. This page gives a summary only.
 | Move identities | 26 move ids are different moves now, such as Comet Punch becoming Water Ball and Rollout becoming Accelerock |
 | Trainers | 864 of 927 have a changed party, class, AI, or items |
 | Encounter tables | 144 of 158 have different grass or water slots |
+| Type chart | 0: the 110 matchups and the Foresight marker match vanilla byte for byte (`romdata.type_chart`) |
 
 Vanilla meanings of move ids, learnsets, and encounter tables don't
 transfer. Code that needs game data must read it through `romdata`.
@@ -70,6 +71,10 @@ RAM in the milestone states:
 - Barry's Chimchar, including its exact PID.
 - The Route 201 table that produced the Delibird.
 - Delibird's moves.
+
+The type chart was checked in battle: Tackle did no damage to a Gastly, and
+after the chart's Normal-vs-Ghost row was changed to super effective in RAM,
+the same Tackle hit for 20. So the battle reads this table.
 
 ## Open
 

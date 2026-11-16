@@ -4,7 +4,9 @@ reset() loads a battle save state and writes a random battle RNG seed. step()
 taps one decision on the touchscreen and runs the game until it asks for the next
 decision or the battle is decided. A decision is the action menu (a move or a
 switch) or the forced switch after the active Pokémon faints. Rewards come from
-faint events only; see REWARDS. The env never plays out the text after the final KO.
+faints and the battle's end only: REWARDS, and faint_penalty, which weighs a player
+faint by the Pokémon's strength in its team. The env never plays out the text after
+the final KO.
 
 Actions: 0-3 use move slot 0-3, 4-8 switch to party position 1-5. Positions are the
 game's party-menu order, so position 0 is always the active Pokémon. Struggle is
@@ -109,9 +111,12 @@ class Event(enum.Enum):
     STUCK = enum.auto()         # no prompt and no end in the frame guard
 
 
-REWARDS: dict[Event, float] = {
+# A player faint costs FAINT_BASE + FAINT_SCALE x the Pokémon's strength in its team (see
+# strengths): about -2.4 for fodder and -8 for the ace. A win that costs fodder still pays
+# (+3.6), one that costs the ace doesn't (-2), and a loss is worse than either.
+FAINT_BASE, FAINT_SCALE = 1.0, 7.0
+REWARDS: dict[Event, float] = {     # every event but PLAYER_FAINTED, whose cost depends on the Pokémon
     Event.ENEMY_FAINTED: 1.0,
-    Event.PLAYER_FAINTED: -3.0,
     Event.WON: 5.0,
     Event.LOST: -10.0,
     Event.TURN_CAP: -10.0,
@@ -149,6 +154,21 @@ def events_between(prev: Snapshot, cur: Snapshot) -> list[Event]:
     elif cur.enemy and all(m.hp == 0 for m in cur.enemy):
         events.append(Event.WON)
     return events
+
+
+def strengths(party) -> list[float]:
+    """Each Pokémon's stat total (max HP plus the five other stats) over the team's highest:
+    1 for the strongest, lower for the rest. Stats don't change during a battle."""
+    totals = [m.max_hp + sum(m.stats.values()) for m in party]
+    top = max(totals, default=0) or 1
+    return [t / top for t in totals]
+
+
+def faint_penalty(prev: Snapshot, cur: Snapshot) -> float:
+    """The reward for the player faints between two snapshots, weighted by strength."""
+    s = strengths(cur.player)
+    return -sum(FAINT_BASE + FAINT_SCALE * s[i]
+                for i, (a, b) in enumerate(zip(prev.player, cur.player)) if a.hp > 0 and b.hp == 0)
 
 
 def _wiped(snap: Snapshot) -> bool:
@@ -219,8 +239,12 @@ STATUS_BITS = (("asleep", 0x07), ("poisoned", 0x88), ("burned", 0x10), ("frozen"
 MOVE_FIELDS = (("type", N_TYPES), ("power", 1), ("accuracy", 1), ("class", len(romdata.MOVE_CLASSES)),
                ("pp", 1), ("valid", 1))
 MON_FIELDS = (("types", N_TYPES), ("level", 1), ("hp", 1), ("status", len(STATUS_BITS)))
-PARTY_FIELDS = (MON_FIELDS + (("active", 1), ("alive", 1))
-                + tuple((f"move{k}.{n}", s) for k in range(4) for n, s in MOVE_FIELDS))
+# Type matchups against the enemy's active Pokémon, from the hack's type chart: for each move its
+# effectiveness, whether the target is immune, and the same-type bonus; for the Pokémon, how hard
+# each of the enemy's types hits it (the enemy's moves are hidden, so its types stand in for them).
+MATCHUP_FIELDS = (("effect", 1), ("immune", 1), ("stab", 1))
+PARTY_FIELDS = (MON_FIELDS + (("active", 1), ("alive", 1), ("strength", 1), ("hit_by_enemy_types", 2))
+                + tuple((f"move{k}.{n}", s) for k in range(4) for n, s in MOVE_FIELDS + MATCHUP_FIELDS))
 OBS_FIELDS = (
     tuple((f"party{i}.{n}", s) for i in range(6) for n, s in PARTY_FIELDS)
     + tuple((f"enemy.{n}", s) for n, s in MON_FIELDS)
@@ -249,20 +273,35 @@ def _move_features(move_id: int) -> dict:
             "accuracy": (m.accuracy or 100) / 100, "class": np.eye(len(romdata.MOVE_CLASSES), dtype=np.float32)[m.cls]}
 
 
+def _effect(multiplier: float) -> float:
+    """A type multiplier on [-1, 1]: log2 of it over 2, so 1/4 reads -1, 1 reads 0, 4 reads 1. Immune reads -1."""
+    return float(np.clip(np.log2(multiplier) / 2, -1, 1)) if multiplier > 0 else -1.0
+
+
 def _mon_values(prefix: str, m) -> dict:
     return {f"{prefix}.types": _type_hot(m.species), f"{prefix}.level": m.level / 100,
             f"{prefix}.hp": m.hp / max(m.max_hp, 1),
             f"{prefix}.status": [bool(m.status & mask) for _, mask in STATUS_BITS]}
 
 
-def _party_values(prefix: str, m, active: bool) -> dict:
+def _party_values(prefix: str, m, active: bool, strength: float, enemy=None) -> dict:
     values = _mon_values(prefix, m)
     values[f"{prefix}.active"], values[f"{prefix}.alive"] = active, m.hp > 0
+    values[f"{prefix}.strength"] = strength
+    own_types = romdata.species(m.species).types
+    if enemy is not None:
+        enemy_types = romdata.species(enemy.species).types
+        values[f"{prefix}.hit_by_enemy_types"] = [_effect(romdata.type_effectiveness(t, own_types)) for t in enemy_types]
     for k, (move_id, pp) in enumerate(zip(m.moves, m.pp)):
         if not move_id:
             continue
         for name, value in _move_features(move_id).items():
             values[f"{prefix}.move{k}.{name}"] = value
+        move_type = romdata.move(move_id).type
+        values[f"{prefix}.move{k}.stab"] = move_type in own_types
+        if enemy is not None:
+            multiplier = romdata.type_effectiveness(move_type, enemy_types)
+            values[f"{prefix}.move{k}.effect"], values[f"{prefix}.move{k}.immune"] = _effect(multiplier), multiplier == 0
         # The ROM gives the base PP. PP Ups are not read from RAM, so the maximum is at least the current PP.
         values[f"{prefix}.move{k}.pp"] = pp / max(romdata.move(move_id).pp, pp)
         values[f"{prefix}.move{k}.valid"] = pp > 0
@@ -273,10 +312,13 @@ def observation(snap: Snapshot, turn: int, turn_cap: int, forced: bool = False) 
     """What a human player sees: own party in full, the enemy's active Pokémon and which
     enemy slots are down. No enemy moves."""
     values = {}
+    enemy = snap.enemy[snap.enemy_active] if snap.enemy_active is not None else None
+    strength = strengths(snap.player)
     for position, idx in enumerate(snap.slots()[:6]):
-        values.update(_party_values(f"party{position}", snap.player[idx], idx == snap.player_active))
-    if snap.enemy_active is not None:
-        values.update(_mon_values("enemy", snap.enemy[snap.enemy_active]))
+        values.update(_party_values(f"party{position}", snap.player[idx], idx == snap.player_active,
+                                    strength[idx], enemy))
+    if enemy is not None:
+        values.update(_mon_values("enemy", enemy))
     values["enemy_fainted"] = [i < len(snap.enemy) and snap.enemy[i].hp == 0 for i in range(6)]
     values["enemy_remaining"] = sum(m.hp > 0 for m in snap.enemy) / 6
     values["stages_player"] = (np.array(snap.stages_player) - 6) / 6
@@ -462,7 +504,9 @@ class BattleEnv(gym.Env):
                 events.append(Event.ENDED)
             elif end is None and self.turn >= self.turn_cap:
                 events.append(Event.TURN_CAP)
-        reward = sum((REWARDS[e] for e in events), 0.0)
+        reward = sum((REWARDS[e] for e in events if e is not Event.PLAYER_FAINTED), 0.0)
+        if Event.STUCK not in events:
+            reward += faint_penalty(prev, self.snap)
         self.ret += reward
         stuck = Event.STUCK in events
         terminated = not stuck and (_wiped(self.snap) or Event.ENDED in events or Event.TURN_CAP in events)

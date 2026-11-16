@@ -76,6 +76,10 @@ the pointer):
 | `battlerStatusFlags[0]` | u32 at ctx+0x13C | The player's side. Bit 0 (`SWITCHING`) is set while the game waits for the player to pick a replacement after a faint |
 | `partyOrder[0]` | 6 × u8 at ctx+0x312C | Party-menu position → index in `playerBattleBase`. A switch permutes this and never moves the structs. Position 0 is the active Pokémon |
 
+**The type chart** (`sTypeMatchupMultipliers`, from battle overlay 16) is
+at 0x0226EE34 during battle, one copy, the same bytes as in the ROM.
+Changing a row there changes the battle's damage.
+
 **The forced switch** after a faint is `command == 21` with `SWITCHING`
 set. Command 21 alone also holds during the faint animation, and
 `curCommandState[0]` stays 14, so neither works alone. These offsets follow

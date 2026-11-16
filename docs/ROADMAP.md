@@ -49,6 +49,15 @@ The hack changed abilities, so assume it changed more.
 - [x] Add move type, power, accuracy, and class from `romdata` to the
       battle observation, so the agent can learn type matchups instead of
       memorizing move ids. Species and move ids are left out.
+- [x] Type matchups in the observation, from the hack's type chart
+      (`romdata.type_chart`): each move's effectiveness against the enemy,
+      immunity, and same-type bonus, and how hard the enemy's types hit
+      each party Pokémon.
+- [x] A faint costs more the stronger the Pokémon: −(1 + 7 × its stat
+      total over the team's highest), so fodder costs about −2.4 and the
+      ace −8. Each Pokémon's strength is in the observation. A later
+      gauntlet env, where a death costs options in later battles, should
+      replace this stand-in.
 - [ ] Decide what the agent may see. `enemyBase` contains the opponent's
       full moveset. Showing it gives the agent more than a human sees; KP
       Labs didn't. Both are worth trying.

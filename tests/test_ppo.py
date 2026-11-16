@@ -146,8 +146,8 @@ def test_truncation_bootstraps_from_the_final_observation_and_termination_does_n
     adv = rollout.tensors(gamma=0.9, lam=0.95)["advantage"].tolist()
     assert adv[0] == pytest.approx(1.0 + 0.9 * v_final - truncated.value, abs=1e-5)
     assert adv[1] == pytest.approx(2.0 - terminated.value, abs=1e-5)
-    assert episodes == [{"state": "a.state", "outcome": "WON", "return": 1.0, "length": 1},
-                        {"state": "a.state", "outcome": "WON", "return": 2.0, "length": 1}]
+    assert episodes == [{"state": "a.state", "outcome": "WON", "return": 1.0, "length": 1, "faints": 0},
+                        {"state": "a.state", "outcome": "WON", "return": 2.0, "length": 1, "faints": 0}]
 
 
 def test_an_env_with_no_valid_action_is_an_error():
@@ -244,3 +244,39 @@ def test_a_trained_checkpoint_evaluates_as_well_as_it_trained(tmp_path):
     greedy = episode_stats(evaluate(agent, norm, BANDITS, episodes_per_env=10, greedy=True, seed=2))
     assert sampled["win_rate"] > 0.5 and greedy["win_rate"] >= sampled["win_rate"]
     assert set(greedy["states"]) == {"bandit.state"}
+
+
+class FaintEnv(gym.Env):
+    """Every episode is 3 steps and is won. Action 0 reports a player faint, action 1 doesn't."""
+    observation_space = gym.spaces.Box(0, 1, (2,), np.float32)
+    action_space = gym.spaces.Discrete(2)
+    MASK = np.array([True, True])
+
+    def reset(self, *, seed=None, options=None):
+        super().reset(seed=seed)
+        self.t = 0
+        return np.zeros(2, np.float32), {"action_mask": self.MASK}
+
+    def step(self, action):
+        self.t += 1
+        info = {"action_mask": self.MASK, "state": "/states/faint.state",
+                "events": ["PLAYER_FAINTED"] if action == 0 else []}
+        if self.t == 3:
+            info["outcome"] = "WON"
+        return np.zeros(2, np.float32), 0.0, self.t == 3, False, info
+
+
+def test_evaluation_counts_faints_and_clean_wins():
+    for action, faints, clean in ((0, 3, 0.0), (1, 0, 1.0)):
+        agent = Agent(2, 2)
+        with torch.no_grad():
+            agent.actor[-1].bias[action] = 30.0
+        stats = episode_stats(evaluate(agent, ObsNorm(2), [FaintEnv] * 2, episodes_per_env=2, greedy=True))
+        assert (stats["win_rate"], stats["mean_faints"], stats["clean_win_rate"]) == (1.0, faints, clean)
+
+
+def test_training_logs_count_faints_and_clean_wins(tmp_path):
+    train([FaintEnv] * 2, str(tmp_path), 64, seed=0, cfg=Config(rollout=64), log=lambda *_: None)
+    row = rows(tmp_path)[-1]
+    assert row["win_rate"] == 1.0 and 0 < row["mean_faints"] < 3
+    assert row["clean_win_rate"] < 1.0 and row["states"]["faint.state"]["clean_win_rate"] == row["clean_win_rate"]

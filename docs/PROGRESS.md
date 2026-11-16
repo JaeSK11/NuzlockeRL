@@ -875,3 +875,54 @@ generalizes past the battles it trained on.
 | Chimchar team vs Lileep got worse than random | Not found. A guess: a habit learned on the other battles, such as staying in to attack, costs this one | Open. Check what the policy does there |
 | Greedy play on Weak lead vs Gible did worse than random | Not found. The same guess: it may not switch the weak lead out | Open. Same check |
 | The training log can't show the clean-win rate | Episode records keep the outcome and return, not the player's faints | Open. Count faints per episode before the pilot |
+
+## 21. Type matchups, a faint penalty by strength, and clean wins (2026-11-16)
+
+Goal: three changes before the pilot. The agent had to learn the type
+chart from rewards alone. Every faint cost the same, so it had no reason to
+protect its strongest Pokémon. And the logs couldn't show a clean win.
+
+**The type chart, from the ROM.** `romdata.type_chart` reads the hack's
+`sTypeMatchupMultipliers` (decomp `src/battle/battle_lib.c`) from battle
+overlay 16, found by searching for vanilla's first rows. It matches vanilla
+Platinum byte for byte. The check in battle: Tackle did no damage to a
+Gastly. With the Normal-vs-Ghost row of the table in RAM changed to super
+effective, the same Tackle hit for 20, so the battle reads this table.
+`romdata.type_effectiveness` multiplies the chart over a target's types.
+
+**Matchups in the observation,** 902 values now, from 812:
+- For each move: its effectiveness against the enemy's active Pokémon, as
+  log2 of the multiplier over 2 (¼ reads −1, 4× reads 1, immune reads −1);
+  an immune flag; and the same-type bonus.
+- For each party Pokémon: how hard each of the enemy's types hits it. The
+  enemy's moves are hidden, so its types stand in for them.
+- For each party Pokémon: its strength, below.
+
+**A faint penalty by strength.** A Pokémon's strength is its stat total
+(max HP plus the other five stats) over the team's highest, 1 for the
+strongest. A player faint costs −(1 + 7 × strength): about −2.4 for fodder
+and −8 for the ace. With +5 for a win and +1 for the enemy's faint, a win
+that costs fodder pays (+3.6), a win that costs the ace doesn't (−2), and a
+loss (−10) is still worse than either. The agent may sacrifice fodder to
+bring the ace in safely, which the forced switch makes possible. Stats are
+only a stand-in for a Pokémon's value to the run: a weak Pokémon might be
+the only answer to the next Gym. The gauntlet env planned for the Nuzlocke
+rules should replace it with the real cost, fewer options later.
+
+**Clean wins in the logs.** The trainer and `evaluate` count player faints
+per episode, from the env's events. `episode_stats` reports the clean-win
+rate (won with no player faint) and faints per episode, in
+`metrics.jsonl`, the progress line, and `eval_ppo.py`.
+
+**Tests.** The matchup features on a made-up Turtwig against Gastly, the
+strength and penalty arithmetic, and faint counting in training and
+evaluation on a fake env. The three env tests that assumed a flat −3 now
+use the new rule. Each of three deliberate breaks of the faint counting made
+a test fail. 97 tests pass.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| The agent had to learn type matchups from rewards | The observation had the types but not the chart | The chart's multipliers are in the observation |
+| Losing the ace cost the same as losing fodder | A flat −3 per faint | The penalty scales with strength |
+| The logs couldn't show a clean win | Episode records had no faint count | The trainer and the eval count faints |
+| A PPO test failed after the change | It compared whole episode records, which now have a faint count | The expected records include it |

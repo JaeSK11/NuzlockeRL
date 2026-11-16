@@ -11,8 +11,8 @@ import gen4
 import pynds
 import romdata
 import scenario
-from battle_env import (BattleEnv, Event, FIGHT_XY, OBS_FIELDS, OBS_SIZE, OBS_SLICES, REWARDS, Snapshot,
-                        action_mask, events_between, observation)
+from battle_env import (FAINT_BASE, FAINT_SCALE, BattleEnv, Event, FIGHT_XY, OBS_FIELDS, OBS_SIZE, OBS_SLICES,
+                        REWARDS, Snapshot, action_mask, events_between, faint_penalty, observation, strengths)
 
 ROM = os.environ.get("NUZLOCKERL_ROM", os.path.join(ROOT, "roms/plat-kaizo-nightmare-update-final.nds"))
 M = os.path.join(ROOT, "states/milestones")
@@ -63,8 +63,22 @@ def test_events_between():
 
 
 def test_event_rewards_use_only_faints_and_endings():
-    assert REWARDS[Event.TURN_CAP] == REWARDS[Event.LOST] < REWARDS[Event.PLAYER_FAINTED] < 0
+    assert REWARDS[Event.TURN_CAP] == REWARDS[Event.LOST] < -(FAINT_BASE + FAINT_SCALE) < -FAINT_BASE < 0
     assert REWARDS[Event.STUCK] == REWARDS[Event.ENDED] == 0
+    assert Event.PLAYER_FAINTED not in REWARDS, "its cost depends on the Pokémon"
+
+
+def test_a_faint_costs_more_the_stronger_the_pokemon():
+    def mon(hp, total):
+        return gen4.Mon(pid=1, checksum_ok=True, species=1, hp=hp, max_hp=total // 2,
+                        stats={"atk": total - total // 2, "def": 0, "spe": 0, "spa": 0, "spd": 0})
+    def party(*hps):
+        return Snapshot(tuple(mon(hp, t) for hp, t in zip(hps, (400, 100, 200))), (), 0, None, (6,) * 8, (6,) * 8)
+    assert strengths(party(5, 5, 5).player) == [1.0, 0.25, 0.5]
+    ace, fodder = faint_penalty(party(5, 5, 5), party(0, 5, 5)), faint_penalty(party(5, 5, 5), party(5, 0, 5))
+    assert ace == -(FAINT_BASE + FAINT_SCALE) and fodder == -(FAINT_BASE + FAINT_SCALE / 4)
+    assert REWARDS[Event.WON] + REWARDS[Event.ENEMY_FAINTED] + fodder > 0 > REWARDS[Event.WON] + REWARDS[Event.ENEMY_FAINTED] + ace
+    assert faint_penalty(party(0, 5, 5), party(0, 0, 5)) == fodder, "only new faints count"
 
 
 @pytest.fixture(scope="module")
@@ -169,7 +183,8 @@ def test_move_slot_1_uses_mega_drain(env):
 def test_wild_battle_with_fixed_rng_is_lost_in_two_turns(env):
     _, rows = play(env, WILD, [0] * 5, keep_rng=True)
     assert [(r[0], r[3]) for r in rows] == [((23, 17), []), ((11, 12), ["PLAYER_FAINTED", "LOST"])]
-    assert rows[-1][4] and rows[-1][2] == -13.0 and rows[-1][6]["outcome"] == "LOST"
+    assert rows[-1][4] and rows[-1][2] == REWARDS[Event.LOST] - FAINT_BASE - FAINT_SCALE  # the only Pokémon is the ace
+    assert rows[-1][6]["outcome"] == "LOST"
     assert env.snap.player[0].hp == 0
     seen = result_masks_after_end(env)
     assert 2 in seen and 1 not in seen
@@ -286,7 +301,8 @@ def play_until_forced(env, seed=1, turn_cap=100):
 @needs_rom
 def test_forced_switch_is_a_decision_that_only_allows_alive_teammates(team_env):
     info, rows = play_until_forced(team_env)
-    assert rows[-1] == (-3.0, ["PLAYER_FAINTED"], False, False)
+    lead = -(FAINT_BASE + FAINT_SCALE * strengths(team_env.snap.player)[0])
+    assert rows[-1] == (lead, ["PLAYER_FAINTED"], False, False)
     assert info["forced_switch"] is True and info["turn"] == len(rows)
     assert info["action_mask"].tolist() == [False] * 4 + [True, True] + [False] * 3
     assert team_env.snap.player[0].hp == 0
@@ -427,6 +443,22 @@ def test_observation_of_status_hp_and_pp_for_a_made_up_snapshot():
     assert field(obs, "stages_player").tolist() == [pytest.approx(1 / 6)] * 8
     assert field(obs, "stages_enemy").tolist() == [pytest.approx(-0.5)] * 8
     assert field(obs, "turn")[0] == 0.5
+
+
+def test_observation_carries_type_matchups_against_the_enemy():
+    """Turtwig (Grass) with Tackle and Razor Leaf against Gastly (Ghost/Poison): Tackle can't
+    touch a Ghost, Razor Leaf is resisted by Poison but gets the same-type bonus, and Poison
+    hits Grass twice as hard."""
+    GASTLY, TACKLE, RAZOR_LEAF = 92, 33, 75
+    stats = {"atk": 20, "def": 20, "spe": 20, "spa": 20, "spd": 20}
+    turtwig = gen4.Mon(pid=1, checksum_ok=True, species=TURTWIG, level=15, hp=40, max_hp=40,
+                       moves=[TACKLE, RAZOR_LEAF, 0, 0], pp=[35, 25, 0, 0], stats=stats)
+    gastly = gen4.Mon(pid=2, checksum_ok=True, species=GASTLY, level=15, hp=30, max_hp=30)
+    obs = observation(Snapshot((turtwig,), (gastly,), 0, 0, (6,) * 8, (6,) * 8), 1, 10)
+    assert [field(obs, f"party0.move0.{n}")[0] for n in ("effect", "immune", "stab")] == [-1, 1, 0]
+    assert [field(obs, f"party0.move1.{n}")[0] for n in ("effect", "immune", "stab")] == [-0.5, 0, 1]
+    assert field(obs, "party0.hit_by_enemy_types").tolist() == [0.0, 0.5]   # Ghost 1x, Poison 2x
+    assert field(obs, "party0.strength")[0] == 1.0
 
 
 def test_action_mask_rules_without_an_emulator():

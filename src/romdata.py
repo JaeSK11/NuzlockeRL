@@ -54,6 +54,11 @@ _FEMALE_TRAINER_CLASSES = frozenset({1, 3, 5, 7, 8, 10, 13, 17, 18, 21, 22, 25, 
 # Offset of the MapHeader table (24 bytes per entry) inside the decompressed ARM9. Found by matching
 # 593 header fields against the decomp; the reader below rejects it if the table stops looking right.
 _MAP_HEADER_OFFSET = 942108
+# sTypeMatchupMultipliers (decomp src/battle/battle_lib.c) in the battle overlay: u8 triples of
+# (attacking type, defending type, multiplier x10), a Foresight marker row, the Ghost immunities,
+# and an end row. Found by searching for vanilla's first rows; the hack's table is identical.
+_TYPE_CHART_OVERLAY, _TYPE_CHART_OFFSET = 16, 0x33BB0
+_TYPE_CHART_FORESIGHT, _TYPE_CHART_END = 0xFE, 0xFF
 _MAP_HEADER_COUNT = 593
 _NO_ENCOUNTERS = 0xFFFF
 
@@ -328,6 +333,33 @@ def exp_for_level(species_id: int, level: int) -> int:
 def level_for_exp(species_id: int, exp: int) -> int:
     table = _growth_tables()[species(species_id).growth_rate]
     return max(lv for lv in range(1, 101) if table[lv] <= exp)
+
+
+@cache
+def type_chart() -> dict[tuple[int, int], float]:
+    """(attacking type, defending type) -> 2.0, 0.5, or 0.0, for every matchup that isn't 1x. Read
+    from the battle overlay; it matches vanilla Platinum. The battle reads this table: patching
+    its Normal-vs-Ghost row in RAM let Tackle hit a Gastly. Includes the Ghost immunities that
+    Foresight ignores."""
+    data = _rom().loadArm9Overlays([_TYPE_CHART_OVERLAY])[_TYPE_CHART_OVERLAY].data
+    chart, i = {}, _TYPE_CHART_OFFSET
+    while data[i] != _TYPE_CHART_END:
+        attack, defend, multiplier = data[i:i + 3]
+        if attack != _TYPE_CHART_FORESIGHT:
+            chart[attack, defend] = multiplier / 10
+        i += 3
+    if chart.get((13, 4)) != 0.0 or chart.get((10, 12)) != 2.0:      # Electric-Ground, Fire-Grass
+        raise ValueError("no type chart at the expected place in the battle overlay")
+    return chart
+
+
+def type_effectiveness(attack_type: int, defend_types) -> float:
+    """The type multiplier of a move of attack_type against a Pokémon with these types. A single
+    type may be listed twice, as the species data stores it."""
+    chart, m = type_chart(), 1.0
+    for t in set(defend_types):
+        m *= chart.get((attack_type, t), 1.0)
+    return m
 
 
 def species(i: int) -> Species:

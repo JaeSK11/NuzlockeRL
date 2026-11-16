@@ -145,6 +145,11 @@ class Rollout:
                 "return": torch.from_numpy(adv + values)}
 
 
+def _player_faints(info: dict) -> int:
+    """Player faints in one step, from the env's info["events"] (BattleEnv's event names)."""
+    return list(info.get("events", ())).count("PLAYER_FAINTED")
+
+
 class Collector:
     """Acts on pool batches and pairs each env's result with the action that caused it."""
 
@@ -153,6 +158,7 @@ class Collector:
         self.pending: dict[int, tuple] = {}
         self.returns = collections.defaultdict(float)
         self.lengths = collections.defaultdict(int)
+        self.faints = collections.defaultdict(int)
 
     @torch.no_grad()
     def act(self, batch, rollout: Rollout, episodes: list) -> np.ndarray:
@@ -175,13 +181,14 @@ class Collector:
                     next_value = self.agent.value(self.norm(final)).item()
                 reward = float(batch.rewards[row])
                 rollout.add(Transition(env, *self.pending[env], reward, terminated, truncated, next_value))
+                info = batch.final_infos[row] if terminated or truncated else batch.infos[row]
                 self.returns[env] += reward
                 self.lengths[env] += 1
+                self.faints[env] += _player_faints(info)
                 if terminated or truncated:
-                    info = batch.final_infos[row]
                     episodes.append({"state": os.path.basename(str(info.get("state", ""))),
-                                     "outcome": info.get("outcome"),
-                                     "return": self.returns.pop(env), "length": self.lengths.pop(env)})
+                                     "outcome": info.get("outcome"), "return": self.returns.pop(env),
+                                     "length": self.lengths.pop(env), "faints": self.faints.pop(env)})
             self.pending[env] = (obs[row], mask[row], action[row].item(), logp[row].item(), value[row].item())
         return action.numpy()
 
@@ -222,11 +229,14 @@ def ppo_update(agent: Agent, optimizer, data: dict, cfg: Config, generator=None)
 
 
 def episode_stats(episodes: list) -> dict:
-    """Mean return, win rate, and length over all episodes, and the same per state."""
+    """Mean return, win rate, clean-win rate (won with no player faint), faints, and length over
+    all episodes, and the same per state."""
     def summary(eps):
         return {"episodes": len(eps),
                 "mean_return": float(np.mean([e["return"] for e in eps])),
                 "win_rate": float(np.mean([e["outcome"] == "WON" for e in eps])),
+                "clean_win_rate": float(np.mean([e["outcome"] == "WON" and e.get("faints", 0) == 0 for e in eps])),
+                "mean_faints": float(np.mean([e.get("faints", 0) for e in eps])),
                 "mean_length": float(np.mean([e["length"] for e in eps])),
                 "outcomes": dict(collections.Counter(str(e["outcome"]) for e in eps))}
     if not episodes:
@@ -346,7 +356,8 @@ def train(env_fns, run_dir: str, total_decisions: int, seed: int = 0, cfg: Confi
                 log_file.write(json.dumps(row) + "\n")
                 log(f"update {update}  decisions {decisions}  {row['decisions_per_s']:.1f}/s  "
                     f"episodes {row['episodes']}  return {row.get('mean_return', float('nan')):+.2f}  "
-                    f"win {row.get('win_rate', float('nan')):.2f}  entropy {losses['entropy']:.3f}  "
+                    f"win {row.get('win_rate', float('nan')):.2f}  clean {row.get('clean_win_rate', float('nan')):.2f}  "
+                    f"entropy {losses['entropy']:.3f}  "
                     f"kl {losses['approx_kl']:.4f}  temp {row['cpu_temp']}")
                 if update % cfg.checkpoint_every == 0 or decisions >= total_decisions:
                     checkpoint()
@@ -374,20 +385,22 @@ def evaluate(agent: Agent, norm: ObsNorm, env_fns, episodes_per_env: int, greedy
     takes them, plus the env index. Stops early once guard.tripped is set."""
     generator = torch.Generator().manual_seed(seed)
     records, done, stepped = [], collections.Counter(), set()
-    returns, lengths = collections.defaultdict(float), collections.defaultdict(int)
+    returns, lengths, faints = collections.defaultdict(float), collections.defaultdict(int), collections.defaultdict(int)
     with AsyncEnvPool(env_fns, seed=seed) as pool:
         batch = pool.recv()
         while not (guard and guard.tripped.is_set()):
             act = []
             for row, env in enumerate(batch.env_ids.tolist()):
                 if env in stepped:
+                    ended = batch.terminated[row] or batch.truncated[row]
+                    info = batch.final_infos[row] if ended else batch.infos[row]
                     returns[env] += float(batch.rewards[row])
                     lengths[env] += 1
-                    if batch.terminated[row] or batch.truncated[row]:
-                        info = batch.final_infos[row]
+                    faints[env] += _player_faints(info)
+                    if ended:
                         records.append({"env": env, "state": os.path.basename(str(info.get("state", ""))),
                                         "outcome": info.get("outcome"), "return": returns.pop(env),
-                                        "length": lengths.pop(env)})
+                                        "length": lengths.pop(env), "faints": faints.pop(env)})
                         done[env] += 1
                 if done[env] < episodes_per_env:
                     act.append(row)
