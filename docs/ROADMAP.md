@@ -30,6 +30,8 @@ the episode on win or wipe.
       positions to party slots, and position 0 is the active Pokémon.
       Verified on teams of 2 to 6.
 - [ ] **Double battles:** a battle-type flag and two active Pokémon per side.
+      None comes before Roark (PROGRESS.md §30); the hack's real
+      interviewers, trainer 883, fight one at level 23.
 - [ ] **Temporary effects:** confusion, Leech Seed, Substitute, Protect,
       and so on. Confusion, flinch, binding, Mean Look and Torment are
       mapped in `BattleMon.statusVolatile`, and Disable, Encore and the

@@ -1515,3 +1515,30 @@ whole suite passes, 114 tests.
 | Issue | Cause | Resolution |
 |---|---|---|
 | Roar or Whirlwind ended a wild battle as ENDED, among the anomalies | ENDED covered every end with neither side wiped | FLED when the game records a flee (5); ENDED is left for anything else |
+
+## 30. No double battle before Roark (2026-11-17)
+
+Goal: the last item of step 1. Find where the one early double battle in
+the ROM (Interviewers Roxy & Oli, trainer 368, Magnemite and Ralts at level
+6) happens, and whether a run to Roark meets it.
+
+**It is never fought.** In the decomp's trainer list, id 368 is
+`TRAINER_INTERVIEWERS_ROXY_AND_OLI_UNUSED`. The interviewers the game uses
+are 883 and their rematches, which the hack puts at levels 23, 35 and 47,
+all past Roark's cap of 16. All nine double battles in the ROM at level 16
+or below are vanilla's dummy or unused entries: 368, and eight pairs of
+level-5 Rattata.
+
+**A cross-check.** Every trainer the hack's author uses has hand-set moves:
+Youngster Tristan, Worker Colin, Roark, Lucas in Jubilife City, and the
+rest. Every early trainer without them is a vanilla `_UNUSED` entry: 368,
+369 to 371 (the TV crew), 431 and 465. None of the nine early double
+battles has hand-set moves.
+
+This rests on the vanilla scripts and that pattern. The hack's own map
+scripts weren't parsed, so a double battle the runner meets would still be
+a surprise to handle then.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| A level-6 double battle looked like it might be on the way to Roark | Trainer 368 is in the ROM with a party | It is vanilla's unused entry; the real interviewers come at level 23. No double battle before Roark |

@@ -237,8 +237,8 @@ each run to the decisions. In order:
      battle's command selection too, and checked to reload the same after
      another battle.
    - **The one early double battle** in the ROM (Interviewers Roxy & Oli,
-     trainer 368, level 6). Find where it is; if it's on the path and can't
-     be avoided, script it.
+     trainer 368, level 6). Settled (PROGRESS.md §30): it is vanilla's
+     unused entry, and no double battle comes before Roark.
 2. **Catching and the Nuzlocke rules.**
    - **A Poké Ball action,** allowed only in a wild encounter the rules let
      it catch (a route's first new species, or a shiny), and only while the
