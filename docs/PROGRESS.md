@@ -1674,7 +1674,7 @@ from a JSON file for example. That is the plan's rules-as-config.
 ## 33. The playthrough to the Oreburgh Gym (2026-11-17)
 
 Goal: the second half of step 3.1. Play from the state after the first rival
-battle to the Oreburgh Gym with scripted inputs, save a milestone state at
+battle to the Oreburgh Gym, and through it, with scripted inputs, save a milestone state at
 each story beat, and confirm the route survey. The findings are in
 [ROUTE_TO_ROARK.md](ROUTE_TO_ROARK.md).
 
@@ -1719,23 +1719,31 @@ trainer's script is 2999 plus its trainer id, which named every trainer met.
 - **The Jubilife multi battle comes after Roark.** Its trigger needs var
   16503 = 3, and only the Oreburgh Gym's script sets it. With the var written
   to 3 in a test copy, the trigger led into the battle against trainer 414.
-- **Rock Smash before Roark.** A boulder in the gym, at the foot of the only
-  stairs up, keeps the player from Darius and Roark. Rock Smash is refused
-  without the Coal Badge and works with its bit set. How the hack means the
-  player past it is open. §25's "no field move is needed before Roark" is
-  wrong for this hack, at least for this boulder.
+- **The gym's shortcut is closed, not its way.** The first walk of the gym
+  reached only its lower floor, and a Rock Smash boulder stood at the foot
+  of the stairs up. Rock Smash is refused without the Coal Badge and works
+  with its bit set, so the gym looked unbeatable. Bulbapedia's walkthrough
+  (found by the user) says vanilla's gym has two ways up: past the two
+  trainers, or by stairs and a bridge that skip them. The boulder closes the
+  shortcut. The trainers' way runs over a raised walkway that the first
+  walk of the gym had missed (see the issues). No field move is needed
+  before Roark, as §25 said.
 - **Unavoidable trainers:** all three on Route 202, Barry and two of five on
-  Route 203, both in the Oreburgh Gate, both Workers in the mine. Lass
-  Madeline is unavoidable only because her sight covers the gate's door.
+  Route 203, both in the Oreburgh Gate, both Workers in the mine, both gym
+  trainers. Lass Madeline is unavoidable only because her sight covers the
+  gate's door.
+- **Roark** (246) won, with the survey party at level 16. The Coal Badge and
+  TM39 (vanilla gives TM76) followed, and var 16503 became 3.
 - **The battle env in live play:** 16 trainer battles and 14 wild battles,
-  every one WON, none STUCK. These include multi-Pokémon trainer battles in
+  every one WON, none STUCK, and 3 more trainer battles in the gym. These include multi-Pokémon trainer battles in
   Set style, forced switches, and level-ups, so Set style is now tested in
   trainer battles.
 
 **Milestones** (in `states/milestones/`, not in git): 06 the lab after the
 Pokédex, 07 Jubilife's arrival trigger, 08 after the Parcel, 09 after the
 Pokétch, 10 Barry's trigger on Route 203, 11 Oreburgh's edge, 12 healed in
-its Pokémon Center, 13 after Roark's mine scene, 14 inside the gym's door.
+its Pokémon Center, 13 after Roark's mine scene, 14 inside the gym's door,
+15 in front of Roark, 16 with the Coal Badge.
 They were made with the scratch driver, so no input script rebuilds them
 yet; the driver's tokens become step 3.2's primitives.
 
@@ -1754,5 +1762,6 @@ unavoidable trainers of four maps, and where var 16503 becomes 3.
 | The way out of the mine read as blocked after Roark's scene | The ROM lists people the story has hidden, like the boulder Roark smashed | People whose event flag is set are left out |
 | Lass Madeline was counted as avoidable | The check dropped the goal tile from her sight, and she sees the gate's door | A goal or start tile in a trainer's sight makes the trainer unavoidable |
 | The gym's collision showed open floor the game refused | The gym has raised floors, and `fieldmap` reads no heights | The gym's walkable tiles were found by stepping every tile in the emulator. Heights stay unread |
+| The emulator walk of the gym missed the way to Roark | It counted each (x, z) once, and a raised walkway passes over floor tiles with the same (x, z). The floor was walked first | Walked again from Jonathon's platform, which reaches the walkway. A walk that tells floors apart needs the player's height, still to read |
 | §30 put the Jubilife multi battle before Roark | The trainers' names and levels fit, but the trigger's var is set in the gym | Corrected: it comes after Roark |
-| The boulder in the Oreburgh Gym blocks the way to Roark | Rock Smash needs the Coal Badge in this hack | Open: find what the hack means the player to do |
+| The boulder in the Oreburgh Gym looked like it blocked the way to Roark | It closes vanilla's shortcut past the trainers; Rock Smash needs the Coal Badge | The way past both trainers reaches Roark |

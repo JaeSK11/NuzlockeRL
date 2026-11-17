@@ -54,3 +54,7 @@ implementation (training).
   General RL-environment design. Notion page, not archived.
 - Platinum Kaizo developer FAQ (quoted on Reddit): DeSmuME recommended;
   melonDS cores can't save in-game.
+- [Bulbapedia's Platinum walkthrough, part 3](https://bulbapedia.bulbagarden.net/wiki/Walkthrough:Pok%C3%A9mon_Platinum/Part_3).
+  Vanilla's Oreburgh Gym has a way past both trainers and a shortcut that
+  skips them. That told the playthrough the hack's boulder closes only the
+  shortcut ([PROGRESS.md §33](PROGRESS.md)).

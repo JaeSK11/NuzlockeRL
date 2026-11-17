@@ -268,8 +268,7 @@ each run to the decisions. In order:
       and a playthrough with `src/drive.py` that saves a milestone state at
       each beat, after the existing 00 to 05. The hack may have moved things.
       Done (PROGRESS.md §33), in [ROUTE_TO_ROARK.md](ROUTE_TO_ROARK.md),
-      with milestones 06 to 14. Open: a Rock Smash boulder in the Oreburgh
-      Gym stands before Roark, and Rock Smash needs his badge.
+      with milestones 06 to 16, through Roark's badge.
    2. **Overworld primitives** (`src/overworld.py`), each checked on those
       milestone states:
       - **Walking to a tile:** follow waypoints with `gen4.read_location`,

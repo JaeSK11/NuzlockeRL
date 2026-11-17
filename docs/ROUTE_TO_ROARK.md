@@ -3,8 +3,7 @@
 Step 3.1 of [NEXT_PHASE.md](NEXT_PHASE.md#after-the-pilot): the survey the route
 script is built from. The first half came from the ROM and the decomp. The
 playthrough (PROGRESS.md §33) played it from the state after the first rival
-battle to the Oreburgh Gym and confirmed it, with one open problem: the gym's
-boulder (below).
+battle to Roark's badge and confirmed it.
 
 Tiles are what `gen4.read_location` reports: global on the outdoor maps,
 local inside a building. Map ids are map header ids. Map events, trainers'
@@ -27,7 +26,8 @@ lines of sight, and which trainers a walk can't avoid come from the ROM
 | 10 | Oreburgh City (45) | Arrival trigger at x=266, z=748 to 751 (var 16505 = 0): a local walks the player to the gym | `11_oreburgh_arrival` (at the city's edge) |
 | 11 | Pokémon Center (48) | Healed by facing the nurse across the counter from (8,6) and pressing A through | `12_oreburgh_pokecenter` |
 | 12 | Oreburgh Mine B1F (198), B2F (199) | The entrance is at x=300 to 304, z=794; B2F through (12,21). Roark stands at (18,28) behind two boulders, (19,28) and (19,29), so the way to him is the west corridor past both Workers. Talking to him plays a Rock Smash demonstration: he smashes (19,28) and leaves for the gym. No battle in the mine | `13_oreburgh_mine_roark` |
-| 13 | Oreburgh Gym (47), door (282,756) | Roark at (5,3). Two trainers, Jonathon (244) and Darius (245). **Open: a boulder at (5,15) stands at the foot of the only stairs up** | `14_oreburgh_gym` (inside the door) |
+| 13 | Oreburgh Gym (47), door (282,756) | Roark at (5,3). The way up runs past both trainers (below) | `14_oreburgh_gym` (inside the door) |
+| 14 | Oreburgh Gym | Roark (246) battles when talked to from (5,4). Winning gives the Coal Badge and TM39, and sets var 16503 to 3 and 16505 to 2 | `15_oreburgh_gym_before_roark`, `16_coal_badge` |
 
 **A whiteout before any Pokémon Center** sends the player home, to (8,8) in
 the house (map 414).
@@ -68,10 +68,12 @@ line of sight (`fieldmap.forced_trainers`).
 | Oreburgh Gate | 329 Picnicker Diana | (24,20) | south, 6 | no |
 | Oreburgh Mine B2F | 196 Worker Mason | (2,24) | east, 5 | no |
 | Oreburgh Mine B2F | 195 Worker Colin | (10,28) | south, 3 | no: he stands in the corridor |
-| Oreburgh Gym | 244 Scientist Jonathon | (1,17) | east, 3 | yes |
-| Oreburgh Gym | 245 Ruin Maniac Darius | (7,11) | south, 4 | not played (the boulder) |
+| Oreburgh Gym | 244 Scientist Jonathon | (1,17) | east, 3 | no: both ways off the top of the left stairs are in his sight |
+| Oreburgh Gym | 245 Ruin Maniac Darius | (7,11) | south, 4 | no |
+| Oreburgh Gym | 246 Leader Roark | (5,3) | talked to | no |
 
-The playthrough fought every one but the gym's. Not met on the way: the
+The gym's two rows come from the game, not from `fieldmap`, which reads no
+floor heights (below). The playthrough fought every trainer in the table. Not met on the way: the
 school kids (no Trainers' School pupil sees the player; whether they battle
 when talked to wasn't checked), Clown 255, Youngster Tyler, Lass Samantha
 and Lass Sarah (likely Route 204), and Galactic Puck (559).
@@ -81,29 +83,28 @@ and Lass Sarah (likely Route 204), and Galactic Puck (559).
 A trigger at (173,743), in the north of Jubilife City, starts the multi
 battle of PROGRESS.md §30 when var 16503 is 3. The only script in the ROM that
 sets 16503 to 3 is the Oreburgh Gym's. With 16503 written to 3 in a test copy,
-the trigger played its scene into the battle against trainer 414. So a run to
-Roark's badge never meets it: §30's correction is itself corrected.
+the trigger played its scene into the battle against trainer 414. In the
+playthrough, beating Roark set 16503 to 3. So a run to Roark's badge never
+meets it: §30's correction is itself corrected.
 
-## Open: the boulder in the Oreburgh Gym
+## The Oreburgh Gym
 
-The hack puts Rock Smash boulders in the gym, and one, at (5,15), stands at
-the foot of the stairs at (5,13) and (5,14). Walking every tile from the door
-reaches only z = 15 to 24; Darius and Roark are above. The ROM's collision
-shows more open floor than the game allows here, because the gym has raised
-floors and `fieldmap` doesn't read heights.
+The gym has raised floors and a walkway that passes over floor tiles with the
+same (x, z), so the ROM's collision layer shows more open floor than the
+game allows, and `fieldmap` can't plan a walk here. Its tiles were found by
+stepping every tile in the emulator.
 
-- With a party Pokémon that knows Rock Smash, the boulder says "It's a
-  rugged rock, but a Pokémon may be able to smash it." The field move is
-  refused.
-- With the Coal Badge's bit set in a test copy, the same Pokémon smashes it,
-  and the player climbs to (5,13).
-- So Rock Smash needs the badge that Roark gives. Roark's mine scene is only
-  the demonstration, at level 16 or over it, and the gym guide gives the usual
-  advice.
-
-How the hack means the player to reach Roark is still unknown. Next to check:
-the gym's scripts in the ROM (what removes or bypasses the boulder), and the
-hack's own notes.
+- **The trainers' way:** up the stairs at x=2 (z=19 to 20) to Jonathon's
+  platform, along the raised walkway to the right side (x=8 to 10), then up
+  past Darius, whose sight at (7,12) can't be avoided, to Roark at (5,3).
+  Talk to him from (5,4).
+- **The shortcut is closed.** Vanilla also has stairs, a bridge and more
+  stairs that skip both trainers (Bulbapedia's Platinum walkthrough, part 3).
+  The hack puts a Rock Smash boulder at (5,15), at the foot of those stairs,
+  and Rock Smash needs the Coal Badge: the boulder refuses a Pokémon that
+  knows the move, and gives way once the badge's bit is set.
+- The hack adds more boulders at (9,4), (1,7), (9,9), (8,10) and (10,10).
+  None is on the trainers' way.
 
 ## The trainers the hack uses before Roark
 
