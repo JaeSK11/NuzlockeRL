@@ -96,10 +96,9 @@ The hack changed abilities, so assume it changed more.
       in about 30,000 decisions, so the emulator stays. The held-out
       battles gained less, and one got worse with more training. See
       [PROGRESS.md](PROGRESS.md#24-the-pilots-result-2026-11-17).
-- [ ] A varied battle set of hundreds of generated battles, with the
-      held-out battles evaluated during training and the best checkpoint
-      kept by them. The steps are in
-      [NEXT_PHASE.md](NEXT_PHASE.md#after-the-pilot).
+- [ ] Live runs to Roark: the agent learns every battle and catch in real
+      runs from Twinleaf Town, with a scripted walk at first. The steps are
+      in [NEXT_PHASE.md](NEXT_PHASE.md#after-the-pilot).
 - [x] Generated wild battles: `src/scenario.py` writes any party and any
       wild enemy into RAM and saves a battle state at the first prompt.
 - [ ] Trainer battles for the early bosses (Roark, Barry 2, Galactic). The
@@ -200,6 +199,19 @@ learns poorly from rewards that late. Build it in this order:
        the risk, since every wild encounter can cost a Pokémon for good. It
        uses the position and map from `gen4.read_location` (step 4).
 
+## 6. A second game (later)
+
+The goal is a model that, once it beats Platinum Kaizo, can learn another
+Nuzlocke game on its own. See
+[NEXT_PHASE.md](NEXT_PHASE.md#built-to-move-to-another-game).
+
+- [ ] A game adapter: memory reads, inputs, ROM data and route IDs behind
+      one interface, which the env and the policy use instead of `gen4`
+      directly
+- [ ] The rules as a config file, read by the action mask and the rewards
+- [ ] Emerald Kaizo on mGBA: a Gen 3 adapter, then the transfer test,
+      Platinum model against a fresh one
+
 ## Later, as the project matures
 
 Ideas from the Pokémon Red agent (PWhiddy's PokemonRedExperiments video)
@@ -228,4 +240,4 @@ that are too early now:
 - If DS emulation speed is the bottleneck, fall back to a Python battle
   simulator for training and use the emulator only to evaluate. Not yet:
   the pilot learned 10 battles in about 30,000 decisions (PROGRESS.md §24).
-  The varied set will tell.
+  Live runs will tell.

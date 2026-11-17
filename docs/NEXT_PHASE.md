@@ -204,117 +204,121 @@ These are proposals. Set the final numbers once the baseline is known.
 
 The pilot learned its 10 training battles in about 30,000 decisions. The
 held-out battles gained less, and one got worse with more training
-(PROGRESS.md §24). The emulator stays. The goal from here is a run from
-Twinleaf Town to Roark's badge under the README's rules, with the agent
-first fighting, then catching, then walking. Decided on 2026-11-17, in order:
+(PROGRESS.md §24). The emulator stays.
 
-1. **A varied battle set.** Hundreds of battles instead of 10, so that no
-   single matchup can be memorized. `scenario.py` can already make any party
-   against any wild enemy, with any moves and held item.
-   - **Enemies:** the Pokémon of the real trainers before Roark
-     (`romdata.trainer`, every Pokémon at level 16 or below): 159 sets of
-     102 species, almost all with their own moves and items, fought as wild
-     Pokémon. Roark's team is in the pool like any other. Leave out Roark's
-     Shuckle, whose Sand Tomb traps, until trapping is modeled.
-   - **Held out:** a random fifth of the enemy species, with every set of
-     each.
-   - **Parties:** 3 Pokémon catchable before Roark (Routes 201–204, Lake
-     Verity, Oreburgh Gate and Oreburgh Mine, about 60 species), or a
-     starter, at levels 12 to 14, with their level-up moves. Give some
-     parties a clearly weak member, so the faint penalty separates fodder
-     from the ace (§24), and some a setup move (§23).
-   - **A fixed set:** about 500 battles, generated once at about a second
-     each, and each checked as it's saved (`make_battle_set.py`). About
-     2.7 GB. A failed state can't stop a run, and runs are reproducible.
-2. **Evaluate the held-out battles during training.** `train_ppo.py` sees
-   only the train split, so the pilot's held-out drop showed up only after
-   the run. Every few updates, play the held-out battles without learning,
-   log their win and clean-win rates in `metrics.jsonl`, and keep the
-   checkpoint with the best held-out clean-win rate. The evaluation costs
-   training time. About 20 episodes per held-out battle every 20 updates
-   would be a few percent of the run. Pool several evaluations before
-   trusting one number: the same checkpoint won one battle 44 of 50 times
-   in one sample and 14 of 28 in another (§24).
-3. **Measure, then decide on a simulator.** Train on the varied set and count
-   the decisions until the held-out clean-win rate stops rising. If that
-   takes more than about a million decisions (47 hours at 5.9 decisions/s),
-   plan the Python battle simulator for training, and keep the emulator for
-   evaluation. If variety doesn't fix generalization, find what lets the
-   policy tell battles apart. The enemy's stats and level may matter more
-   to it than the type matchups (§24). Try training with those features
-   noisy or removed.
-4. **Roark's real fight.**
-   - **Effects in the observation** (roadmap step 1): Stealth Rock, Light
-     Screen, Sand Tomb's trapping, and Curse.
-   - **Trapping and Encore in the action mask** (roadmap step 3).
-   - **An end signal for trainer battles.** The game records a trainer
-     battle's result only after the trainer's closing text (§23).
-   - **A state at Roark's battle:** his 6 Pokémon in a row, against a party
-     like the one a run would bring.
-5. **Catching and the Nuzlocke rules in the env.**
+**The goal:** beat Platinum Kaizo under the README's rules, with a model
+that can then be placed in another Nuzlocke game and learn to beat that one
+on its own, given time. Emerald Kaizo is the second game (step 7). So the
+system is built to move (see [Built to move](#built-to-move-to-another-game)).
+
+Decided on 2026-11-17 (PROGRESS.md §25): **the agent learns everything in
+live runs**, from Twinleaf Town to Roark's badge under the README's rules.
+Generated battles are no longer a training source; they stay only as a test
+(step 6). The walk is scripted at first, which teaches nothing; it only gets
+each run to the decisions. In order:
+
+1. **The live game's battles in the env.** A run meets what a generated
+   wild battle never shows, and each of these ends an episode today:
+   - **Trainer battles.** The game records their result only after the
+     trainer's closing text, so the env's wait runs out (§23). Find an end
+     signal.
+   - **Level-up prompts.** Almost every win brings one: learn a new move,
+     or evolve. Script the answers first (evolve; learn a move in place of
+     the weakest one), and make them the agent's choice later.
+   - **Trapping and Encore** in the action mask (roadmap step 3). A wild
+     Pokémon's Roar or Whirlwind ends the battle, and the run goes on.
+   - **The one early double battle** in the ROM (Interviewers Roxy & Oli,
+     trainer 368, level 6). Find where it is; if it's on the path and can't
+     be avoided, script it.
+2. **Catching and the Nuzlocke rules.**
    - **A Poké Ball action,** allowed only in a wild encounter the rules let
      it catch (a route's first new species, or a shiny), and only while the
-     bag has a ball. The catch result is already read
-     (`battleResult` 4, roadmap step 4).
+     bag has a ball. It taps through the bag by touch and handles the catch
+     flow: the Pokédex entry, the nickname prompt, and the PC when the party
+     is full. The catch result is already read (`battleResult` 4, roadmap
+     step 4).
    - **Bookkeeping:** the first encounter per route, the duplicates clause
      from evolution lines, the shiny clause (`scenario.is_shiny` already
      tells a shiny from its PID), a fainted Pokémon out for good, and the
      level cap for the badge count.
-6. **A scripted route runner to Roark.** Scripted inputs walk a fixed path
+3. **A scripted route runner to Roark.** Scripted inputs walk a fixed path
    from Twinleaf Town to the Oreburgh Gym, through the real encounters,
-   trainers and story events, and heal at each Pokémon Center. The agent
-   makes the decisions that matter: each battle, and whether to catch a
-   route's first encounter. An episode is a run, from the start to Roark's
-   badge or a wipe. The runner must handle what a single battle never shows:
-   - **Level-up prompts.** Almost every win brings one: learn a new move, or
-     evolve. The env ends these as STUCK today. Script the answers first
-     (evolve; learn a move in place of the weakest one), and make them the
-     agent's choice later.
-   - **Text and story scenes,** and healing at each Pokémon Center.
-   - **The one early double battle** in the ROM (Interviewers Roxy & Oli,
-     trainer 368, level 6). Find where it is; if it's on the path and can't
-     be avoided, script it.
-
-   From here on, the live game is the main source of battle experience:
-   - **Keep training the policy from step 3,** rather than starting over, on
-     the battles the run meets, with the team it caught.
-   - **Save a state before each battle of every run, and start some episodes
-     from those states.** Under permadeath most early runs die on the first
-     routes. Restarting from those states gives later battles, Roark's above
-     all, enough practice anyway. As the policy gets through the early
-     routes reliably, more runs reach Roark on their own, so lower the share
-     of restarted episodes with it. Some restarts stay useful even then:
-     survival multiplies over the 25 or so battles before Roark, so 98% per
-     battle still brings only about 60% of runs to him. This is for training
-     only: a run that counts plays from the start, with no restarts.
-7. **Learned walking.** Replace the scripted walk with learned movement.
+   trainers, text and story scenes, and heal at each Pokémon Center. Text
+   is advanced as generically as the game allows (A until the next prompt),
+   not scripted scene by scene, so it carries over to another game. An
+   episode is a run, from the start to Roark's badge or a wipe. The agent
+   learns, from scratch, every battle and every catch decision the run
+   brings.
+   - **Save a state before each battle of every run, and start some
+     episodes from those states.** Under permadeath most early runs die on
+     the first routes. Restarting from those states gives later battles,
+     Roark's above all, enough practice anyway. As the policy gets through
+     the early routes reliably, more runs reach Roark on their own, so lower
+     the share of restarted episodes with it. Some restarts stay useful even
+     then: survival multiplies over the 25 or so battles before Roark, so
+     98% per battle still brings only about 60% of runs to him. This is for
+     training only: a run that counts plays from the start, with no
+     restarts.
+4. **Roark's real fight.** Effects in the observation (roadmap step 1):
+   Stealth Rock, Light Screen, Sand Tomb's trapping, and Curse. Runs reach
+   Roark without them, but the agent then fights him blind to those effects.
+5. **Learned walking.** Replace the scripted walk with learned movement.
    Reward each waypoint of the runner's path once per run, the first time
    it's reached, so the walk can't be farmed and doesn't need a novelty
    reward. Then let it choose the parts of the walk that are real choices:
    optional trainers, training up to the level cap, items and detours (the
    roadmap's Items, step 5).
+6. **Measure.**
+   - **Counted runs,** from the start with no restarts: how far each run
+     gets, badges, and Pokémon lost.
+   - **A generalization test.** Every run meets the same trainers, so
+     nothing in the runs tells learning from memorizing them (§24). Battles
+     generated against Pokémon the runs never meet test that, used only to
+     evaluate, never to train.
+   - **The simulator question.** Count the decisions a run takes and the
+     runs it takes to reach Roark reliably. If that is weeks of emulator
+     time, plan a Python battle simulator for training.
+7. **Emerald Kaizo, the transfer test.** Once the Platinum loop works, put
+   the model in a second game and measure the goal directly.
+   - **A second stack:** a GBA emulator from Python (mGBA; PyBoy runs only
+     Game Boy games), a Gen 3 adapter for the RAM layout and decryption,
+     and button menus instead of touch. Gen 3 mechanics differ: a move is
+     physical or special by its type, not by the move.
+   - **The test:** train the Platinum model and a fresh one on Emerald Kaizo
+     with the same budget. How much faster the Platinum model learns is the
+     transfer. KP Labs' agent won 12 trainer battles there; that's the
+     baseline to beat.
+   - GBA hardware is far simpler to emulate than the DS, so Emerald runs
+     should cost less. Not measured here yet.
 
-Generated battles (steps 1 to 3) come before the live game (step 6) for
-three reasons:
-- **They are live-game battles.** They run in the game itself, against the
-  real trainers' Pokémon with their moves and items. Only the setup is a
-  shortcut: the party is written into memory and the enemy is forced, which
-  takes a second instead of a walk.
-- **They cover more, and evenly.** A run meets the same 25 or so trainers
-  every time. Early deaths spend most of the practice on the first routes,
-  and nothing is held out to tell learning from memorizing.
-- **They work now.** The live game needs catching, trainer battles and the
-  runner first.
+### Built to move to another game
+
+Everything specific to Platinum is something a human must redo for the next
+game, so keep it in one place and keep it small:
+- **One game adapter:** memory reads, inputs, ROM data, and the route ID
+  behind one interface. The env and the policy use only that interface.
+- **The rules as a config file,** read by the action mask and the rewards,
+  so each game can come with its own rules.
+- **Rewards from events every game has:** a faint, a win, a badge, a catch.
+- **A game-neutral observation.** It already uses no species or move IDs.
+  Add each move's effect, so a move it has never seen still makes sense.
+- **Scripted pieces are scaffolding.** The walk (step 5), the level-up
+  answers (step 1) and the text handling (step 3) each get replaced by a
+  learned or generic version, since a new game would need them written
+  again.
+- **Memorizing doesn't transfer.** Knowledge of Platinum Kaizo's trainers
+  is useless in Emerald. General battle skill is what shortens learning
+  there, so the generalization test of step 6 matters here too.
+- **Randomized ROMs are a later tool for robustness:** a randomizer such as
+  the Universal Pokémon Randomizer, which supports Platinum, gives
+  different trainers and wild Pokémon on the same maps. Not needed now.
+
+What this order costs: no training runs until steps 1 to 3 work, and the
+first runs learn slowly, since a run meets each trainer once and early
+deaths spend most of the practice on the first routes. The restart states
+soften that.
 
 The walk is scripted before it's learned because the way to Oreburgh is close
 to linear. Learning it costs a lot of steps and doesn't make the run better.
 The choices that matter on the way are the battles and the catches. A
 scripted walk gets every run to them quickly.
-
-## Work that can run alongside
-
-These need little CPU, so they can run while the pilot trains.
-- **Effects RAM** (roadmap step 1): the rest of `BattleMon.statusVolatile`,
-  `moveEffectsMask`, weather and field effects, and entry hazards. Verify
-  them with `scripts/ram_audit.py --probe`, as stat stages were.
-- **Trainer battles** for the early bosses (roadmap step 3).

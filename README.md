@@ -14,11 +14,19 @@ Nuzlocke rules:
 - No healing or battle items from the bag in battle. Held items still work.
 - Set battle style: no free switch after knocking out an enemy Pokémon.
 
-The plan follows the only public attempt we know of, KP Labs' Emerald Kaizo
-agent: **learn battles first**, starting each battle from an emulator save
-state, then add encounters, team building and overworld movement later.
+The long-term goal is a model that, once it beats Platinum Kaizo, can be
+placed in another Nuzlocke game, Emerald Kaizo first, and learn to beat it
+on its own.
 
-## Status (2026-11-11)
+The project started the way the only public attempt we know of, KP Labs'
+Emerald Kaizo agent, did: **battles first**, each started from an emulator
+save state. That pilot is done
+([PROGRESS.md §24](docs/PROGRESS.md#24-the-pilots-result-2026-11-17)). From
+here the agent learns in live runs from Twinleaf Town to Roark, catching
+and fighting under the rules above, with the walk scripted at first and
+learned later ([NEXT_PHASE.md](docs/NEXT_PHASE.md#after-the-pilot)).
+
+## Status (2026-11-17)
 
 | Area | State |
 |---|---|
@@ -29,7 +37,7 @@ state, then add encounters, team building and overworld movement later.
 | Battle RAM: waiting for a command, RNG seed, result, input mode | ✅ Verified on two battles (Barry 1 and a wild Delibird) |
 | Battle environment | ✅ `src/battle_env.py`: moves, switches, and the forced switch by touch, faint-event rewards, turn cap, random battle RNG, JSON logs. Parallel envs via `scripts/rollout.py` |
 | RAM audit | ✅ `scripts/ram_audit.py`: 244 battles, 0 violations |
-| RL training | ✅ Masked PPO over an async env pool, `scripts/train_ppo.py`. The pilot learned its 10 training battles in about 30,000 decisions; held-out battles gain less. A varied battle set is next ([PROGRESS.md §24](docs/PROGRESS.md#24-the-pilots-result-2026-11-17)) |
+| RL training | ✅ Masked PPO over an async env pool, `scripts/train_ppo.py`. The pilot learned its 10 training battles in about 30,000 decisions; held-out battles gain less. Live runs to Roark are next ([PROGRESS.md §24](docs/PROGRESS.md#24-the-pilots-result-2026-11-17)) |
 | Effects, weather, double battles | ⏳ Next. See [docs/ROADMAP.md](docs/ROADMAP.md) |
 
 ## Documentation
@@ -38,7 +46,7 @@ state, then add encounters, team building and overworld movement later.
 |---|---|
 | [docs/PROGRESS.md](docs/PROGRESS.md) | What has been done so far, in order, and why each decision was made |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | What to do next, in priority order |
-| [docs/NEXT_PHASE.md](docs/NEXT_PHASE.md) | The plan for the PPO pilot: steps, battles, what to watch, how to decide |
+| [docs/NEXT_PHASE.md](docs/NEXT_PHASE.md) | The PPO pilot's plan, and the plan after it: live runs to Roark, built to move to another game, then Emerald Kaizo |
 | [docs/RAM_MAP.md](docs/RAM_MAP.md) | Verified memory addresses, the Gen 4 decryption, and caveats |
 | [docs/HACK_DATA.md](docs/HACK_DATA.md) | How the hack's species, moves, trainers, and encounters differ from vanilla |
 | [docs/EMULATOR.md](docs/EMULATOR.md) | PyNDS setup, test results, input timing, emulator quirks |

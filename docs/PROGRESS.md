@@ -1219,3 +1219,43 @@ The next steps are in [NEXT_PHASE.md](NEXT_PHASE.md#after-the-pilot).
 | 50 episodes per battle give noisy results | One battle turns on a few rolls. The 51,200 checkpoint won Turtwig team vs Cranidos 44 of 50 times, then 14 of 28 and 48 of 70 with other seeds | Pool seeds, or play more episodes, for any number a decision rests on |
 | The README's rules banned every bag item in battle, which rules out catching | The rule was written before catching was planned | Poké Balls are allowed for a route's first encounter; healing and battle items stay banned |
 | The faint penalty doesn't separate fodder from the ace in a balanced team | Strength is the stat total over the team's highest, and the Chimchar team's totals are within 14% of each other | Open: a gauntlet env, where a faint costs options in later battles (roadmap step 2), is the real fix |
+
+## 25. The plan after the pilot (2026-11-17)
+
+Goal: decide, with the user, what follows the pilot. The plan is in
+[NEXT_PHASE.md](NEXT_PHASE.md#after-the-pilot).
+
+**The goal.** Beat Platinum Kaizo under the README's rules, with a model
+that can then be placed in another Nuzlocke game and learn to beat that one
+on its own, given time. Emerald Kaizo is the second game. A model that wins
+any ROM on the first try was considered and set aside: that's beyond
+anything published. Learning a new game faster than a fresh model is
+realistic, and it can be measured.
+
+**Decisions:**
+- **Everything is learned in live runs,** from Twinleaf Town to Roark's
+  badge. The first draft of the plan put about 500 generated battles before
+  the live game, because they cover more matchups, evenly, and work now.
+  The user chose live runs. Generated battles stay as a test only.
+- **The rules are written out in full** in the README. Catching with Poké
+  Balls is part of the first-encounter rule, and the duplicates, shiny and
+  Set clauses were added.
+- **The walk is scripted first, then learned.** The way to Oreburgh is close
+  to linear, so a scripted walk loses nothing and gets each run to its
+  battles and catches. Learned walking is rewarded once per waypoint.
+- **Restart states, for training only.** A state saved before each battle
+  of every run gives later battles practice while most early runs still
+  die. A run that counts plays from the start.
+- **Built to move to another game:** one game adapter, the rules as a
+  config file, rewards from events every game has, and a game-neutral
+  observation. Scripted pieces are scaffolding, to be replaced.
+- **Emerald Kaizo after the Platinum loop works,** on mGBA with a Gen 3
+  adapter. The transfer test trains the Platinum model and a fresh one
+  there with the same budget. KP Labs' 12 trainer battles are the baseline.
+- **Randomized ROMs** are a later tool for robustness, not needed now.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| Live play would end within minutes | The env handles only the middle of a single wild battle. Level-up prompts, a trainer battle's late result, text, catching and trapping moves all end an episode | Steps 1 to 3 of the plan build each |
+| A run meets the same trainers every time, so runs alone can't tell learning from memorizing | The game's trainers are fixed | Battles generated against Pokémon the runs never meet, as a test only |
+| Scripted pieces would have to be rewritten for every new game | They encode Platinum's paths, menus and prompts | Treated as scaffolding: each gets a learned or generic replacement |
