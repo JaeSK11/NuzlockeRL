@@ -63,6 +63,7 @@ src/scenario.py     Battle-scenario generator: any party vs any wild Pokémon, s
 src/pool.py         Asynchronous env pool: one worker process per env, stepped as each is ready
 src/ppo.py          Masked PPO with checkpoints and resume
 src/fieldmap.py     The overworld from the ROM: maps, tiles, people, warps, triggers, trainers' sight, paths
+src/overworld.py    Walking: a step, a walk that steps around people, and each map's walkable graph, found by walking it
 src/nuzlocke.py     The Nuzlocke rules as data, and a run's bookkeeping: which encounters may be caught, who is gone, the level cap
 src/thermal.py      Stops long runs when the CPU stays too hot
 src/drive.py        Scripted input driver for exploring the game and making save states
@@ -105,6 +106,7 @@ src/d - mystate "w900 a*10 w120"                   # boot, press A, save state +
 ~/venvs/nuzlockerl/bin/python scripts/make_battle_set.py scripts/pilot_battles.json   # the PPO pilot's battles, each checked
 ~/venvs/nuzlockerl/bin/python scripts/eval_ppo.py --run-dir runs/pilot --states states/generated/pilot/heldout/*.state   # --mode random: the random-play baseline
 ~/venvs/nuzlockerl/bin/python scripts/plot_runs.py runs/pilot --baseline-win 0.56 --baseline-clean 0.06   # runs/progress.png
+~/venvs/nuzlockerl/bin/python scripts/explore_maps.py --jobs 8   # each map's walkable graph, from states/walk/start/*.state
 ~/venvs/nuzlockerl/bin/python scripts/ram_audit.py --battles 200 --probe 4   # check RAM reads against invariants; exits 1 on a violation
 ```
 

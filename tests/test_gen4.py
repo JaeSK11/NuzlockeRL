@@ -103,3 +103,10 @@ def test_story_vars_and_event_flags():
     n = load_survey("13_oreburgh_mine_roark.state")
     assert gen4.read_flag(n, 394) and gen4.read_flag(n, 32)    # Roark left the mine; he smashed one boulder
     assert not gen4.read_flag(n, 33)                           # the other boulder is still there
+
+
+def test_the_player_tile_matches_the_location_and_carries_the_height():
+    n = load("04_after_barry1_home.state")
+    loc = gen4.read_location(n)
+    assert gen4.read_player_tile(n)[:2] == (loc.x, loc.z)
+    assert gen4.read_player_tile(load_survey("14_oreburgh_gym.state")) == (5, 24, 0)   # the gym's floor, inside the door

@@ -57,6 +57,8 @@ OFFSETS = {                     # added to the resolved version pointer
 FIELD_SYSTEM_PTR = 0x21C07DC    # FieldSystem *, the same in every state tried, overworld and battle
 FS_TASK, FS_LOCATION = 0x10, 0x1C   # FieldSystem.task (FieldTask *) and .location (points at "location")
 NUM_VARS = 288
+FS_PLAYER_AVATAR, AVATAR_MAP_OBJECT = 0x3C, 0x30   # FieldSystem.playerAvatar, PlayerAvatar.mapObject
+MAP_OBJECT_X, MAP_OBJECT_HEIGHT, MAP_OBJECT_Z = 0x64, 0x68, 0x6C   # i32 tile coordinates; height in 8-unit steps
 BATTLE_STATUS = 0x24A55A        # tracker global; reads 0 even mid-battle in Kaizo. Use in_battle()
 
 POKEDEX_MAGIC = 0xBEEFCAFE
@@ -392,6 +394,15 @@ def read_flag(nds, flag: int, addrs: dict | None = None) -> bool:
     """An event flag. A person whose event flag is set is hidden."""
     a = addrs or resolve(nds)
     return bool(nds.memory.read_u8(False, a["vars"] + 2 * NUM_VARS + flag // 8) >> (flag % 8) & 1)
+
+
+def read_player_tile(nds) -> tuple[int, int, int]:
+    """(x, z, height) of the player's tile. The height tells a raised walkway from the floor
+    under it, which share (x, z) in the Oreburgh Gym; it climbs 0, 1, 3, 4 up a flight of stairs."""
+    fs = nds.memory.read_u32(False, FIELD_SYSTEM_PTR)
+    mo = nds.memory.read_u32(False, nds.memory.read_u32(False, fs + FS_PLAYER_AVATAR) + AVATAR_MAP_OBJECT)
+    rd = lambda off: int.from_bytes(nds.memory.read_u32(False, mo + off).to_bytes(4, "little"), "little", signed=True)
+    return rd(MAP_OBJECT_X), rd(MAP_OBJECT_Z), rd(MAP_OBJECT_HEIGHT)
 
 
 def read_badges(nds, addrs: dict | None = None) -> int:

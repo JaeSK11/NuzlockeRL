@@ -174,7 +174,7 @@ Found during the playthrough to the Oreburgh Gym (PROGRESS.md §33).
 | FieldSystem pointer | 0x21C07DC (absolute) | `FieldSystem *` | ✅ The same pointer in every state tried, overworld and battle. Checked by `FieldSystem.location` (+0x1C) pointing at `location` |
 | FieldSystem.task | FieldSystem + 0x10 | `FieldTask *` | ✅ Non-zero while a script runs (text, a scene, a trainer walking up), during a warp, and in battle. 0 when the player can walk. `gen4.field_task` |
 | vars | v + 0xDC0 | u16 × 288, ids from 0x4000 | ✅ The story vars the map triggers test. Seen moving 0 → 1 → 2 in Sandgem (16497), Jubilife (16503) and the Trainers' School (16615). `gen4.read_var` |
-| Player height | FieldSystem +0x3C → PlayerAvatar, +0x30 → MapObject, +0x68 | i32, half tiles | ⚠️ One pair of tiles checked in the Oreburgh Gym: 4 on the raised walkway at (3,18), 0 on the floor at (4,18). +0x74 is the same height as fx32 world units (0x20000 = 32 units). +0x64 and +0x6C read x and z |
+| Player tile | FieldSystem +0x3C → PlayerAvatar, +0x30 → MapObject: +0x64 x, +0x68 height, +0x6C z | i32 each; height in steps of 8 world units | ✅ x and z match `location` on every state tried. Height reads 0 on the Oreburgh Gym's floor and 4 on its walkway, and climbs 0, 1, 3, 4 up its stairs. Not zero-based: Jubilife's street reads 4. +0x74 is the height as fx32 world units. `gen4.read_player_tile` |
 | flags | vars + 0x240 | bit array | ✅ Event flags. A person whose flag is set is hidden: Roark leaving the mine set 394, the boulder he smashed set 32. `gen4.read_flag` |
 
 The vars and flags were found by diffing RAM across the scenes that changed
