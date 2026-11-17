@@ -133,7 +133,14 @@ def test_scenario_battle_copy_and_forced_enemy(scenarios):
         nds.load_state_from_file(path)
         nds.tick(2)
         a = gen4.resolve(nds)
-        assert gen4.in_battle(nds, a) and gen4.waiting_for_command(nds, a)
+        # Saved just before the first command selection, so the enemy hasn't picked its move yet
+        assert gen4.in_battle(nds, a) and not gen4.waiting_for_command(nds, a)
+        for _ in range(60):
+            nds.tick()
+            if gen4.waiting_for_command(nds, a):
+                break
+        else:
+            raise AssertionError(f"{name}: no prompt within 60 frames of the saved state")
         battle = gen4.read_party(nds, a["playerBattleBase"])
         assert [(m.species, m.level, m.moves) for m in battle] == [(s["species"], s["level"], s["moves"]) for s in spec]
         assert all(m.checksum_ok and m.hp == m.max_hp > 0 for m in battle)

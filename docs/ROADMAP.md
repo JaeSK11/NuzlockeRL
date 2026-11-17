@@ -127,9 +127,11 @@ The hack changed abilities, so assume it changed more.
       against what the game accepts (PROGRESS.md §27). Before, a refused tap
       ended the step as STUCK: against a wild Shuckle, which knows Wrap and
       Encore, 95% of random-policy battles did.
-- [ ] **The enemy's first move is fixed in a saved battle state.** Its AI
-      picks before the state is saved, so the env's random battle seed
-      doesn't change it (PROGRESS.md §27). Save states before the AI picks.
+- [x] **The enemy's first move was fixed in a saved battle state.** Its AI
+      picked before the state was saved, so the env's random battle seed
+      didn't change it. Generated states are now saved 10 frames before the
+      first command selection (PROGRESS.md §28). The milestone states, and
+      the pilot's, are still saved at the prompt.
 - [x] **No PP left.** The mask allows action 0 only, which taps a move
       and makes the game use Struggle. Switching is masked off in that case
       for now; allowing it is a one-line change in `action_mask`.

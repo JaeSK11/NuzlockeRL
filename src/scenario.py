@@ -29,7 +29,10 @@ WALK_SCRIPT = os.path.join(ROOT, "scripts/milestones/05_route201_wild_battle.txt
 MAX_SPECIES = 493
 PARTY_SLOTS = 6
 ENCOUNTER_OFFSET = 0x233E4      # from gen4's version pointer: the current map's wild table, copied out of the ROM's wild encounter data
-SAVE_DELAY = 5                  # frames after the prompt signal rises; the rising frame itself saved a state that loaded stuck
+# Battle states are saved this many frames before the first command selection, where the enemy
+# picks its turn-1 move. A state saved on the frame the selection begins reloads differently
+# after another battle has run in the same emulator; 1 to 60 frames earlier reloads the same.
+SAVE_MARGIN = 10
 # The enemy's BattleMon, BattleContext.battleMons[1] (layout in RAM_MAP.md, include/battle/battle_mon.h)
 ENEMY_BATTLE_MON = 0x2E00
 BM_MOVES, BM_PP_CUR, BM_PP_UPS, BM_HELD_ITEM = 0xC, 0x2C, 0x30, 0x78
@@ -264,25 +267,33 @@ def _walk(nds, key: str, frames: int, addrs: dict) -> bool:
     return False
 
 
-def start_wild_battle(nds, max_walk_frames: int = 20000, max_intro_frames: int = 3000) -> int:
-    """Pace right and left in the grass until a wild battle starts, then run the intro to
-    the first command prompt and SAVE_DELAY frames past it. Returns the frames used."""
+def start_wild_battle(nds, stop_at: int | None = None, max_walk_frames: int = 20000,
+                      max_intro_frames: int = 3000) -> tuple[int, int]:
+    """Pace right and left in the grass until a wild battle starts, then run the intro until the
+    first command selection is about to begin (BattleContext.command reads INIT_COMMAND_SELECTION,
+    12 frames before the prompt), or until `stop_at` intro frames. Returns (walk frames, intro
+    frames). The enemy picks its turn-1 move during command selection, so a state saved before it
+    leaves that pick to the battle seed the env writes after loading; a state saved at the prompt
+    fixed it."""
     addrs = gen4.resolve(nds)
-    used = 0
+    walk = 0
     for key in itertools.cycle(("right", "left")):
         if _walk(nds, key, 32, addrs):
             break
-        used += 36
-        if used > max_walk_frames:
+        walk += 36
+        if walk > max_walk_frames:
             raise RuntimeError(f"no wild battle in {max_walk_frames} frames")
     addrs = gen4.resolve(nds)
-    for _ in range(max_intro_frames):
+    for intro in range(1, max_intro_frames + 1):
         nds.tick()
-        used += 1
-        if gen4.waiting_for_command(nds, addrs):
-            nds.tick(SAVE_DELAY)
-            return used + SAVE_DELAY
-    raise RuntimeError("battle started but never reached a command prompt")
+        if intro == stop_at:
+            return walk, intro
+        c = gen4.read_battle_command(nds, addrs)
+        if c and c[0] == gen4.CMD_INIT_COMMAND_SELECTION and gen4.in_battle(nds, addrs):
+            if stop_at is not None:
+                raise RuntimeError(f"command selection began at intro frame {intro}, before {stop_at}")
+            return walk, intro
+    raise RuntimeError("battle started but never reached its first command selection")
 
 
 def mons_from_spec(spec: list[dict], trainer: Trainer, rng: random.Random) -> list[MonData]:
@@ -301,22 +312,28 @@ def mons_from_spec(spec: list[dict], trainer: Trainer, rng: random.Random) -> li
 def make_scenario(party_spec: list[dict], out_path: str, seed: int = 0, rom: str = DEFAULT_ROM,
                   base_state: str | None = None, enemy: tuple[int, int] | None = None,
                   enemy_moves: list[int] | None = None, enemy_item: int | None = None) -> dict:
-    """Save a battle state at the first command prompt of a wild battle fought with the given
-    party. `seed` picks the PIDs and how long the player idles first, which changes the
-    encounter. `enemy=(species, level)` forces every grass encounter to it. `enemy_moves` and
-    `enemy_item` replace the enemy's own level-up moves and held item (set_enemy_moves).
+    """Save a battle state SAVE_MARGIN frames before the first command selection of a wild
+    battle fought with the given party; the env's reset runs it on to the first prompt. The
+    battle is played twice from the same start, which the emulator repeats exactly: once to find
+    the frame the selection begins, once to stop short of it. `seed` picks the PIDs and how long
+    the player idles first, which changes the encounter. `enemy=(species, level)` forces every
+    grass encounter to it. `enemy_moves` and `enemy_item` replace the enemy's own level-up moves
+    and held item (set_enemy_moves), before it picks its first move.
     Writes out_path and out_path + '.json'. Returns the JSON record."""
-    rng = random.Random(seed)
-    nds = pynds.PyNDS(rom)
-    nds.load_state_from_file(base_state or ensure_grass_state(rom))
-    nds.tick(2)
-    trainer = Trainer.from_mon(read_party_data(nds)[0])
-    mons = mons_from_spec(party_spec, trainer, rng)
-    write_party(nds, mons)
-    if enemy:
-        set_wild_encounter(nds, *enemy)
-    nds.tick(rng.randrange(120))
-    frames = start_wild_battle(nds)
+    def battle(stop_at=None):
+        rng = random.Random(seed)
+        nds = pynds.PyNDS(rom)
+        nds.load_state_from_file(base_state or ensure_grass_state(rom))
+        nds.tick(2)
+        trainer = Trainer.from_mon(read_party_data(nds)[0])
+        write_party(nds, mons_from_spec(party_spec, trainer, rng))
+        if enemy:
+            set_wild_encounter(nds, *enemy)
+        nds.tick(rng.randrange(120))
+        return nds, start_wild_battle(nds, stop_at)
+    _, (_, selection) = battle()
+    nds, (walk, intro) = battle(selection - SAVE_MARGIN)
+    frames = walk + intro
     addrs = gen4.resolve(nds)
     if enemy_moves is not None or enemy_item is not None:
         own = gen4.read_party(nds, addrs["enemyBase"])[0].moves

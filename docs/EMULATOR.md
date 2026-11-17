@@ -157,6 +157,14 @@ nds.save_state_to_file(p); nds.load_state_from_file(p)
   PortAudio, `emu_tests/stub/sounddevice.py` is a stand-in
   (`PYTHONPATH=emu_tests/stub`).
 - For headless runs, set `SDL_VIDEODRIVER=dummy`. pygame is imported.
+- **Not every frame makes a clean save state.** A battle state saved on the
+  frame the first command selection begins (`BattleContext.command` = 4)
+  reloads differently after another battle has run in the same emulator:
+  165 to 336 bytes of main RAM differed, around 0x0222C894. Saved 1 to 60
+  frames earlier, it reloads the same, and so does a state saved at the
+  prompt. Two fresh emulators always agreed, so some emulator state outside
+  the save file must be in flight on that frame. Generated states are saved
+  10 frames early (PROGRESS.md §28).
 
 ## Input timing (important for the action space)
 

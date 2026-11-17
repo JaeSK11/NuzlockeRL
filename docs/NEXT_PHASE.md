@@ -230,10 +230,11 @@ each run to the decisions. In order:
      checked action by action against what the game accepts.
    - **A wild Pokémon's Roar or Whirlwind** ends the battle, and the run
      goes on.
-   - **The enemy's first move is fixed in a saved battle state** (§27). The
-     AI picks it before the state is saved, so the env's random battle
-     seed can't change it. Save battle states before the AI picks, and so
-     the restart states of step 3 too.
+   - **The enemy's first move is fixed in a saved battle state.** Done for
+     generated battles (PROGRESS.md §28): they are saved 10 frames before
+     the enemy picks. The restart states of step 3 must be saved before a
+     battle's command selection too, and checked to reload the same after
+     another battle.
    - **The one early double battle** in the ROM (Interviewers Roxy & Oli,
      trainer 368, level 6). Find where it is; if it's on the path and can't
      be avoided, script it.

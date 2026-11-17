@@ -199,6 +199,7 @@ def in_battle(nds, addrs: dict | None = None) -> bool:
     return m.checksum_ok and 0 < m.species <= 493
 
 
+CMD_INIT_COMMAND_SELECTION = 4  # BattleContext.command for one frame before each turn's command selection, where the enemy picks its move
 CMD_SELECTION_INPUT = 5         # BattleContext.command while the game waits for the player
 CS_ACTION_MENU = 1              # curCommandState[0]: FIGHT / BAG / POKEMON / RUN is up
 CS_MOVE_MENU = 4                # curCommandState[0]: move menu is up (3 while it opens)

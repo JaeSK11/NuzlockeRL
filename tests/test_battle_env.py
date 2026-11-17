@@ -28,6 +28,7 @@ GEN = os.path.join(ROOT, "states/generated")
 CHIMCHAR, PIPLUP, PIKACHU, TURTWIG, STARLY, BIDOOF, EEVEE, BONSLY, SHUCKLE = 390, 393, 25, 387, 396, 399, 133, 438, 213
 TACKLE, SELFDESTRUCT, GROWL, MEGA_DRAIN, BITE, ROCK_THROW, RAZOR_LEAF, EMBER, SCRATCH = 33, 120, 45, 72, 44, 88, 75, 52, 10
 WITHDRAW, ABSORB, WRAP, MEAN_LOOK, DISABLE, TORMENT, ENCORE, CHOICE_BAND = 110, 71, 35, 212, 50, 259, 227, 220
+STEALTH_ROCK, BRICK_BREAK, ACCELEROCK = 446, 280, 205      # with Selfdestruct, Roark's Bonsly; 205 is Rollout in vanilla
 TEAM3 = [{"species": CHIMCHAR, "level": 12, "moves": [52, 10, 43, 183]},
          {"species": PIPLUP, "level": 11, "moves": [55, 1, 145, 64]},
          {"species": PIKACHU, "level": 10, "moves": [84, 98, 86, 45]}]
@@ -35,7 +36,8 @@ TEAM6 = [{"species": CHIMCHAR, "level": 12, "moves": [52, 10]}, {"species": PIPL
          {"species": PIKACHU, "level": 10, "moves": [84, 98]}, {"species": TURTWIG, "level": 10, "moves": [33, 72]},
          {"species": STARLY, "level": 8, "moves": [33, 28]}, {"species": BIDOOF, "level": 7, "moves": [33]}]
 # Turtwig's two moves have 1 PP each (Tail Whip, Meditate), so two turns leave it with none. Pikachu is alive.
-NO_PP = [{"species": TURTWIG, "level": 10, "moves": [39, 96]}, {"species": PIKACHU, "level": 10, "moves": [84, 98]}]
+# Level 16, so Turtwig outlasts three turns of Starly's attacks and Struggle's recoil.
+NO_PP = [{"species": TURTWIG, "level": 16, "moves": [39, 96]}, {"species": PIKACHU, "level": 10, "moves": [84, 98]}]
 WEAKLEAD = [{"species": PIKACHU, "level": 2, "moves": [84, 45]}, {"species": TURTWIG, "level": 15, "moves": [33, 72, 75, 44]}]
 # A weak Starly lead against a Bonsly whose only move is Selfdestruct; Turtwig is the strongest.
 WEAK_STARLY = [{"species": STARLY, "level": 8, "moves": [TACKLE]}, {"species": TURTWIG, "level": 14, "moves": [TACKLE]}]
@@ -52,7 +54,9 @@ SCENARIOS = {   # name: (party or a function giving one, wild enemy (species, le
     "weaklead_vs_eevee": (WEAKLEAD, (EEVEE, 13), 7),
     "starly_vs_selfdestruct": (WEAK_STARLY, (BONSLY, 15), 8, [SELFDESTRUCT]),
     "turtwig_learns_razor_leaf": (one_exp_short(TURTWIG, 15, [TACKLE, MEGA_DRAIN, BITE, ROCK_THROW]), (BIDOOF, 2), 1, [GROWL]),
-    "chimchar_skips_helping_hand": (one_exp_short(CHIMCHAR, 12, [EMBER, SCRATCH, TACKLE, BITE]), (BIDOOF, 2), 1, [GROWL])}
+    "chimchar_skips_helping_hand": (one_exp_short(CHIMCHAR, 12, [EMBER, SCRATCH, TACKLE, BITE]), (BIDOOF, 2), 1, [GROWL]),
+    "bonsly_opens": ([{"species": TURTWIG, "level": 14, "moves": [TACKLE, WITHDRAW, BITE, ABSORB]}], (BONSLY, 15), 3,
+                     [STEALTH_ROCK, SELFDESTRUCT, BRICK_BREAK, ACCELEROCK])}
 
 
 # A slow, bulky Shuckle that knows only the move under test, so Turtwig moves first and Tackle
@@ -259,6 +263,21 @@ def test_trap_rules_the_game_cant_show_here():
     assert not is_trapped(effects(ability=battle_env.SHADOW_TAG), battle_env.SHADOW_TAG)
     assert not is_trapped(effects(item=battle_env.SHED_SHELL, volatile=battle_env.VOLATILE_MEAN_LOOK), None)
     assert is_trapped(effects(volatile=battle_env.VOLATILE_MEAN_LOOK), None)
+
+
+@needs_rom
+def test_the_enemys_first_move_follows_the_battle_seed():
+    """Generated states are saved before the enemy picks its turn-1 move, so the seed the env
+    writes at reset decides it. Saved at the prompt, every seed gave the same move (PROGRESS.md §28)."""
+    path = scenario_state("bonsly_opens")
+    e = BattleEnv([path], ROM)
+    firsts = set()
+    for seed in range(12):
+        e.reset(seed=seed)
+        e.step(1)                                           # Withdraw
+        firsts.add(gen4.read_battle_effects(e.nds, e.addrs, 1).last_move)
+    e.close()
+    assert len(firsts) >= 3 and firsts <= {STEALTH_ROCK, SELFDESTRUCT, BRICK_BREAK, ACCELEROCK}
 
 
 @needs_rom
@@ -470,15 +489,17 @@ def test_battle_continues_to_an_end_after_the_forced_switch(team_env):
 
 
 @needs_rom
-def test_forced_switch_does_not_count_toward_the_turn_cap():
-    e = BattleEnv([BARRY], ROM, turn_cap=8)
+def test_forced_switch_does_not_count_toward_the_turn_cap(team_env):
+    """The cap is set one turn past the forced switch: the switch must not reach it."""
+    turns = len(play_until_forced(team_env)[1])
+    e = BattleEnv([BARRY], ROM, turn_cap=turns + 1)
     info, rows = play_until_forced(e)
-    assert len(rows) == 7
+    assert len(rows) == turns
     _, _, term, trunc, info = e.step(4)
-    assert (term, trunc, info["turn"]) == (False, False, 7)
+    assert (term, trunc, info["turn"]) == (False, False, turns)
     _, reward, term, trunc, info = e.step(0)
     e.close()
-    assert (term, trunc, info["turn"], info["outcome"]) == (True, False, 8, "TURN_CAP")
+    assert (term, trunc, info["turn"], info["outcome"]) == (True, False, turns + 1, "TURN_CAP")
 
 
 @needs_rom
@@ -495,7 +516,7 @@ def test_struggle_is_the_only_action_with_no_pp_and_the_game_uses_it(team_env):
     obs = observation(env.snap, 2, env.turn_cap)
     assert [obs[OBS_SLICES[f"party0.move{k}.valid"]][0] for k in range(2)] == [0.0, 0.0]
     _, _, term, trunc, info = env.step(0)
-    assert not trunc and info["events"] == [], info
+    assert not trunc and "PLAYER_FAINTED" not in info["events"], info
     assert env.snap.enemy[0].hp < enemy_hp, "Struggle hit the enemy"
     assert env.snap.player[0].pp == [0, 0, 0, 0]
 
@@ -624,9 +645,12 @@ def test_a_one_frame_battle_dropout_after_a_switch_is_not_the_battles_end(team_e
 
 
 def ram_after_a_fight_tap(nds):
-    """curCommandState[0] and a hash of main RAM after the same input from a loaded state."""
+    """curCommandState[0] and a hash of main RAM after the same input from a loaded state. The
+    state is saved before the first prompt, so wait for it, then SETTLE frames, as the env does."""
     a = gen4.resolve(nds)
     gen4.write_battle_seed(nds, a, 0x12345678)
+    while not gen4.waiting_for_command(nds, a):
+        nds.tick()
     nds.tick(20)
     nds.button.set_touch(*FIGHT_XY); nds.button.touch(); nds.tick(6); nds.button.release_touch()
     nds.tick(200)

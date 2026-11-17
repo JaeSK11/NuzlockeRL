@@ -1420,4 +1420,70 @@ Selfdestruct every time.
 | Encore would stall a step | FIGHT uses the encored move with no move menu | A move action taps FIGHT alone under Encore |
 | Struggle came only from empty PP | The game's test is that no move is allowed | `is_struggling` uses the locks too |
 | No Taunt or Bind in the hack to test | Their move ids were reused | Taunt's check stays untested; the rest are checked in the game |
-| The enemy's first move is the same in every episode from a state | The AI picks it before the state is saved | Open: save battle states before the AI picks (NEXT_PHASE step 1), and the run's restart states too |
+| The enemy's first move is the same in every episode from a state | The AI picks it before the state is saved | Fixed in §28: generated states are saved before the enemy picks |
+
+## 28. Battle states saved before the enemy picks (2026-11-17)
+
+Goal: fix the fixed first move found in §27.
+
+**Where the enemy picks.** In the decomp, both the wild Pokémon's random
+move (`Task_TrainerShowMoveSelectMenu`, with the battle RNG) and a
+trainer's AI (`TrainerAI_Main`) run during command selection, in the same
+frames as the player's menu appears. A state saved at the player's prompt
+already holds the choice. The env writes its random battle seed after
+loading, too late to change it. In a generated battle the generator also
+rewrites the enemy's moves after that point, so the picked slot held
+another move, or none: a one-move enemy did nothing on turn 1.
+
+**The fix.** The generator now stops before command selection. A trace of
+`BattleContext.command` through a wild battle's intro shows it is 21 for
+about 560 frames, then 2, 3, 4 and 5 on four frames in a row, with the
+prompt 12 frames after 4 (INIT_COMMAND_SELECTION). The env's reset runs
+the rest. The enemy's moves are written before the state is saved, so the
+enemy picks among them.
+
+**One frame is unsafe to save.** A state saved on the frame `command`
+reads 4 reloaded differently after another battle had run in the same
+emulator. Between 165 and 336 bytes of main RAM differed, all around
+0x0222C894. Two fresh emulators agreed. Saved 1, 2, 5, 10, 30 or 60
+frames earlier, the same battle reloaded identically. Command 4 can't be
+seen coming, so `make_scenario` plays the battle twice from the same start,
+which the emulator repeats exactly. The first time finds the frame command
+selection begins, the second stops `SAVE_MARGIN` (10) frames before it.
+
+**Verified:**
+- Roark's Bonsly set, over 20 seeds, opened with Stealth Rock 7 times,
+  Brick Break 5, Accelerock 4 and Selfdestruct 4. Saved the old way, it
+  opened with the same move every time.
+- A one-move Bidoof used Growl on turn 1 in 20 of 20 seeds, where before it
+  did nothing.
+- A new state reloads identically after another battle (0 bytes differ),
+  and passes `check_state`.
+- `test_the_enemys_first_move_follows_the_battle_seed` checks the first
+  point. `test_a_state_loads_the_same_whatever_ran_before`, now on a state
+  built the new way, checks the reload. The whole suite passes, 112
+  tests.
+
+**Tests that changed.** Rebuilt test battles play out differently, since
+the enemy now acts on turn 1:
+- The turn-cap test hard-coded 7 turns before the forced switch. It now
+  measures them.
+- The Struggle test's Turtwig fainted on the Struggle turn, so it is level
+  16 now. The test checks that Struggle hit, not that nothing else happened.
+- Two tests assumed a loaded state is at the prompt. They now run on to it.
+
+**What it means for the pilot.** Every pilot battle had a fixed enemy
+opening, so part of what the pilot learned may be memorized openings, on
+the held-out battles as much as the training ones. Its states are kept as
+they were, as a record. The milestone states are still saved at the
+prompt. That matters little for Barry 1, whose Chimchar knows only Scratch,
+but any new state should be saved the new way. That includes the restart
+states of the live runs (NEXT_PHASE step 3), which must also pass the
+reload check.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| The enemy's first move was the same in every episode from a state | It picks during command selection, before the state was saved | States are saved before command selection, and the env's reset runs on to the prompt |
+| A one-move enemy did nothing on turn 1 | Its moves were written after it had picked a slot | Its moves are written before the save, so it picks among them |
+| A state saved on the frame command selection begins reloaded differently after another battle | Some emulator state outside the save file is in flight on that frame | Saved 10 frames earlier, by playing the battle twice |
+| Rebuilt test battles broke three tests' fixed numbers | The enemy now acts on turn 1 | The tests measure or check what they mean, not exact counts |
