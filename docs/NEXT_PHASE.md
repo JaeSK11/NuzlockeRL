@@ -226,8 +226,14 @@ each run to the decisions. In order:
      lowest-valued move if the new one is worth more). Make it the agent's
      choice later. Evolution comes after the battle, so it belongs to the
      route runner (step 3).
-   - **Trapping and Encore** in the action mask (roadmap step 3). A wild
-     Pokémon's Roar or Whirlwind ends the battle, and the run goes on.
+   - **Trapping and Encore** in the action mask. Done (PROGRESS.md §27),
+     checked action by action against what the game accepts.
+   - **A wild Pokémon's Roar or Whirlwind** ends the battle, and the run
+     goes on.
+   - **The enemy's first move is fixed in a saved battle state** (§27). The
+     AI picks it before the state is saved, so the env's random battle
+     seed can't change it. Save battle states before the AI picks, and so
+     the restart states of step 3 too.
    - **The one early double battle** in the ROM (Interviewers Roxy & Oli,
      trainer 368, level 6). Find where it is; if it's on the path and can't
      be avoided, script it.

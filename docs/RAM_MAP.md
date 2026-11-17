@@ -127,6 +127,7 @@ changes what it does: with only Growl, it used Growl every turn
 | 0x02–0x0A | atk, def, spe, spa, spd, u16 each | ✅ |
 | 0x0C | `moves` 4 × u16 | ✅ |
 | 0x18 | `statBoosts` 8 × s8, 6 = ±0 | ✅ Changes verified |
+| 0x24 | `type1`, `type2` u8 | ⚠️ Read for trapping (Magnet Pull, Arena Trap); not checked against a type change |
 | 0x27 | `ability` u8 | ✅ |
 | 0x2C | `ppCur` 4 × u8 | ✅ |
 | 0x30 | `ppUps` 4 × u8 | ✅ Written by `scenario.set_enemy_moves`; not read back by behavior |
@@ -136,11 +137,19 @@ changes what it does: with only Growl, it used Growl every turn
 | 0x64 | `exp` u32 | ✅ |
 | 0x68 | `personality` u32 | ✅ |
 | 0x6C | `status` u32 | ✅ Every major status seen |
-| 0x70 | `statusVolatile` u32 | ✅ Confusion turns in bits 0–2 (1–5 seen), flinch bit 3. Other bits not yet seen |
+| 0x70 | `statusVolatile` u32 | ✅ Confusion turns in bits 0–2 (1–5 seen), flinch bit 3. Bound turns in bits 13–15 (0x6000 after Wrap), Mean Look bit 26, Torment bit 31, each checked by what the game then refuses |
 | 0x78 | `heldItem` u16 | ✅ Writing Leftovers here made a hurt wild enemy heal max HP / 16 each turn |
 | 0x7C | `timesDamaged` u8 | ⚠️ Rises with hits; not checked against exact counts |
-| 0x80 | `moveEffectsMask` u32 | ⏳ 0 in every battle so far |
+| 0x80 | `moveEffectsMask` u32 | ⏳ Ingrain is bit 10, per the decomp; not seen yet |
 | 0x84 | `moveEffectsTemp` u32 | ⏳ 0 in every battle so far |
+| 0x88 | `MoveEffectsData` bit fields, 2 × u32 | ⏳ Taunt turns in bits 8–10 of the first word and Magnet Rise turns in bits 13–15 of the second, per the decomp. This hack has no Taunt |
+| 0xA8 | `disabledMove` u16 | ✅ Disable's move; the game then refuses it |
+| 0xAC | `encoredMove` u16 | ✅ Under Encore, FIGHT uses it at once, with no move menu |
+| 0xB8 | `choiceLockedMove` u16 | ✅ With a Choice Band held, the game refuses every other move |
+
+`movePrevByBattler` (u16 × 4 at ctx+0x307C) is the move each battler used
+last, which Torment forbids. It follows `battleMons` in the decomp's struct
+order and read Tackle or Withdraw after each was used.
 
 **Battle result.** The decomp's `resultMask` bits are 1 = win, 2 = lose,
 and 4 = captured, and the flee results combine them. The game sets the bit

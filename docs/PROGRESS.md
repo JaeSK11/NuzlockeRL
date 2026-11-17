@@ -1332,3 +1332,92 @@ to the route runner.
 | Tapping a move on the forget screen didn't forget it | The tap opens the move's page, which has its own FORGET button | Tap the move, wait 30 frames, tap FORGET |
 | The wait for the result could run past 2,000 frames | A level-up takes about 1,150 frames; a forgotten move adds more | `END_FRAME_GUARD` is 4,000 |
 | The catch animation uses the same task struct | Its states would read as the experience task's | Open: tell the two apart when the Poké Ball action comes (NEXT_PHASE step 2) |
+
+## 27. Trapping and move locks in the action mask (2026-11-17)
+
+Goal: step 1 of the plan after the pilot. Stop a refused action from ending
+a step as STUCK, as 95% of random-play battles against a wild Shuckle did
+(§18).
+
+**What the game refuses,** from the decomp:
+- **Moves** (`BattleSystem_CheckInvalidMoves`): no PP, the Disabled move,
+  the last move under Torment, a status move under Taunt, every move but
+  the encored one under Encore, and every move but the locked one with a
+  Choice item. Also Imprison, Gravity and Heal Block. With no move left,
+  FIGHT makes the game use Struggle.
+- **Switching** (`Battler_IsTrapped`): bound by Wrap and the like, under
+  Mean Look, Block or Spider Web, rooted by Ingrain, or held by the enemy's
+  Shadow Tag, Magnet Pull (if Steel) or Arena Trap (if grounded). A held
+  Shed Shell overrides all of these.
+- **Under Encore, FIGHT uses the encored move at once,** with no move menu.
+  The env's move route waited for that menu, so it would have stalled.
+
+**The RAM.** The env now reads the player's active `BattleMon` at every
+prompt (`gen4.read_battle_effects`). That means the types, ability, held
+item, `statusVolatile`, `moveEffectsMask`, the `MoveEffectsData` bit fields,
+`disabledMove`, `encoredMove` and `choiceLockedMove`, all at their decomp
+offsets. It also reads `movePrevByBattler` at ctx+0x307C, and the enemy's
+ability. See RAM_MAP.md.
+
+**What the env does:**
+- `Snapshot` carries `locks` (per move slot), `encored` and `trapped`.
+- `action_mask` allows a move only if it has PP and no lock, and no switch
+  while trapped. A forced switch is still allowed, since the trapped
+  Pokémon has fainted.
+- Struggle now means no move is allowed, not only no PP.
+- Under Encore or Struggle, a move action taps FIGHT alone.
+
+The hack has no Taunt and no Bind: their move ids hold Mystical Fire and
+HP Dark. The Taunt check stays, since other Gen 4 games need it. Imprison,
+Gravity and Heal Block aren't modeled. Before Roark, the trap and lock
+moves are Wrap (wild Onix, Ekans and Bellsprout), Sand Tomb (Roark's
+Shuckle) and Disable (wild Venonat). The only trap ability is Magnet Pull
+(Magnemite), which holds only Steel types.
+
+**Checked against the game.** Each test battle pits Turtwig against a slow
+Shuckle that knows only the move under test. The test saves a state at
+the prompt where the effect holds. From there, it tries every action
+through the menus, mask or not, and the mask must say exactly which ones
+the game accepts:
+
+| Case | Mask = what the game accepts |
+|---|---|
+| Wrap | 4 moves yes, switch no |
+| Mean Look | 4 moves yes, switch no |
+| Disable (Tackle) | Tackle no, the other 3 and the switch yes |
+| Torment (after Tackle) | Tackle no, the other 3 and the switch yes |
+| Choice Band (after Tackle) | Tackle and the switch yes, the other 3 no |
+| Encore (Tackle) | Only Tackle, through FIGHT alone: its PP fell by 1 |
+
+`test_mask_matches_what_the_game_accepts`,
+`test_encore_allows_only_the_encored_move_and_uses_it_from_fight`, and
+`test_trap_rules_the_game_cant_show_here` cover them. The last checks
+Shadow Tag, Arena Trap, Magnet Pull and Shed Shell, which nothing before
+Roark brings. The whole suite passes, 111 tests.
+
+**Found on the way: the enemy's first move is fixed in a saved battle
+state.** In these battles the enemy did nothing on turn 1 and used its move
+from turn 2. Across 10 battle seeds per state, the enemy's turn-1 move
+never changed:
+
+| State | Turn-1 move, 10 seeds |
+|---|---|
+| Pilot, Turtwig team vs Bonsly | Brick Break 10 times |
+| Pilot, Chimchar team vs Lileep | Sludge Bomb 10 times |
+| Bidoof with only Growl | nothing 10 times |
+
+The AI must pick its turn-1 action before the state is saved, at the
+first prompt: the env's random battle seed, written after the load, never
+changed it. When the generator then rewrites the enemy's moves, the picked
+slot holds whatever move is now there, or nothing. Every episode from a
+state opens with the same enemy move, so the agent can memorize openings.
+The pilot's Sand-Attack trick (§24) is likely one: Bonsly opened with
+Selfdestruct every time.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| A refused move or switch ended the step as STUCK | The mask knew only PP | `action_mask` reads the game's locks and traps |
+| Encore would stall a step | FIGHT uses the encored move with no move menu | A move action taps FIGHT alone under Encore |
+| Struggle came only from empty PP | The game's test is that no move is allowed | `is_struggling` uses the locks too |
+| No Taunt or Bind in the hack to test | Their move ids were reused | Taunt's check stays untested; the rest are checked in the game |
+| The enemy's first move is the same in every episode from a state | The AI picks it before the state is saved | Open: save battle states before the AI picks (NEXT_PHASE step 1), and the run's restart states too |

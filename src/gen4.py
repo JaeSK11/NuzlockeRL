@@ -247,6 +247,52 @@ def read_script_task(nds, addrs: dict) -> tuple[int, list[int]] | None:
     return rd(False, t + TASK_SEQ), [rd(False, t + TASK_TMP + 4 * i) for i in range(8)]
 
 
+# BattleContext.battleMons: one BattleMon (decomp include/battle/battle_mon.h) per battler,
+# 0xC0 bytes each; battler 0 is the player's active Pokémon, 1 the enemy's in a single battle.
+CTX_BATTLE_MONS, BATTLE_MON_SIZE = 0x2D40, 0xC0
+CTX_MOVE_PREV = 0x307C          # u16 movePrevByBattler[4]: the move each battler used last
+BM_MOVES, BM_TYPES, BM_ABILITY = 0x0C, 0x24, 0x27
+BM_VOLATILE, BM_ITEM, BM_EFFECTS_MASK = 0x70, 0x78, 0x80
+BM_EFFECTS = 0x88               # MoveEffectsData's two bit-field words
+BM_DISABLED_MOVE, BM_ENCORED_MOVE, BM_CHOICE_MOVE = 0xA8, 0xAC, 0xB8
+
+
+@dataclass(frozen=True)
+class BattleEffects:
+    """The fields of a battler's BattleMon that decide which moves and switches the game
+    accepts (the decomp's BattleSystem_CheckInvalidMoves and Battler_IsTrapped)."""
+    moves: tuple
+    types: tuple
+    ability: int
+    item: int
+    volatile: int               # statusVolatile
+    effects_mask: int           # moveEffectsMask
+    taunt_turns: int            # MoveEffectsData.tauntedTurns
+    magnet_rise_turns: int
+    disabled_move: int
+    encored_move: int
+    choice_move: int            # choiceLockedMove
+    last_move: int              # movePrevByBattler
+
+
+def read_battle_effects(nds, addrs: dict, battler: int) -> BattleEffects | None:
+    """None when the context pointer isn't in main RAM."""
+    rd32, rd16 = nds.memory.read_u32, nds.memory.read_u16
+    ctx = rd32(False, addrs["battleCtxPtr"])
+    if not (MAIN_RAM <= ctx < MAIN_RAM + 0x400000 - 0x3100) or ctx & 3:
+        return None
+    b = ctx + CTX_BATTLE_MONS + BATTLE_MON_SIZE * battler
+    w0, w1 = rd32(False, b + BM_EFFECTS), rd32(False, b + BM_EFFECTS + 4)
+    types = read_bytes(nds, b + BM_TYPES, 4)
+    return BattleEffects(
+        moves=tuple(rd16(False, b + BM_MOVES + 2 * i) for i in range(4)), types=(types[0], types[1]),
+        ability=types[3], item=rd16(False, b + BM_ITEM), volatile=rd32(False, b + BM_VOLATILE),
+        effects_mask=rd32(False, b + BM_EFFECTS_MASK), taunt_turns=(w0 >> 8) & 7,
+        magnet_rise_turns=(w1 >> 13) & 7, disabled_move=rd16(False, b + BM_DISABLED_MOVE),
+        encored_move=rd16(False, b + BM_ENCORED_MOVE), choice_move=rd16(False, b + BM_CHOICE_MOVE),
+        last_move=rd16(False, ctx + CTX_MOVE_PREV + 2 * battler))
+
+
 def waiting_for_command(nds, addrs: dict) -> bool:
     """True while the game shows the action menu and waits for the player."""
     c = read_battle_command(nds, addrs)

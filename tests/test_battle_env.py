@@ -7,13 +7,14 @@ import pytest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+import battle_env
 import gen4
 import pynds
 import romdata
 import scenario
 from battle_env import (FAINT_BASE, FAINT_SCALE, BattleEnv, Event, FIGHT_XY, OBS_FIELDS, OBS_SIZE, OBS_SLICES,
-                        REWARDS, Snapshot, action_mask, events_between, faint_penalty, move_to_forget, observation,
-                        strengths)
+                        REWARDS, Snapshot, _Stuck, action_mask, events_between, faint_penalty, is_trapped,
+                        move_to_forget, observation, route_for, strengths)
 
 ROM = os.environ.get("NUZLOCKERL_ROM", os.path.join(ROOT, "roms/plat-kaizo-nightmare-update-final.nds"))
 M = os.path.join(ROOT, "states/milestones")
@@ -24,8 +25,9 @@ needs_rom = pytest.mark.skipif(
     reason="needs the Kaizo ROM and local milestone save states (not in git)")
 
 GEN = os.path.join(ROOT, "states/generated")
-CHIMCHAR, PIPLUP, PIKACHU, TURTWIG, STARLY, BIDOOF, EEVEE, BONSLY = 390, 393, 25, 387, 396, 399, 133, 438
+CHIMCHAR, PIPLUP, PIKACHU, TURTWIG, STARLY, BIDOOF, EEVEE, BONSLY, SHUCKLE = 390, 393, 25, 387, 396, 399, 133, 438, 213
 TACKLE, SELFDESTRUCT, GROWL, MEGA_DRAIN, BITE, ROCK_THROW, RAZOR_LEAF, EMBER, SCRATCH = 33, 120, 45, 72, 44, 88, 75, 52, 10
+WITHDRAW, ABSORB, WRAP, MEAN_LOOK, DISABLE, TORMENT, ENCORE, CHOICE_BAND = 110, 71, 35, 212, 50, 259, 227, 220
 TEAM3 = [{"species": CHIMCHAR, "level": 12, "moves": [52, 10, 43, 183]},
          {"species": PIPLUP, "level": 11, "moves": [55, 1, 145, 64]},
          {"species": PIKACHU, "level": 10, "moves": [84, 98, 86, 45]}]
@@ -51,6 +53,16 @@ SCENARIOS = {   # name: (party or a function giving one, wild enemy (species, le
     "starly_vs_selfdestruct": (WEAK_STARLY, (BONSLY, 15), 8, [SELFDESTRUCT]),
     "turtwig_learns_razor_leaf": (one_exp_short(TURTWIG, 15, [TACKLE, MEGA_DRAIN, BITE, ROCK_THROW]), (BIDOOF, 2), 1, [GROWL]),
     "chimchar_skips_helping_hand": (one_exp_short(CHIMCHAR, 12, [EMBER, SCRATCH, TACKLE, BITE]), (BIDOOF, 2), 1, [GROWL])}
+
+
+# A slow, bulky Shuckle that knows only the move under test, so Turtwig moves first and Tackle
+# doesn't knock it out. The player's Choice Band case gives the enemy Growl.
+LOCK_CASES = {"wrap": ([WRAP], None), "mean_look": ([MEAN_LOOK], None), "disable": ([DISABLE], None),
+              "torment": ([TORMENT], None), "encore": ([ENCORE], None), "choice_band": ([GROWL], CHOICE_BAND)}
+for _name, (_moves, _item) in LOCK_CASES.items():
+    SCENARIOS["lock_" + _name] = (
+        [{"species": TURTWIG, "level": 14, "moves": [TACKLE, WITHDRAW, BITE, ABSORB], **({"item": _item} if _item else {})},
+         {"species": STARLY, "level": 12, "moves": [TACKLE, GROWL]}], (SHUCKLE, 25), 3, _moves)
 
 
 def scenario_state(name):
@@ -174,6 +186,79 @@ def test_a_weaker_fifth_move_is_given_up():
     assert info["outcome"] == "WON" and info["result_mask"] == 1
     assert [(d["move"], d["forgot"]) for d in info["learned"]] == [("Helping Hand", None)]
     assert list(moves) == [EMBER, SCRATCH, TACKLE, BITE]
+
+
+def lock_prompt(name, tmp_path):
+    """A state saved at the first prompt where the case's lock or trap holds. Tackle is used
+    until then: in a generated battle the enemy does nothing on turn 1 (PROGRESS.md §27)."""
+    e = BattleEnv([scenario_state("lock_" + name)], ROM)
+    try:
+        for seed in range(10):
+            e.reset(seed=seed)
+            for _ in range(4):
+                e.step(0)
+                s = e.snap
+                if s.trapped or any(s.locks) or s.encored:
+                    path = str(tmp_path / (name + ".state"))
+                    e.nds.save_state_to_file(path)
+                    return path, s
+        raise AssertionError(f"{name}: the condition never held")
+    finally:
+        e.close()
+
+
+def game_accepts(path, action):
+    """Whether the game takes the action through its menus, whatever the mask says."""
+    e = BattleEnv([path], ROM)
+    e.reset(options={"state": path, "keep_rng": True})
+    try:
+        for screen in route_for(action, False, False):
+            e._walk(screen)
+        e._run_to_prompt()
+        return True
+    except _Stuck:
+        return False
+    finally:
+        e.close()
+
+
+@needs_rom
+@pytest.mark.parametrize("name", ["wrap", "mean_look", "disable", "torment", "choice_band"])
+def test_mask_matches_what_the_game_accepts(name, tmp_path, monkeypatch):
+    path, s = lock_prompt(name, tmp_path)
+    mask = action_mask(s)
+    monkeypatch.setattr(battle_env, "STEP_FRAME_GUARD", 2500)    # a refused action is called STUCK sooner
+    actions = [a for a in range(4) if s.player[s.player_active].moves[a]] + [3 + k for k in range(1, len(s.slots()))]
+    assert {a: game_accepts(path, a) for a in actions} == {a: bool(mask[a]) for a in actions}
+
+
+@needs_rom
+def test_encore_allows_only_the_encored_move_and_uses_it_from_fight(tmp_path):
+    path, s = lock_prompt("encore", tmp_path)
+    assert s.encored and action_mask(s).tolist() == [True, False, False, False, True] + [False] * 4
+    e = BattleEnv([path], ROM)
+    e.reset(options={"state": path, "keep_rng": True})
+    pp = e.snap.player[e.snap.player_active].pp[0]
+    _, _, _, stuck, info = e.step(0)
+    after = e.snap.player[e.snap.player_active].pp[0]
+    e.close()
+    assert not stuck and info["move"] == "Tackle" and after == pp - 1
+
+
+def test_trap_rules_the_game_cant_show_here():
+    """Shadow Tag, Arena Trap, Magnet Pull and Shed Shell, which no Pokémon before Roark brings."""
+    def effects(types=(0, 0), ability=0, item=0, volatile=0):
+        return gen4.BattleEffects(moves=(TACKLE, 0, 0, 0), types=types, ability=ability, item=item, volatile=volatile,
+                                  effects_mask=0, taunt_turns=0, magnet_rise_turns=0, disabled_move=0,
+                                  encored_move=0, choice_move=0, last_move=0)
+    assert is_trapped(effects(), battle_env.ARENA_TRAP)
+    assert not is_trapped(effects(types=(battle_env.TYPE_FLYING, 0)), battle_env.ARENA_TRAP)
+    assert not is_trapped(effects(), battle_env.MAGNET_PULL)
+    assert is_trapped(effects(types=(battle_env.TYPE_STEEL, 0)), battle_env.MAGNET_PULL)
+    assert is_trapped(effects(), battle_env.SHADOW_TAG)
+    assert not is_trapped(effects(ability=battle_env.SHADOW_TAG), battle_env.SHADOW_TAG)
+    assert not is_trapped(effects(item=battle_env.SHED_SHELL, volatile=battle_env.VOLATILE_MEAN_LOOK), None)
+    assert is_trapped(effects(volatile=battle_env.VOLATILE_MEAN_LOOK), None)
 
 
 @needs_rom

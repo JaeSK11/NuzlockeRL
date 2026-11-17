@@ -116,8 +116,9 @@ class Screen:
     check: int = TAP_CHECK
 
 
-def route_for(action: int, forced: bool, struggling: bool) -> tuple[Screen, ...]:
-    """The screens an action walks through, starting from the decision it is taken at."""
+def route_for(action: int, forced: bool, fight_only: bool) -> tuple[Screen, ...]:
+    """The screens an action walks through, starting from the decision it is taken at.
+    fight_only: FIGHT alone chooses the move, as under Struggle or Encore (fights_at_once)."""
     if forced:
         return (Screen(Phase.FORCED_SWITCH, (PARTY_XY[action - 3], SHIFT_XY), settle=20, gap=PARTY_GAP, check=PARTY_CHECK),)
     if action >= 4:
@@ -125,7 +126,7 @@ def route_for(action: int, forced: bool, struggling: bool) -> tuple[Screen, ...]
                 Screen(Phase.PARTY_MENU, (PARTY_XY[action - 3], SHIFT_XY),
                        settle=PARTY_SETTLE, gap=PARTY_GAP, check=PARTY_CHECK))
     fight = Screen(Phase.ACTION_MENU, (FIGHT_XY,))
-    return (fight,) if struggling else (fight, Screen(Phase.MOVE_MENU, (MOVE_XY[action],)))
+    return (fight,) if fight_only else (fight, Screen(Phase.MOVE_MENU, (MOVE_XY[action],)))
 
 
 class Event(enum.Enum):
@@ -164,6 +165,9 @@ class Snapshot:
     stages_player: tuple
     stages_enemy: tuple
     order: tuple = ()
+    locks: tuple = (False,) * 4  # moves the game refuses besides those out of PP (move_locks)
+    encored: bool = False        # FIGHT uses the encored move at once, with no move menu
+    trapped: bool = False        # the active Pokémon can't switch out (is_trapped)
 
     def slots(self) -> list[int]:
         """RAM indices of the player's Pokémon in party-menu order, existing ones only."""
@@ -244,36 +248,90 @@ def read_snapshot(nds, addrs: dict) -> Snapshot | None:
         return next((i for i, m in enumerate(party) if m.pid == pid), None)
 
     rd = nds.memory.read_u32
+    mine, foe = gen4.read_battle_effects(nds, addrs, 0), gen4.read_battle_effects(nds, addrs, 1)
+    enemy_active = active(enemy, rd(False, addrs["enemyBattleMonPID"]))
+    foe_ability = foe.ability if foe and enemy_active is not None and enemy[enemy_active].hp else None
     return Snapshot(
         player, enemy,
-        active(player, rd(False, addrs["playerBattleMonPID"])),
-        active(enemy, rd(False, addrs["enemyBattleMonPID"])),
+        active(player, rd(False, addrs["playerBattleMonPID"])), enemy_active,
         tuple(gen4.read_bytes(nds, addrs["statStagesPlayer"], 8)),
         tuple(gen4.read_bytes(nds, addrs["statStagesEnemy"], 8)),
-        order)
+        order,
+        locks=move_locks(mine) if mine else (False,) * 4,
+        encored=bool(mine and mine.encored_move),
+        trapped=bool(mine) and is_trapped(mine, foe_ability))
+
+
+# What the game refuses at a prompt besides an empty slot or a move out of PP: the decomp's
+# BattleSystem_CheckInvalidMoves and Battler_IsTrapped. This hack has no Taunt and no Bind
+# (their move ids were reused), but the checks cost nothing and other Gen 4 games need them.
+# Imprison, Gravity and Heal Block aren't modeled; no enemy before Roark uses them.
+VOLATILE_BIND, VOLATILE_MEAN_LOOK, VOLATILE_TORMENT = 7 << 13, 1 << 26, 1 << 31
+EFFECT_INGRAIN = 1 << 10
+SHED_SHELL, CHOICE_ITEMS = 295, (220, 287, 297)            # Choice Band, Scarf, Specs
+SHADOW_TAG, LEVITATE, MAGNET_PULL, ARENA_TRAP = 23, 26, 42, 71
+TYPE_FLYING, TYPE_STEEL = 2, 8
+
+
+def move_locks(b: gen4.BattleEffects) -> tuple:
+    """Per move slot, whether Disable, Torment, Taunt, Encore or a Choice item's lock forbids it."""
+    choice = b.item in CHOICE_ITEMS and b.choice_move in b.moves
+    return tuple(bool(m) and (
+        m == b.disabled_move
+        or (b.volatile & VOLATILE_TORMENT and m == b.last_move)
+        or (b.taunt_turns and romdata.move(m).power == 0)
+        or (b.encored_move and m != b.encored_move)
+        or (choice and b.choice_move and m != b.choice_move)) for m in b.moves)
+
+
+def is_trapped(b: gen4.BattleEffects, foe_ability: int | None) -> bool:
+    """Bound (Wrap and the like), under Mean Look or Block, rooted by Ingrain, or held by the
+    enemy's Shadow Tag, Magnet Pull (if Steel) or Arena Trap (if grounded). Shed Shell frees it."""
+    if b.item == SHED_SHELL:
+        return False
+    if b.volatile & (VOLATILE_BIND | VOLATILE_MEAN_LOOK) or b.effects_mask & EFFECT_INGRAIN:
+        return True
+    grounded = TYPE_FLYING not in b.types and b.ability != LEVITATE and not b.magnet_rise_turns
+    return ((foe_ability == SHADOW_TAG and b.ability != SHADOW_TAG)
+            or (foe_ability == MAGNET_PULL and TYPE_STEEL in b.types)
+            or (foe_ability == ARENA_TRAP and grounded))
 
 
 def usable_moves(mon) -> list[bool]:
     return [mon.moves[k] != 0 and mon.pp[k] > 0 for k in range(4)]
 
 
+def allowed_moves(snap: Snapshot) -> list[bool]:
+    """Moves the game accepts: PP left and no lock (move_locks)."""
+    return [u and not lock for u, lock in zip(usable_moves(snap.player[snap.player_active]), snap.locks)]
+
+
 def is_struggling(snap: Snapshot) -> bool:
-    return snap.player_active is not None and not any(usable_moves(snap.player[snap.player_active]))
+    """No move is allowed, so FIGHT makes the game use Struggle."""
+    return snap.player_active is not None and not any(allowed_moves(snap))
+
+
+def fights_at_once(snap: Snapshot) -> bool:
+    """FIGHT chooses the move without the move menu: Struggle, or the encored move."""
+    return is_struggling(snap) or snap.encored
 
 
 def action_mask(snap: Snapshot, forced: bool = False) -> np.ndarray:
-    """Moves with PP left, and switches to existing, unfainted, non-active Pokémon.
-    With no PP left only action 0 is valid: the game then uses Struggle whatever slot is
-    tapped. At a forced switch only the switches are valid."""
+    """Moves the game accepts (allowed_moves), and switches to existing, unfainted, non-active
+    Pokémon unless the active one is trapped. With no move allowed only action 0 is valid: the
+    game then uses Struggle whatever slot is tapped. At a forced switch only the switches are
+    valid, trapped or not, since the trapped Pokémon has fainted."""
     mask = np.zeros(N_ACTIONS, dtype=bool)
     if snap.player_active is None:
         return mask
     if not forced:
-        usable = usable_moves(snap.player[snap.player_active])
-        if not any(usable):
+        allowed = allowed_moves(snap)
+        if not any(allowed):
             mask[0] = True
             return mask
-        mask[:4] = usable
+        mask[:4] = allowed
+        if snap.trapped:
+            return mask
     for position, idx in enumerate(snap.slots()[1:6], start=1):
         mask[3 + position] = idx != snap.player_active and snap.player[idx].hp > 0
     return mask
@@ -606,14 +664,14 @@ class BattleEnv(gym.Env):
         mask = action_mask(self.snap, self.forced)
         if not 0 <= action < N_ACTIONS or not mask[action]:
             raise ValueError(f"action {action} is masked: {mask.tolist()}")
-        prev, forced, struggling = self.snap, self.forced, is_struggling(self.snap)
+        prev, forced, fight_only = self.snap, self.forced, fights_at_once(self.snap)
         chosen = decision(prev, action, forced)
         target = prev.player[prev.slots()[action - 3]].pid if action >= 4 else None
         self.turn += not forced
         self._frames = 0
         events, end = [], None
         try:
-            for screen in route_for(action, forced, struggling):
+            for screen in route_for(action, forced, fight_only):
                 self._walk(screen)
             end = self._run_to_prompt()
         except _Stuck:

@@ -30,8 +30,10 @@ the episode on win or wipe.
       Verified on teams of 2 to 6.
 - [ ] **Double battles:** a battle-type flag and two active Pokémon per side.
 - [ ] **Temporary effects:** confusion, Leech Seed, Substitute, Protect,
-      trapping, Taunt, Encore, and so on. Confusion and flinch are mapped in
-      `BattleMon.statusVolatile`; see [RAM_MAP.md](RAM_MAP.md#battle-system).
+      and so on. Confusion, flinch, binding, Mean Look and Torment are
+      mapped in `BattleMon.statusVolatile`, and Disable, Encore and the
+      Choice lock in `MoveEffectsData`; see [RAM_MAP.md](RAM_MAP.md#battle-system).
+      The action mask uses them, but the observation doesn't show them yet.
 - [ ] **Weather and field effects:** weather, Trick Room, Reflect and Light
       Screen, entry hazards.
 - [x] **Verify** that status and stat-stage fields change correctly.
@@ -119,10 +121,15 @@ The hack changed abilities, so assume it changed more.
       multi-Pokémon trainer state exists yet to test it. Level-up text and
       move learning are handled (PROGRESS.md §26), and evolution happens
       after a battle, outside this env.
-- [ ] **Switching while trapped** (Wrap, Mean Look, Arena Trap) and **move
-      locks** (Disable, Encore, Choice items) aren't in the action mask. A
-      refused tap ends the step as STUCK. Against a wild Shuckle, which knows
-      Wrap and Encore, 95% of random-policy battles ended STUCK.
+- [x] **Switching while trapped** (Wrap, Mean Look, Arena Trap) and **move
+      locks** (Disable, Torment, Encore, Choice items) are in the action
+      mask, read from the active `BattleMon` and checked action by action
+      against what the game accepts (PROGRESS.md §27). Before, a refused tap
+      ended the step as STUCK: against a wild Shuckle, which knows Wrap and
+      Encore, 95% of random-policy battles did.
+- [ ] **The enemy's first move is fixed in a saved battle state.** Its AI
+      picks before the state is saved, so the env's random battle seed
+      doesn't change it (PROGRESS.md §27). Save states before the AI picks.
 - [x] **No PP left.** The mask allows action 0 only, which taps a move
       and makes the game use Struggle. Switching is masked off in that case
       for now; allowing it is a one-line change in `action_mask`.
