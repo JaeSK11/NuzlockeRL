@@ -272,27 +272,16 @@ each run to the decisions. In order:
    2. **Overworld primitives** (`src/overworld.py`), moved over from the
       playthrough's scratch driver (§33) and each checked on milestones 04
       to 16. In order:
-      1. **Floor height first.** `fieldmap` reads only the ROM's collision,
-         and the Oreburgh Gym has raised floors and a walkway over floor
-         tiles with the same (x, z). The player's height is in RAM: the
-         player's map object (FieldSystem +0x3C, then +0x30) holds it at
-         +0x68, in half tiles (RAM_MAP.md; one pair of tiles checked so
-         far, 4 on the walkway and 0 on the floor beside it).
-         - Check it on more tiles, stairs included.
-         - The emulator explorer keys a tile by (x, z, height), so it tells
-           the walkway from the floor under it.
-         - Explore each map on the route once (about 15 maps, about 30
-           seconds each) and save its walkable graph as data. The runner
-           plans its walks on these graphs. Trainers spot the player while
-           exploring, so explore from states where they're beaten, and mark
-           their sight from the ROM (`fieldmap.sight`).
-         - Check: the gym's graph has the walkway, and a path from the door
-           to Roark through both trainers.
-         - Why the emulator and not the ROM's height data: its answer is
-           exact, and the method carries to Emerald wherever the player's
-           height can be read. The ROM's height format is Gen 4's alone.
+      1. **Floor height first.** Done (PROGRESS.md §34). The player's tile
+         is read as (x, z, height) (`gen4.read_player_tile`), and
+         `overworld.explore` walks every tile of a map that way. The 18 maps
+         of the route each have a walkable graph (`scripts/explore_maps.py`).
+         Exploring from the ROM's height data was set aside: the emulator's
+         answer is exact, and the method carries to Emerald wherever the
+         player's height can be read.
       2. **Walking to a tile** on that graph, and retrying when a person
-         blocks the way.
+         blocks the way. Done (§34): `overworld.walk_to` plans again after
+         every step and waits when blocked.
       3. **Advancing text** until the scene ends: B until `gen4.field_task`
          reads 0 (§33). B never starts a new talk. A yes/no that must be yes
          loops on B, so those take A: Rowan's Pokédex and the clowns'

@@ -1765,3 +1765,54 @@ unavoidable trainers of four maps, and where var 16503 becomes 3.
 | The emulator walk of the gym missed the way to Roark | It counted each (x, z) once, and a raised walkway passes over floor tiles with the same (x, z). The floor was walked first | Walked again from Jonathon's platform, which reaches the walkway. A walk that tells floors apart needs the player's height, still to read |
 | §30 put the Jubilife multi battle before Roark | The trainers' names and levels fit, but the trigger's var is set in the gym | Corrected: it comes after Roark |
 | The boulder in the Oreburgh Gym looked like it blocked the way to Roark | It closes vanilla's shortcut past the trainers; Rock Smash needs the Coal Badge | The way past both trainers reaches Roark |
+
+## 34. Floor height and each map's walkable graph (2026-11-17)
+
+Goal: steps 3.2.1 and 3.2.2 of the plan. Walk the overworld on maps whose
+floors have heights, and walk around people who get in the way.
+
+**The height.** The player's map object holds its tile as x, height and z
+(RAM_MAP.md, `gen4.read_player_tile`). Its x and z match `location` on every
+state tried. The height reads 0 on the Oreburgh Gym's floor and 4 on its
+walkway, and climbs 0, 1, 3, 4 up its stairs. It isn't counted from the
+ground: Jubilife's street reads 4.
+
+**Exploring a map** (`overworld.explore`). From a state where the player can
+walk, it steps every direction from every tile it reaches, from a state saved
+on that tile, and records what each step did: moved to a tile (x, z, height),
+was blocked, left the map (to which map), or started a scene. The wild
+encounter rate is set to 0 while it explores, so grass doesn't start battles.
+The result is a `WalkGraph`, saved as JSON.
+
+**The route's 18 maps** were explored from start states taken from the
+playthrough, with each map's trainers beaten so their sight doesn't cut the
+walk short (`states/walk/start/`, not in git).
+`scripts/explore_maps.py --jobs 8` took 25 minutes, with the CPU at 97 °C at
+its peak. The graphs run from 63 tiles (the player's house) to 1,376
+(Jubilife City). They are in `states/walk/<map id>.json`, not in git, since
+they're made from local states. The gym's graph has the walkway: x = 4 to 7
+at z = 17 exist at height 4 above floor tiles at height 0.
+
+**Walking** (`overworld.walk_to`) plans the fewest steps on the graph, takes
+one, and plans again from the tile the player is on. A blocked step waits
+half a second and tries again, up to 10 times.
+
+**Verified:**
+- On each of the 18 maps, the graph's path from the start state to its
+  farthest tile, stepped blindly, ended on that tile on 17. In Oreburgh City a
+  wandering worker blocked a step and left the player a tile off.
+  `walk_to` reached that tile.
+- `test_the_gym_graph_walks_from_the_door_over_the_walkway_to_roark` and
+  `test_walking_past_the_people_of_oreburgh` do this in the game.
+  Three tests without the emulator check that a path climbs stairs to a
+  walkway over the floor, that a ledge is one way, and that a graph survives
+  JSON.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| The first walk of the gym missed its walkway | It counted each (x, z) once, and the walkway passes over floor tiles with the same (x, z) | A tile is (x, z, height) |
+| The explorer recorded no doors | Walking into a door starts its warp on the mat, so the player never leaves the tile within the step | A field task starting counts as a step; the warp is then waited out |
+| Grass battles would stop the exploration at every patch | Wild encounters | The current map's encounter rate is set to 0 while exploring |
+| Holding a direction for 40 frames walked up to 3 tiles | Walking takes 16 frames a tile | A step lets go as soon as the tile changes |
+| A planned walk in Oreburgh ended a tile short | A wandering worker stepped into the way | `walk_to` plans again after every step and waits when blocked |
+| The graphs and their start states aren't in git | They're made from local save states | The milestone rebuild (3.2.6) will make the start states reproducible |
