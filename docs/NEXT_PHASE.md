@@ -250,7 +250,8 @@ each run to the decisions. In order:
    - **Bookkeeping:** the first encounter per route, the duplicates clause
      from evolution lines, the shiny clause (`scenario.is_shiny` already
      tells a shiny from its PID), a fainted Pokémon out for good, and the
-     level cap for the badge count.
+     level cap. Done (PROGRESS.md §32): `src/nuzlocke.py`. Its `encounter`
+     answers the `catch` the battle env takes at reset.
 3. **A scripted route runner to Roark.** Scripted inputs walk a fixed path
    from Twinleaf Town to the Oreburgh Gym, through the real encounters,
    trainers, text and story scenes, and heal at each Pokémon Center. Text

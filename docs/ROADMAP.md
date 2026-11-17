@@ -168,11 +168,13 @@ The hack changed abilities, so assume it changed more.
 - [x] Catch success: a caught Pokémon sets `battleResult` to 4, joins the
       party, and gets its caught flag.
 - [x] Bag (`gen4.read_bag`), for healing-item counts.
-- [ ] Rule bookkeeping in the env: first encounter per route, the
-      fainted and boxed list, and the level cap for the current badge count
-      (the caps are in the README).
-- [ ] Lookups the rules need: which items heal, and each species'
-      evolution line for the duplicates clause (from `romdata.evolutions`).
+- [x] Rule bookkeeping: `src/nuzlocke.py` tracks the first encounter per
+      route, the duplicates and shiny clauses, the fainted, and the level
+      cap of the next boss not yet beaten (PROGRESS.md §32). The route
+      runner feeds it the facts from the game.
+- [x] Each species' evolution line, for the duplicates clause
+      (`nuzlocke.line_of`, from `romdata.evolutions`).
+- [ ] Which items heal, for using items between battles (step 5's Items).
 - [ ] Check that the map ID changes on seamless route-to-route crossings.
       Only town-to-route crossings have been seen.
 

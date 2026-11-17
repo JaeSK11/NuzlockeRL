@@ -1604,3 +1604,44 @@ declined.
 | A dropped tap in the bag can't be retried in place | Every bag screen reads the same, and a spot means something else on each | Back out with B and walk the route again |
 | A boxed Pokémon read level 0 | The box struct has no level field | The level comes from EXP (`romdata.level_for_exp`) |
 | The pilot's checkpoints no longer fit the env | The action space grew to 10 | Kept as a record; live runs train from scratch |
+
+## 32. The Nuzlocke rules as bookkeeping (2026-11-17)
+
+Goal: step 2 of the plan after the pilot, its second part. Decide when a
+catch is allowed, and keep what the rules need over a run.
+
+**`src/nuzlocke.py`** has no emulator in it. The route runner reads the
+facts from the game and asks a `Run` what the rules allow:
+- `encounter(route, species, shiny)`, when a wild battle starts, says
+  whether the Pokémon may be caught. That is the `catch` the battle env
+  takes at reset. It also uses up the route if this is the encounter that
+  counts there.
+- `caught(species)`, `fainted(pid)` and `boss_beaten(boss)` record the run.
+- `level_cap()` and `over_cap(levels)` give the cap of the next boss not
+  yet beaten.
+
+**The rules, as the README states them:**
+- **Only a route's first encounter counts,** caught or not. A route is the
+  location name the game shows ("Route 201", "Oreburgh Mine B1F"), the
+  usual Nuzlocke reading.
+- **Duplicates clause:** an encounter from an evolution line already caught
+  may not be caught, and leaves the route open. A line is named by its
+  first species (`line_of`). It follows the ROM's evolutions backward, so
+  Raichu and Pikachu belong to Pichu, Flareon to Eevee, Staraptor to
+  Starly.
+- **Shiny clause:** a shiny may always be caught, and uses up nothing.
+- **Level caps follow bosses, not badges.** Barry's third and fifth fights
+  come between gyms, so badges alone can't tell 42 from 47. The cap is that
+  of the next boss on the README's list not yet beaten.
+- **A Pokémon that faints is gone for good.** The run keeps its PID. Keeping
+  it out of the party, by boxing it, is the route runner's job.
+
+`Rules` holds these as data (`first_encounter_only`, `duplicates_clause`,
+`shiny_clause`, `level_caps`), so another game or ruleset can change them,
+from a JSON file for example. That is the plan's rules-as-config.
+`tests/test_nuzlocke.py` covers each rule and switching them off, 7 tests.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| Badge count can't give the level cap | Two of the caps are Barry's fights between gyms | The cap follows the bosses beaten, in the README's order |
+| A duplicate shouldn't use up a route | The clause lets the player try for another | `encounter` returns False for it without recording the route |
