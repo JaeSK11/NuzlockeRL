@@ -3,7 +3,9 @@
 Written 2026-11-12 as a plan to pick up later. Steps 1 to 4, and the STUCK
 question under "Before starting", were done on 2026-11-16 (PROGRESS.md §18
 to §22). The pilot (step 5) started on 2026-11-16 and was restarted the same
-day after a Selfdestruct bug (§23).
+day after a Selfdestruct bug (§23). It finished on 2026-11-17. The result and
+the decision are in §24, and the next steps under
+[After the pilot](#after-the-pilot).
 
 ## The question
 
@@ -41,8 +43,8 @@ emulator only to evaluate.
 3. **Make a worker error survivable, or rule it out.** Any worker error
    stops training (`WorkerError`). Step 1 below checks every state up
    front. Optionally, let the trainer restart a failed worker and log it.
-4. **Keep the machine awake for long runs.** If it stops anyway, rerunning
-   the same command resumes from the last checkpoint.
+4. **A stopped run resumes.** Rerunning the same command continues from the
+   last checkpoint.
 
 ## Steps
 
@@ -79,10 +81,11 @@ emulator only to evaluate.
    training. Shuckle is left out: its Sand Tomb traps, which the env can't
    model yet.
 
-2. **Measure a random baseline.** Done; the numbers are in
-   [PROGRESS.md](PROGRESS.md#19-setting-the-wild-enemys-moves-and-held-item-2026-11-16).
-   Random play wins 61% of the training battles but wins clean, with no
-   faint, only 37%, and 3% of the held-out ones. Judge the pilot by the
+2. **Measure a random baseline.** Done, and measured again after the
+   Selfdestruct fix with `eval_ppo.py --mode random`
+   ([PROGRESS.md §24](PROGRESS.md#24-the-pilots-result-2026-11-17)). Random
+   play wins 56% of the training battles but wins clean, with no faint, only
+   6%, and 8% of the held-out ones. Judge the pilot by the
    clean-win rate and the return, which counts −3 per faint, more than by
    the win rate.
 
@@ -114,7 +117,7 @@ emulator only to evaluate.
    guard's limit, entropy doesn't collapse in the first updates, and no
    episode ends STUCK.
 
-5. **The pilot run.** About 300,000 decisions, roughly 14 hours:
+5. **The pilot run.** Done: 300,032 decisions in 14.1 hours (§24).
 
    ```bash
    ~/venvs/nuzlockerl/bin/python scripts/train_ppo.py --states <train states> \
@@ -124,7 +127,8 @@ emulator only to evaluate.
    Evaluate the checkpoints at about every 50,000 decisions on both splits
    with `eval_ppo.py`.
 
-6. **Decide.** Write the result up in PROGRESS.md as its own section.
+6. **Decide.** Done: keep training on the emulator, and make the battles
+   more varied (§24, and [After the pilot](#after-the-pilot)).
 
 ## How the battle set was revised
 
@@ -140,10 +144,9 @@ without hurting it: it's Selfdestruct, whose damage the env misses
 ## What to watch
 
 `scripts/plot_runs.py runs/pilot` draws the win and clean-win rates against
-decisions trained, as `runs/progress.png`. The random-play baselines of step 2
-were measured before the Selfdestruct fix (PROGRESS.md §23) and are too high;
-until they are measured again, the run's first update, with a near-uniform
-policy, stands in for random play. The other charts, each with `--out`:
+decisions trained, as `runs/progress.png`. For the random-play baseline
+of step 2, pass `--baseline-win 0.56 --baseline-clean 0.06`, the train
+split's (PROGRESS.md §24). The other charts, each with `--out`:
 
 | Command | Shows | Look for |
 |---|---|---|
@@ -185,8 +188,9 @@ These are proposals. Set the final numbers once the baseline is known.
 
 ## Limits of this pilot
 
-- **Wild battles only.** The enemies use their wild level-up moves, not
-  Roark's sets, and hold no items. His real team is far harder: Bonsly 15
+- **Wild battles only.** The enemies have Roark's moves and held items
+  (§19), but each fights alone, as a wild Pokémon. His real team fights in a
+  row: Bonsly 15
   (Stealth Rock, Selfdestruct), Lileep 13 (Giga Drain, Recover), Gible 14
   (Flamethrower, Earth Power), Corsola 14 (Recover, Light Screen), Shuckle
   13 (Toxic, Curse, Sand Tomb), and Cranidos 16 (Head Smash, Rock Polish),
@@ -195,6 +199,43 @@ These are proposals. Set the final numbers once the baseline is known.
 - **Effects aren't in the observation.** Stealth Rock, Light Screen,
   Sand Tomb's trapping, and Curse need roadmap step 1's RAM first.
 - **No double battles.** 55 trainers in the hack fight doubles.
+
+## After the pilot
+
+The pilot learned its 10 training battles in about 30,000 decisions. The
+held-out battles gained less, and one got worse with more training
+(PROGRESS.md §24). The emulator stays. The next steps, in order:
+
+1. **A varied battle set.** Hundreds of battles instead of 10, so that no
+   single matchup can be memorized. `scenario.py` can already make any party
+   against any wild enemy, with any moves and held item. Draw:
+   - parties of 3 from the species catchable before Roark, at levels 12 to
+     14, with their level-up moves, and some with a setup move (§23);
+   - some parties with a clearly weak member, so the faint penalty separates
+     fodder from the ace (§24);
+   - enemies from the early trainers' teams in the ROM (`romdata.trainer`),
+     with their moves and items, at their levels.
+
+   Hold out whole enemy species, as the pilot did with Cranidos and Gible,
+   and a few party species too. A state is about 5.5 MB, so 500 battles
+   take about 2.7 GB. `make_battle_set.py` checks each state as it saves it.
+2. **Evaluate the held-out battles during training.** `train_ppo.py` sees
+   only the train split, so the pilot's held-out drop showed up only after
+   the run. Every few updates, play the held-out battles without learning,
+   log their win and clean-win rates in `metrics.jsonl`, and keep the
+   checkpoint with the best held-out clean-win rate. The evaluation costs
+   training time. About 20 episodes per held-out battle every 20 updates
+   would be a few percent of the run. Pool several evaluations before
+   trusting one number: the same checkpoint won one battle 44 of 50 times
+   in one sample and 14 of 28 in another (§24).
+3. **Measure, then decide on a simulator.** Train on the varied set and count
+   the decisions until the held-out clean-win rate stops rising. If that
+   takes more than about a million decisions (47 hours at 5.9 decisions/s),
+   plan the Python battle simulator for training, and keep the emulator for
+   evaluation.
+4. **If variety doesn't fix generalization,** find what lets the policy tell
+   battles apart. The enemy's stats and level may matter more to it than the
+   type matchups (§24). Try training with those features noisy or removed.
 
 ## Work that can run alongside
 

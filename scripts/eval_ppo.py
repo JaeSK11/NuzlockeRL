@@ -3,7 +3,9 @@
   python scripts/eval_ppo.py --run-dir runs/pilot --states states/generated/pilot/heldout/*.state
 
 Plays --episodes episodes on each state, once with the policy sampled as in training and once
-always taking the most likely valid action (--mode sample, greedy, or both). Prints the win
+always taking the most likely valid action (--mode sample, greedy, or both). --mode random
+plays every valid action with equal odds and needs no checkpoint: the random-play baseline,
+with the same numbers as the policy's. Prints the win
 rate, the clean-win rate (won with no player faint), faints, mean return, and mean length per
 state, and with --json writes the per-state numbers, which also count each decision's kind and
 move, and the ace's and the other Pokémon's faints (ppo.episode_stats). --step-log writes every
@@ -12,11 +14,19 @@ Uses the newest checkpoint in --run-dir unless --checkpoint names one. Stops ear
 stays above --max-temp for more than --hot-seconds, as training does.
 """
 import argparse, functools, json, math, os, sys
+import torch
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
 from battle_env import BattleEnv
 from thermal import ThermalGuard
+
+
+class UniformPolicy:
+    """Every valid action equally likely: random play."""
+
+    def log_probs(self, obs, mask):
+        return torch.log_softmax(torch.zeros(mask.shape).masked_fill(~mask, -torch.inf), dim=-1)
 
 
 def main():
@@ -27,7 +37,7 @@ def main():
     ap.add_argument("--run-dir", default=os.path.join(ROOT, "runs", "ppo"))
     ap.add_argument("--checkpoint", help="a checkpoint file; default: the newest in --run-dir")
     ap.add_argument("--episodes", type=int, default=50, help="per state and mode")
-    ap.add_argument("--mode", choices=("sample", "greedy", "both"), default="both")
+    ap.add_argument("--mode", choices=("sample", "greedy", "both", "random"), default="both")
     ap.add_argument("--envs", type=int, default=max(1, (os.cpu_count() or 1) - 2))
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--json", help="write the per-state results here")
@@ -36,10 +46,13 @@ def main():
     ap.add_argument("--hot-seconds", type=float, default=30.0)
     args = ap.parse_args()
 
-    path = args.checkpoint or ppo.latest_checkpoint(args.run_dir)
-    if not path:
-        sys.exit(f"no checkpoint in {args.run_dir}")
-    agent, norm = ppo.load_policy(path)
+    if args.mode == "random":
+        path, agent, norm = "random play", UniformPolicy(), lambda x: x
+    else:
+        path = args.checkpoint or ppo.latest_checkpoint(args.run_dir)
+        if not path:
+            sys.exit(f"no checkpoint in {args.run_dir}")
+        agent, norm = ppo.load_policy(path)
     states = [os.path.abspath(s) for s in args.states]
     per_state = max(1, args.envs // len(states))            # each env plays one state
     env_states = [s for s in states for _ in range(per_state)]

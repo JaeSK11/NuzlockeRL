@@ -1096,10 +1096,125 @@ first updates ran at 6.2 to 6.3 decisions/s, where the stopped run ran at
 | Issue | Cause | Resolution |
 |---|---|---|
 | Weak lead vs Bonsly is always a clean win in one decision | The env ends an episode at the first snapshot with a side at 0 HP; Selfdestruct zeroes the user's HP before its damage lands | On a wipe, run on until the game records the result (`battleResult`), and take the faints from then. The pilot was restarted |
-| Random play's clean-win rate (§19) is too high | Measured with the Selfdestruct bug, which made most Bonsly battles clean wins | Open: measure it again after the pilot; until then the first update stands in |
+| Random play's clean-win rate (§19) is too high | Measured with the Selfdestruct bug, which made most Bonsly battles clean wins | Measured again in §24: 0.06 clean on the train split |
 | About 3% of episodes ended before the game recorded the result | The wait for the result stopped at the first snapshot that read invalid, as one does while the game writes the exp after a win | Invalid reads are skipped while the battle runs. Found by the new mismatch count in the first update |
 | Move choice, PP and who faints weren't recorded | The trainer logged per-update aggregates; the step log was off and lacked the move and PP | Counted per battle in `metrics.jsonl`, in the step log, and charted (`--view`) |
 | Episodes are slower to finish | The wait for the result | Accepted: about 10% fewer decisions/s early on. A battle command that marks the end of the turn could cut the wait; it needs the decomp's command list |
 | After a trainer battle the wait runs to its 2,000-frame limit | The game records a trainer battle's result later, after the trainer's closing text | Open: wild battles only for now; needs a better end signal before trainer battles |
 | The battle set has no setup moves | The teams get their level-up moves, which have none at these levels | Open: give some teams a setup move, the way the generator sets the enemy's |
 | Status moves are told apart only by their numbers | The observation has no move-effect field | Open: an effect category from the ROM's battle effect id |
+
+## 24. The pilot's result (2026-11-17)
+
+Goal: answer the pilot's question ([NEXT_PHASE.md](NEXT_PHASE.md)). Can
+PPO learn battles on the emulator, or does training need a Python battle
+simulator?
+
+**The run.**
+- 300,032 decisions on the 10 training battles, with 14 envs.
+- It took 14.1 hours at 5.9 decisions/s; the CPU peaked at 82 °C.
+- Every episode ended WON or LOST. There were no STUCK, TURN_CAP or ENDED
+  episodes, and no result the game contradicted.
+- Entropy fell from 1.54 to 0.15 without collapsing, and explained variance
+  rose to 0.45.
+
+**A new random baseline.** `eval_ppo.py --mode random` plays every valid
+action with equal odds and reports the same numbers as a checkpoint. It was
+measured with the Selfdestruct fix (§23), 60 episodes per battle:
+
+| Split | Win | Clean win | Return | Faints per episode |
+|---|---|---|---|---|
+| train | 0.56 | 0.06 | −15.7 | 1.98 |
+| held out | 0.65 | 0.08 | −14.3 | 1.96 |
+
+The clean-win rate of 0.37 in §19 came from the Selfdestruct bug.
+
+**The training battles were learned fast.** The 3-update mean of the
+training win rate passed random + 0.3 (0.86) after 27,648 decisions, in
+1.3 hours. The clean-win rate passed 0.5 after 32,768. After about 60,000
+decisions, little changed. Checkpoints, greedy play, 50 episodes per
+battle:
+
+| Decisions | Train: win | Train: clean | Held out: win | Held out: clean |
+|---|---|---|---|---|
+| random play | 0.56 | 0.06 | 0.65 | 0.08 |
+| 51,200 | 0.95 | 0.57 | 0.83 | 0.21 |
+| 102,400 | 0.96 | 0.64 | 0.72 | 0.12 |
+| 153,600 | 0.95 | 0.65 | 0.71 | 0.12 |
+| 204,800 | 0.95 | 0.65 | 0.84 | 0.12 |
+| 256,000 | 0.96 | 0.67 | 0.81 | 0.12 |
+| 300,032 | 0.96 | 0.67 | 0.72 | 0.12 |
+
+Sampled play gives about the same numbers. At 300,032 decisions: train
+0.95 win and 0.65 clean, held out 0.77 and 0.12.
+
+**Held out was best at 51,200 decisions, then got worse.** Per battle,
+greedy, win / clean:
+
+| Battle | Random | 51,200 | 300,032 |
+|---|---|---|---|
+| Piplup team vs Cranidos | 0.73 / 0.05 | 0.96 / 0.40 | 0.98 / 0.40 |
+| Chimchar team vs Gible | 0.78 / 0.10 | 0.92 / 0.14 | 0.90 / 0.08 |
+| Weak lead vs Gible | 0.70 / 0.12 | 0.56 / 0.00 | 0.78 / 0.00 |
+| Turtwig team vs Cranidos | 0.37 / 0.05 | 0.88 / 0.32 | 0.24 / 0.00 |
+
+Turtwig team vs Cranidos accounts for the drop, and the cause is Turtwig's
+move:
+- **Mega Drain** is Grass, super effective on Rock, and Turtwig's own type.
+  It takes about 18 of Cranidos's 47 HP on the first turn. **Bite** takes about
+  11.
+- At 51,200 decisions the policy picked Mega Drain in 131 of 172 decisions.
+  From 102,400 on it picked Bite, 174 of 210 decisions by the end.
+- Pooled over more seeds:
+
+  | Checkpoint | Episodes | Win | Clean win |
+  |---|---|---|---|
+  | 51,200 | 148 | 0.72 | 0.28 |
+  | 300,032 | 120 | 0.30 | 0.00 |
+
+  The final policy is worse than random (0.37), and Turtwig faints in every
+  episode.
+
+In training, the Turtwig teams fight Bonsly, Corsola and Lileep:
+- **Bonsly** is pure Rock, like Cranidos. Turtwig used Mega Drain on it
+  7,174 times out of 7,209.
+- **Lileep** is Rock/Grass. Mega Drain is only neutral on it, so Turtwig
+  learned Bite there.
+
+Cranidos and Bonsly look the same to every type-matchup feature of the
+observation, yet the policy treats Cranidos like Lileep. So it picks moves
+by something other than the matchup, most likely the enemy's stats or
+level. With three enemy species in training, nothing forces the matchup to
+be what decides. This is the plan's "learns train but not held-out" case,
+for one held-out battle out of four.
+
+**What else it learned:**
+- **Weak lead vs Bonsly: Sand-Attack every time,** 3,187 of 3,209 decisions
+  in the second half of training. Starly moves first and lowers Bonsly's
+  accuracy, and Bonsly's Selfdestruct then misses some of the time. At the
+  final checkpoint, 16 of 100 episodes ended with Starly at full HP and
+  Bonsly fainted. The strongest Pokémon never switched in to take the blast:
+  its faints fell from 0.19 per episode to 0.
+- **Chimchar team vs Lileep: 0.96 win but only 0.30 clean,** and Chimchar
+  faints in 70% of episodes. Chimchar leads with Karate Chop, the team's
+  only super-effective move. Lileep heals with Recover and with Giga Drain
+  boosted by its Big Root, so Chimchar usually faints by its third turn and Shinx
+  finishes with Bite. The penalty can't teach a fodder trade here: Chimchar
+  costs −8.0, Geodude −7.82 and Shinx −7.06. The strength scale only
+  separates fodder from the ace when the team has a real weak member.
+
+**The decision: keep training on the emulator.** The 10 battles were
+learned in about 30,000 decisions, an hour and a half, so emulator speed
+isn't what limits this. Generalizing to new battles is. The plan's rule for
+this case is "try more varied battles before blaming the emulator". A
+simulator becomes worth its cost only if a varied set needs far more
+decisions: at 5.9 decisions/s, a million take 47 hours. Measure that first.
+The next steps are in [NEXT_PHASE.md](NEXT_PHASE.md#after-the-pilot).
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| Held out got worse after 51,200 decisions while train kept improving | Too few battles: Turtwig learned Bite from the Lileep battle and used it on Cranidos, where Mega Drain is far stronger | Open: more varied battles, held out evaluated during training, and the best checkpoint kept by its held-out result |
+| The random baseline of §19 was too high | The Selfdestruct bug (§23) | Measured again with `eval_ppo.py --mode random`: 0.56 win and 0.06 clean on train, 0.65 and 0.08 held out |
+| Random play couldn't be measured with the same numbers as a checkpoint | `rollout.py` counts outcomes only | `eval_ppo.py --mode random` |
+| 50 episodes per battle give noisy results | One battle turns on a few rolls. The 51,200 checkpoint won Turtwig team vs Cranidos 44 of 50 times, then 14 of 28 and 48 of 70 with other seeds | Pool seeds, or play more episodes, for any number a decision rests on |
+| The faint penalty doesn't separate fodder from the ace in a balanced team | Strength is the stat total over the team's highest, and the Chimchar team's totals are within 14% of each other | Open: a gauntlet env, where a faint costs options in later battles (roadmap step 2), is the real fix |

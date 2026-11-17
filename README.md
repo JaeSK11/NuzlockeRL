@@ -20,7 +20,7 @@ state, then add encounters, team building and overworld movement later.
 | Battle RAM: waiting for a command, RNG seed, result, input mode | ✅ Verified on two battles (Barry 1 and a wild Delibird) |
 | Battle environment | ✅ `src/battle_env.py`: moves, switches, and the forced switch by touch, faint-event rewards, turn cap, random battle RNG, JSON logs. Parallel envs via `scripts/rollout.py` |
 | RAM audit | ✅ `scripts/ram_audit.py`: 244 battles, 0 violations |
-| RL training | ✅ Masked PPO over an async env pool, `scripts/train_ppo.py`. Learns a one-move battle; the pilot on real battles is next |
+| RL training | ✅ Masked PPO over an async env pool, `scripts/train_ppo.py`. The pilot learned its 10 training battles in about 30,000 decisions; held-out battles gain less. A varied battle set is next ([PROGRESS.md §24](docs/PROGRESS.md#24-the-pilots-result-2026-11-17)) |
 | Effects, weather, double battles | ⏳ Next. See [docs/ROADMAP.md](docs/ROADMAP.md) |
 
 ## Documentation
@@ -83,8 +83,8 @@ src/d - mystate "w900 a*10 w120"                   # boot, press A, save state +
 ~/venvs/nuzlockerl/bin/python scripts/train_ppo.py --states states/generated/solo_turtwig10.state --run-dir runs/pilot   # rerun to resume
 ~/venvs/nuzlockerl/bin/python scripts/make_scenario.py --mon 387:10:33,72,44,75 --enemy 225:8 --out states/generated/turtwig10.state
 ~/venvs/nuzlockerl/bin/python scripts/make_battle_set.py scripts/pilot_battles.json   # the PPO pilot's battles, each checked
-~/venvs/nuzlockerl/bin/python scripts/eval_ppo.py --run-dir runs/pilot --states states/generated/pilot/heldout/*.state
-~/venvs/nuzlockerl/bin/python scripts/plot_runs.py runs/pilot --baseline-win 0.61 --baseline-clean 0.37   # runs/progress.png
+~/venvs/nuzlockerl/bin/python scripts/eval_ppo.py --run-dir runs/pilot --states states/generated/pilot/heldout/*.state   # --mode random: the random-play baseline
+~/venvs/nuzlockerl/bin/python scripts/plot_runs.py runs/pilot --baseline-win 0.56 --baseline-clean 0.06   # runs/progress.png
 ~/venvs/nuzlockerl/bin/python scripts/ram_audit.py --battles 200 --probe 4   # check RAM reads against invariants; exits 1 on a violation
 ```
 

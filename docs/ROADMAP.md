@@ -92,9 +92,14 @@ The hack changed abilities, so assume it changed more.
       last checkpoint. PufferLib doesn't install next to this project's
       gymnasium and numpy. On a one-move smoke battle the win rate went
       from 0.55 to 1.00 in 2,000 decisions.
-- [ ] PPO pilot on generated battles: measure how many decisions a battle
-      takes to learn, to decide whether a Python battle simulator is
-      needed. The plan is in [NEXT_PHASE.md](NEXT_PHASE.md).
+- [x] PPO pilot on generated battles. Its 10 training battles were learned
+      in about 30,000 decisions, so the emulator stays. The held-out
+      battles gained less, and one got worse with more training. See
+      [PROGRESS.md](PROGRESS.md#24-the-pilots-result-2026-11-17).
+- [ ] A varied battle set of hundreds of generated battles, with the
+      held-out battles evaluated during training and the best checkpoint
+      kept by them. The steps are in
+      [NEXT_PHASE.md](NEXT_PHASE.md#after-the-pilot).
 - [x] Generated wild battles: `src/scenario.py` writes any party and any
       wild enemy into RAM and saves a battle state at the first prompt.
 - [ ] Trainer battles for the early bosses (Roark, Barry 2, Galactic). The
@@ -218,4 +223,6 @@ that are too early now:
 - Can Metamon-style offline battle data warm-start the battle policy, even
   though the mechanics differ (Showdown vs. a Gen 4 Kaizo hack)?
 - If DS emulation speed is the bottleneck, fall back to a Python battle
-  simulator for training and use the emulator only to evaluate.
+  simulator for training and use the emulator only to evaluate. Not yet:
+  the pilot learned 10 battles in about 30,000 decisions (PROGRESS.md §24).
+  The varied set will tell.
