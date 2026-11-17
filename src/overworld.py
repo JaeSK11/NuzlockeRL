@@ -141,7 +141,7 @@ BLOCKED_WAIT, BLOCKED_TRIES = 30, 10   # a person who wanders into the way moves
 AROUND_AFTER = 3                       # blocked tries before planning around a person who stands still
 
 
-WALK_SETTLE = 16      # frames for the last step's walk to finish after its tile has changed
+WALK_SETTLE = 16      # frames for the last step to finish after its tile has changed (8 running, 16 walking)
 
 
 def walk(nds, direction: str, target) -> str:
@@ -151,6 +151,7 @@ def walk(nds, direction: str, target) -> str:
     or the player stops moving. Returns step()'s outcomes; "blocked" when it didn't move at all."""
     map_id, start = gen4.read_location(nds).map_id, gen4.read_player_tile(nds)
     last, still = start, 0
+    nds.button.press_key("b")                           # B runs, with the Running Shoes the player has from Twinleaf
     nds.button.press_key(direction)
     while True:
         nds.tick(1)
@@ -164,6 +165,7 @@ def walk(nds, direction: str, target) -> str:
         else:
             last, still = tile, 0
     nds.button.release_key(direction)
+    nds.button.release_key("b")
     if gen4.read_player_tile(nds) == start and gen4.read_location(nds).map_id == map_id and not gen4.field_task(nds):
         return "blocked"
     nds.tick(WALK_SETTLE)

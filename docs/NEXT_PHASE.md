@@ -344,7 +344,10 @@ each run to the decisions. In order:
         party menu mapped, as the battle bag was. It is the first part of the
         roadmap's team-building policy (step 5).
    7. **After battles.** Move learning is handled in battle (§26). An
-      evolution scene after a battle is let run: the Pokémon evolves.
+      evolution scene after a battle is let run: the Pokémon evolves. Done
+      (§38): the text after a battle takes A. A fifth move offered on
+      evolution then replaces the first move slot, a stand-in to become the
+      agent's choice.
       Picking up items is left out for now (the roadmap's Items).
    8. **The episode.**
       - One episode is a run from the starter choice, to Roark's badge, a
@@ -377,8 +380,8 @@ each run to the decisions. In order:
    9. **Time one run first.** Before building training on it, play a few
       runs with random battle actions. Measure the frames, the battles and
       the decisions per run, and the runs per hour on 14 envs, to know what
-      training will cost.
-   10. **Train.** PPO over runs, with restart states. Every battle of every
+      training will cost. Done (§38): `scripts/time_runs.py`.
+   10. **Train.** Built (§38): `train_ppo.py --runs`. PPO over runs, with restart states. Every battle of every
       run leaves a restart state; start some episodes from them, so that
       later battles, Roark's above all, get practice while most early runs
       still die on the first routes. As the policy gets through the early

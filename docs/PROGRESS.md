@@ -1982,3 +1982,74 @@ step that failed. Battle seeds come from the run's seed.
 | `field_task` raised in the middle of a fade | The location address `resolve` follows jumped for one frame | It checks only that the FieldSystem pointer is in main RAM |
 | A wild battle met on a walk was pressed through with A | The runner waited for the battle, then called `advance_text`, which reports only a battle that starts while it runs | The runner hands a battle that is already up to the agent |
 | The nurse would bring the dead back | She heals the whole party | The runner deposits the fainted first |
+
+## 38. Evolution, timing, faster walking, and training on runs (2026-11-17)
+
+Goal: steps 3.7, 3.9 and 3.10 of the plan, and a check that the run's route
+works all the way.
+
+**The whole route works.** One run was played with the survey party, written
+after Barry's first battle and again before Roark, and the greedy policy.
+It won all 32 battles, every trainer from Barry's first to Roark, healed at
+the three Pokémon Centers (moving its fainted to the PC first), and ended on
+Roark's badge with a return of 273, the +20 for Roark included: 118
+decisions in 508 seconds. A first try that reset the party before the gym's
+two trainers ended "no_badge": their EXP took the party over Roark's cap,
+and he turned it down, which the env reads from the badge.
+
+**Evolution after a battle (3.7).** The text after a battle takes A, since B
+stops an evolution. A Kricketot one EXP short of level 10 won a battle and
+became a Kricketune. With four moves, the evolution's new move (False
+Swipe) replaced the first move slot: A answers yes to forgetting, then picks
+the first move. That is a stand-in, as the in-battle choice is (§26), to
+become the agent's.
+
+**Timing runs (3.9).** `scripts/time_runs.py` plays random allowed actions on
+14 envs:
+
+| | Runs | Runs/h | Decisions/s | Decisions per run | Battles per run | Furthest |
+|---|---|---|---|---|---|---|
+| First | 100 | 210 | 1.3 | 21.2 | 4.0 | route step 10 of 55 (Route 202) |
+| Faster walking | 50 | 186 | 1.6 | 27.9 | 4.6 | route step 10 of 55 |
+
+Every random run wiped on Route 201 or 202; Barry's first battle was won in
+all of them, with each starter. A profile of one run put 96% of its time in
+the emulator, so the cost is frames:
+- **Walking** took 56 frames a tile: `step` waits 40 frames after each tile
+  for a scene to start. `walk` now holds the key along each straight stretch
+  of the plan, 16.7 frames a tile, and holds B too, which runs with the
+  Running Shoes the player has from Twinleaf: 9.7 frames a tile. That came
+  after the second timing.
+- **The rest** is battles' intros and ends, and the opening every run plays:
+  the choice, the box screen, Barry's battle and Mom's scene. Runs that die
+  after four or five battles pay it each time; restart states skip it.
+- The save's text speed is already fast (its options word, version + 0x78,
+  reads 0x42).
+
+**Restart states (3.10).** With `restart_dir` set, a run saves every battle
+it meets as it starts, with a JSON of its bookkeeping: the rules' record, the
+route action and the step inside a list of steps, the starter, the trainers
+beaten. At most 20 are kept per route step, the oldest dropped. A reset
+starts from one with probability `restart_share`: a route step picked at
+random among those with restarts, so later battles get practice while most
+runs still die early, then a state of that step. The runner then plays the
+saved battle first and resumes the route action it interrupted: a walk or a
+door from where the player stands, a list of steps from the next step.
+
+**Training on runs.** `train_ppo.py --runs` trains the same masked PPO on
+`RunEnv` workers, with a discount of 0.999 and half the episodes from restart
+states by default, kept in `RUN_DIR/restarts`. A run's end is its episode
+outcome, and the metrics add the mean and furthest route step. A smoke run
+of 256 decisions on 4 envs played 7 runs and saved restart states.
+
+**Verified:** `test_a_run_leaves_restart_states_and_a_reset_resumes_one`;
+the overworld and run tests pass with running.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| Walking cost 56 frames a tile | `step` waits 40 frames after every tile | `walk` holds the key along straight stretches, and runs: 9.7 frames a tile |
+| Random runs never pass Route 202 | Kaizo's early wild Pokémon | Expected; restart states give later battles practice once runs reach them |
+| The trainer's episode records had no outcome for a run | A run's final info had `end`, not `outcome` | `outcome` is the run's end, and the route step is recorded |
+| Roark turns down a party over his cap, and nothing in a run can bring it under | The agent has no PC decisions yet (3.6) | Open: a run ends "no_badge" with no reward |
+| An evolution's fifth move replaces the first slot | A on the forget screen picks the first move | Open: a stand-in, to become the agent's choice |
+| Milestone 00 has no input script from boot | The new game's intro and naming were played by hand | Open: every run starts from `01_starter_choice`, which is rebuilt from 00 |
