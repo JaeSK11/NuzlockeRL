@@ -1560,6 +1560,9 @@ multi battle is set up by the map's script, not by the trainer's double flag.
 The battle env plays single battles only: in a 2-against-2 battle, each move
 first asks which enemy to target.
 
+**Second correction (§33): it comes after Roark.** Its trigger needs a story
+var that only the Oreburgh Gym's script sets.
+
 | Issue | Cause | Resolution |
 |---|---|---|
 | A level-6 double battle looked like it might be on the way to Roark | Trainer 368 is in the ROM with a party | It is vanilla's unused entry; the real interviewers come at level 23 |
@@ -1667,3 +1670,89 @@ from a JSON file for example. That is the plan's rules-as-config.
 |---|---|---|
 | Badge count can't give the level cap | Two of the caps are Barry's fights between gyms | The cap follows the bosses beaten, in the README's order |
 | A duplicate shouldn't use up a route | The clause lets the player try for another | `encounter` returns False for it without recording the route |
+
+## 33. The playthrough to the Oreburgh Gym (2026-11-17)
+
+Goal: the second half of step 3.1. Play from the state after the first rival
+battle to the Oreburgh Gym with scripted inputs, save a milestone state at
+each story beat, and confirm the route survey. The findings are in
+[ROUTE_TO_ROARK.md](ROUTE_TO_ROARK.md).
+
+**How it was played.** A scratch driver built on `src/drive.py` added a few
+tokens: walk a path to a tile, press B (or A) until the scene ends, talk to a
+person, and play a battle through the battle env with a greedy policy (the
+move with the most power × accuracy × own-type bonus × type effectiveness).
+Every battle on the way went through the env.
+
+**A survey party, not a legit one.** A wild Ledyba, level 5 on Route 202,
+beat the level-7 Turtwig in two turns, and the player whited out. A lone
+starter can't carry a survey through Kaizo trainers, and the survey is about
+the map, not the battles. So the party was rewritten at state 04 with
+`scenario.build_mon`: Garchomp, Gyarados, Lucario, Alakazam, Arcanine and
+Turtwig, all level 16, with the player's original-trainer fields so they
+obey. EXP raised them past Roark's cap, so the party was written again at
+level 16 before the gym. Milestones 06 to 14 hold this party: they are
+fixtures for the overworld primitives (step 3.2), not run starts.
+
+**RAM signals for the overworld** (RAM_MAP.md):
+- **`FieldSystem.task`** is non-zero while a script, a warp or a battle
+  runs, and 0 when the player can walk. The `FieldSystem` pointer sits at
+  0x21C07DC in every state tried. This is the signal step 3.2 needed: press
+  B until it reads 0. B never starts a new talk, which A does once the text
+  ends. `gen4.field_task`.
+- **Story vars and event flags** (`gen4.read_var`, `gen4.read_flag`). Each
+  map trigger in the ROM names a var and a value, so the vars say which
+  triggers are armed. A set flag hides a person.
+
+**The map's facts from the ROM** (`src/fieldmap.py`): the map headers'
+matrices, the tile attributes (collision, grass, ledges), and each map's
+events: people with their scripts, sight ranges and hide flags, warps, signs,
+and triggers. A path finder walks the cheapest way (grass costs more),
+and `forced_trainers` says which trainers no walk can avoid. A sight
+trainer's script is 2999 plus its trainer id, which named every trainer met.
+
+**What the playthrough found:**
+- The story order holds, with differences from vanilla: no catching lesson
+  on Route 202; no need to go home before Route 202; Looker holds the east
+  exit of Jubilife until the Parcel and the Pokétch; the Pokétch clowns ask
+  a quiz, then battle.
+- **The Jubilife multi battle comes after Roark.** Its trigger needs var
+  16503 = 3, and only the Oreburgh Gym's script sets it. With the var written
+  to 3 in a test copy, the trigger led into the battle against trainer 414.
+- **Rock Smash before Roark.** A boulder in the gym, at the foot of the only
+  stairs up, keeps the player from Darius and Roark. Rock Smash is refused
+  without the Coal Badge and works with its bit set. How the hack means the
+  player past it is open. §25's "no field move is needed before Roark" is
+  wrong for this hack, at least for this boulder.
+- **Unavoidable trainers:** all three on Route 202, Barry and two of five on
+  Route 203, both in the Oreburgh Gate, both Workers in the mine. Lass
+  Madeline is unavoidable only because her sight covers the gate's door.
+- **The battle env in live play:** 16 trainer battles and 14 wild battles,
+  every one WON, none STUCK. These include multi-Pokémon trainer battles in
+  Set style, forced switches, and level-ups, so Set style is now tested in
+  trainer battles.
+
+**Milestones** (in `states/milestones/`, not in git): 06 the lab after the
+Pokédex, 07 Jubilife's arrival trigger, 08 after the Parcel, 09 after the
+Pokétch, 10 Barry's trigger on Route 203, 11 Oreburgh's edge, 12 healed in
+its Pokémon Center, 13 after Roark's mine scene, 14 inside the gym's door.
+They were made with the scratch driver, so no input script rebuilds them
+yet; the driver's tokens become step 3.2's primitives.
+
+**Verified:** `tests/test_fieldmap.py` checks the Route 201 ledge and the
+person the screen showed, the trainers' names from their scripts, the
+unavoidable trainers of four maps, and where var 16503 becomes 3.
+`test_b_until_no_field_task_ends_a_scene_and_frees_the_player` and
+`test_story_vars_and_event_flags` check the RAM readers on milestone states.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| A level-7 Turtwig lost to a level-5 wild Ledyba, and the run whited out | Kaizo's wild Pokémon | A survey party at level 16, documented as such; milestones 06 to 14 aren't run starts |
+| Pressing A to get through text started the same talk again | A on a person after the text ends talks to them again | Press B until `FieldSystem.task` reads 0 |
+| Rowan asked the same question for 1,499 presses of B | B answers no to a yes/no the story needs answered yes | A for scenes with a required yes |
+| The path finder walked into a sign, which opened its text | Signs and people aren't in the collision layer | Sign and person tiles from the map's events are blocked |
+| The way out of the mine read as blocked after Roark's scene | The ROM lists people the story has hidden, like the boulder Roark smashed | People whose event flag is set are left out |
+| Lass Madeline was counted as avoidable | The check dropped the goal tile from her sight, and she sees the gate's door | A goal or start tile in a trainer's sight makes the trainer unavoidable |
+| The gym's collision showed open floor the game refused | The gym has raised floors, and `fieldmap` reads no heights | The gym's walkable tiles were found by stepping every tile in the emulator. Heights stay unread |
+| §30 put the Jubilife multi battle before Roark | The trainers' names and levels fit, but the trigger's var is set in the gym | Corrected: it comes after Roark |
+| The boulder in the Oreburgh Gym blocks the way to Roark | Rock Smash needs the Coal Badge in this hack | Open: find what the hack means the player to do |

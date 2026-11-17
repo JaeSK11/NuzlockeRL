@@ -238,12 +238,10 @@ each run to the decisions. In order:
      another battle.
    - **The one early double battle** in the ROM (Interviewers Roxy & Oli,
      trainer 368, level 6) is vanilla's unused entry (PROGRESS.md §30).
-   - **The Jubilife City multi battle** is on the way, though: the player
-     and an AI partner (Lucas or Dawn) against two Galactic grunts, at level
-     16 (§30's correction). The env plays single battles only, and each move
-     in this battle first asks for a target. Open: map the target screen,
-     and the second enemy and the partner in the snapshot. A scripted stand-in
-     could play it first, like the other scaffolding.
+   - **The Jubilife City multi battle** comes after Roark (PROGRESS.md
+     §33): its trigger arms only once the Oreburgh Gym's script runs. The
+     env needs it for the second gym, not the first: the target screen, and
+     the second enemy and the partner in the snapshot.
 2. **Catching and the Nuzlocke rules.**
    - **A Poké Ball action,** allowed only in a wild encounter the rules let
      it catch (a route's first new species, or a shiny), and only while the
@@ -269,15 +267,17 @@ each run to the decisions. In order:
       scripts for the vanilla order, the hack's trainers (`romdata.trainer`),
       and a playthrough with `src/drive.py` that saves a milestone state at
       each beat, after the existing 00 to 05. The hack may have moved things.
-      The ROM half is in [ROUTE_TO_ROARK.md](ROUTE_TO_ROARK.md); the
-      playthrough is next.
+      Done (PROGRESS.md §33), in [ROUTE_TO_ROARK.md](ROUTE_TO_ROARK.md),
+      with milestones 06 to 14. Open: a Rock Smash boulder in the Oreburgh
+      Gym stands before Roark, and Rock Smash needs his badge.
    2. **Overworld primitives** (`src/overworld.py`), each checked on those
       milestone states:
       - **Walking to a tile:** follow waypoints with `gen4.read_location`,
         and retry when an NPC blocks the way.
-      - **Advancing text** with A until the next prompt, as generically as
-        the game allows, so it carries over to another game. This needs a
-        RAM signal for an open message box, still to find.
+      - **Advancing text** until the scene ends. The RAM signal is found
+        (§33): `gen4.field_task` reads 0 once no script runs, and B ends
+        a scene without starting a new talk. A yes/no that must be yes (Rowan's
+        Pokédex) loops on B, so those need A.
       - **Answering yes/no,** and detecting a battle's start and a whiteout.
    3. **Battles inside a run.** The battle env attaches to a battle already
       running in the runner's emulator, instead of loading a state:
