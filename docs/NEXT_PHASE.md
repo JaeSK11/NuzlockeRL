@@ -285,14 +285,18 @@ each run to the decisions. In order:
       3. **Advancing text** until the scene ends: B until `gen4.field_task`
          reads 0 (§33). B never starts a new talk. A yes/no that must be yes
          loops on B, so those take A: Rowan's Pokédex and the clowns'
-         quizzes.
+         quizzes. Done (§35): `overworld.advance_text`.
       4. **Talking to a person** (stand next to them, face them, A), and
          **entering a door** (walk into it from the street, or on toward the
-         wall from an exit mat).
+         wall from an exit mat). Done (§35): `talk_to`, `talk_from` (the
+         nurse, across her counter), and `take_exit`, which finds the step
+         to a map in the walkable graph.
       5. **Detecting a battle's start** (`gen4.in_battle`), **a trainer
          spotting the player** (a field task on a tile in a trainer's
          sight), and **a whiteout** (the player is sent home before any
          Pokémon Center, to the last one after, with the party healed).
+         Done (§35): `spotted_by`, and `advance_text` returns "battle" when
+         one starts and carries a lost battle through to the whiteout.
       6. **Rebuilding the milestones** 06 to 16 from input scripts made of
          these primitives, so another machine can make them. They keep the
          survey party: they're fixtures for these primitives, not run starts.

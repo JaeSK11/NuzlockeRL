@@ -1817,3 +1817,50 @@ half a second and tries again, up to 10 times.
 | A planned walk in Oreburgh ended a tile short | A wandering worker stepped into the way | `walk_to` plans again after every step and waits when blocked |
 | The graphs and their start states aren't in git | They're made from local save states | The milestone rebuild (3.2.6) will make the start states reproducible |
 | `test_a_worker_crash_raises_instead_of_hanging` failed 3 times in 20 (found in this section's full test run; the pool wasn't changed) | When a worker's sentinel closed, the pool read its exit code before the process had exited, and got None | Wait for the process (`join(1)`) first, as the pool's other two checks did. 60 of 60 passed after |
+
+## 35. Text, people, doors, trainers and whiteouts (2026-11-17)
+
+Goal: steps 3.2.3 to 3.2.5 of the plan, the rest of the overworld
+primitives, moved over from the playthrough's scratch driver
+(`src/overworld.py`).
+
+**The primitives:**
+- **`advance_text`** presses B every 20 frames while a field task runs, and
+  is done once none has run for 40 frames. B never starts a new talk. A
+  question the story needs answered yes, like Rowan's, loops on B, so
+  `yes=True` presses A instead. It returns "battle" when a battle starts, and
+  carries a battle that was already running, and a whiteout, through to the
+  overworld.
+- **`talk_from`** walks to a tile, turns with a short press, and presses A.
+  **`talk_to`** picks the nearest tile beside a person. The nurse stands
+  behind her counter, two tiles away, so she takes `talk_from`.
+- **`take_exit`** finds the nearest step in the walkable graph that leads
+  to a given map, takes it, and waits out the warp.
+- **`spotted_by`** names the trainers whose sight covers the player's tile,
+  among those not hidden. A scene that starts there is a trainer walking up.
+- **A whiteout** is a battle the env reports LOST. `advance_text` then
+  carries the closing text through, and the player wakes at home before any
+  Pokémon Center, with the party healed.
+
+**Fixtures** for the tests, made from the playthrough's states, in
+`states/fixtures/` (not in git): Rowan's question, the entrance of Route 202
+with its trainers unbeaten, Oreburgh's Pokémon Center with a fainted
+Pokémon, and the wild Ledyba that beat the legit Turtwig.
+
+**Verified** in the game (`tests/test_overworld.py`):
+- B gets stuck on Rowan's question for 3,000 frames; A then finishes the
+  scene, in the lab with the Pokédex given (var 16497 = 1).
+- Walking north on Route 202 stops at (166,818), where Youngster Tristan
+  (trainer 1) spots the player; the text leads into the battle.
+- The nurse heals a party with a fainted Pokémon.
+- The Trainers' School's door leads to Jubilife City at (168,777).
+- The level-7 Turtwig loses to the Ledyba and wakes at home, at (8,8) in
+  the house, healed.
+
+What's left of step 3.2 is the milestone rebuild (3.2.6).
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| B through Rowan's question looped forever | B answers no, and he asks again | `advance_text(yes=True)` for scenes that need a yes |
+| A text helper that stopped at any battle would stop inside the battle it should finish | The battle's closing text and a whiteout run while the battle is still up | `advance_text` returns "battle" only for a battle that starts while it runs |
+| The nurse can't be talked to from a tile beside her | She stands behind a counter | `talk_from` takes the tile and the direction to face |
