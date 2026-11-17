@@ -269,25 +269,57 @@ each run to the decisions. In order:
       each beat, after the existing 00 to 05. The hack may have moved things.
       Done (PROGRESS.md §33), in [ROUTE_TO_ROARK.md](ROUTE_TO_ROARK.md),
       with milestones 06 to 16, through Roark's badge.
-   2. **Overworld primitives** (`src/overworld.py`), each checked on those
-      milestone states:
-      - **Walking to a tile:** follow waypoints with `gen4.read_location`,
-        and retry when an NPC blocks the way.
-      - **Advancing text** until the scene ends. The RAM signal is found
-        (§33): `gen4.field_task` reads 0 once no script runs, and B ends
-        a scene without starting a new talk. A yes/no that must be yes (Rowan's
-        Pokédex) loops on B, so those need A.
-      - **Answering yes/no,** and detecting a battle's start and a whiteout.
+   2. **Overworld primitives** (`src/overworld.py`), moved over from the
+      playthrough's scratch driver (§33) and each checked on milestones 04
+      to 16. In order:
+      1. **Floor height first.** `fieldmap` reads only the ROM's collision,
+         and the Oreburgh Gym has raised floors and a walkway over floor
+         tiles with the same (x, z). The player's height is in RAM: the
+         player's map object (FieldSystem +0x3C, then +0x30) holds it at
+         +0x68, in half tiles (RAM_MAP.md; one pair of tiles checked so
+         far, 4 on the walkway and 0 on the floor beside it).
+         - Check it on more tiles, stairs included.
+         - The emulator explorer keys a tile by (x, z, height), so it tells
+           the walkway from the floor under it.
+         - Explore each map on the route once (about 15 maps, about 30
+           seconds each) and save its walkable graph as data. The runner
+           plans its walks on these graphs. Trainers spot the player while
+           exploring, so explore from states where they're beaten, and mark
+           their sight from the ROM (`fieldmap.sight`).
+         - Check: the gym's graph has the walkway, and a path from the door
+           to Roark through both trainers.
+         - Why the emulator and not the ROM's height data: its answer is
+           exact, and the method carries to Emerald wherever the player's
+           height can be read. The ROM's height format is Gen 4's alone.
+      2. **Walking to a tile** on that graph, and retrying when a person
+         blocks the way.
+      3. **Advancing text** until the scene ends: B until `gen4.field_task`
+         reads 0 (§33). B never starts a new talk. A yes/no that must be yes
+         loops on B, so those take A: Rowan's Pokédex and the clowns'
+         quizzes.
+      4. **Talking to a person** (stand next to them, face them, A), and
+         **entering a door** (walk into it from the street, or on toward the
+         wall from an exit mat).
+      5. **Detecting a battle's start** (`gen4.in_battle`), **a trainer
+         spotting the player** (a field task on a tile in a trainer's
+         sight), and **a whiteout** (the player is sent home before any
+         Pokémon Center, to the last one after, with the party healed).
+      6. **Rebuilding the milestones** 06 to 16 from input scripts made of
+         these primitives, so another machine can make them. They keep the
+         survey party: they're fixtures for these primitives, not run starts.
    3. **Battles inside a run.** The battle env attaches to a battle already
       running in the runner's emulator, instead of loading a state:
       - When a battle starts, the runner saves its restart state at once,
         long before the enemy picks its first move. The state must pass
         §28's check that it reloads the same after another battle.
       - The runner hands the emulator to the battle env, which runs on to
-        the first prompt as its reset does now.
+        the first prompt as its reset does now. The playthrough instead
+        saved a state at each battle and reset the env from it, which works
+        but writes a state file per battle.
       - When the battle ends (WON, FLED, CAUGHT or LOST), the script goes
         on.
    4. **The route script:** segments from Twinleaf Town to the Oreburgh Gym,
+      one per row of the order in [ROUTE_TO_ROARK.md](ROUTE_TO_ROARK.md),
       each a list of waypoints and story actions ending at a checkpoint (a
       map and a tile). The script is position-aware, so a wild or trainer
       battle anywhere in a segment only pauses it. It includes visits to
