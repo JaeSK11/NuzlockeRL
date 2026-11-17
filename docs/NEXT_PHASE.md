@@ -263,14 +263,46 @@ first fighting, then catching, then walking. Decided on 2026-11-17, in order:
    trainers and story events, and heal at each Pokémon Center. The agent
    makes the decisions that matter: each battle, and whether to catch a
    route's first encounter. An episode is a run, from the start to Roark's
-   badge or a wipe. Here the battle policy first trains on the team it
-   built itself.
+   badge or a wipe. The runner must handle what a single battle never shows:
+   - **Level-up prompts.** Almost every win brings one: learn a new move, or
+     evolve. The env ends these as STUCK today. Script the answers first
+     (evolve; learn a move in place of the weakest one), and make them the
+     agent's choice later.
+   - **Text and story scenes,** and healing at each Pokémon Center.
+   - **The one early double battle** in the ROM (Interviewers Roxy & Oli,
+     trainer 368, level 6). Find where it is; if it's on the path and can't
+     be avoided, script it.
+
+   From here on, the live game is the main source of battle experience:
+   - **Keep training the policy from step 3,** rather than starting over, on
+     the battles the run meets, with the team it caught.
+   - **Save a state before each battle of every run, and start some episodes
+     from those states.** Under permadeath most early runs die on the first
+     routes. Restarting from those states gives later battles, Roark's above
+     all, enough practice anyway. As the policy gets through the early
+     routes reliably, more runs reach Roark on their own, so lower the share
+     of restarted episodes with it. Some restarts stay useful even then:
+     survival multiplies over the 25 or so battles before Roark, so 98% per
+     battle still brings only about 60% of runs to him. This is for training
+     only: a run that counts plays from the start, with no restarts.
 7. **Learned walking.** Replace the scripted walk with learned movement.
    Reward each waypoint of the runner's path once per run, the first time
    it's reached, so the walk can't be farmed and doesn't need a novelty
    reward. Then let it choose the parts of the walk that are real choices:
    optional trainers, training up to the level cap, items and detours (the
    roadmap's Items, step 5).
+
+Generated battles (steps 1 to 3) come before the live game (step 6) for
+three reasons:
+- **They are live-game battles.** They run in the game itself, against the
+  real trainers' Pokémon with their moves and items. Only the setup is a
+  shortcut: the party is written into memory and the enemy is forced, which
+  takes a second instead of a walk.
+- **They cover more, and evenly.** A run meets the same 25 or so trainers
+  every time. Early deaths spend most of the practice on the first routes,
+  and nothing is held out to tell learning from memorizing.
+- **They work now.** The live game needs catching, trainer battles and the
+  runner first.
 
 The walk is scripted before it's learned because the way to Oreburgh is close
 to linear. Learning it costs a lot of steps and doesn't make the run better.
