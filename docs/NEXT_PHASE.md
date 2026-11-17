@@ -254,22 +254,71 @@ each run to the decisions. In order:
      answers the `catch` the battle env takes at reset.
 3. **A scripted route runner to Roark.** Scripted inputs walk a fixed path
    from Twinleaf Town to the Oreburgh Gym, through the real encounters,
-   trainers, text and story scenes, and heal at each Pokémon Center. Text
-   is advanced as generically as the game allows (A until the next prompt),
-   not scripted scene by scene, so it carries over to another game. An
+   trainers, text and story scenes, and heal at each Pokémon Center. An
    episode is a run, from the start to Roark's badge or a wipe. The agent
    learns, from scratch, every battle and every catch decision the run
-   brings.
-   - **Save a state before each battle of every run, and start some
-     episodes from those states.** Under permadeath most early runs die on
-     the first routes. Restarting from those states gives later battles,
-     Roark's above all, enough practice anyway. As the policy gets through
-     the early routes reliably, more runs reach Roark on their own, so lower
-     the share of restarted episodes with it. Some restarts stay useful even
-     then: survival multiplies over the 25 or so battles before Roark, so
-     98% per battle still brings only about 60% of runs to him. This is for
-     training only: a run that counts plays from the start, with no
-     restarts.
+   brings. In order:
+   1. **Survey the way to Roark in this hack.** The story beats, the
+      battles that can't be avoided, the trainers in the way, the Pokémon
+      Centers, and where the player gets Poké Balls. Sources: the decomp's
+      scripts for the vanilla order, the hack's trainers (`romdata.trainer`),
+      and a playthrough with `src/drive.py` that saves a milestone state at
+      each beat, after the existing 00 to 05. The hack may have moved things.
+   2. **Overworld primitives** (`src/overworld.py`), each checked on those
+      milestone states:
+      - **Walking to a tile:** follow waypoints with `gen4.read_location`,
+        and retry when an NPC blocks the way.
+      - **Advancing text** with A until the next prompt, as generically as
+        the game allows, so it carries over to another game. This needs a
+        RAM signal for an open message box, still to find.
+      - **Answering yes/no,** and detecting a battle's start and a whiteout.
+   3. **Battles inside a run.** The battle env attaches to a battle already
+      running in the runner's emulator, instead of loading a state:
+      - When a battle starts, the runner saves its restart state at once,
+        long before the enemy picks its first move. The state must pass
+        §28's check that it reloads the same after another battle.
+      - The runner hands the emulator to the battle env, which runs on to
+        the first prompt as its reset does now.
+      - When the battle ends (WON, FLED, CAUGHT or LOST), the script goes
+        on.
+   4. **The route script:** segments from Twinleaf Town to the Oreburgh Gym,
+      each a list of waypoints and story actions ending at a checkpoint (a
+      map and a tile). The script is position-aware, so a wild or trainer
+      battle anywhere in a segment only pauses it. It includes visits to
+      the Pokémon Centers in Sandgem Town, Jubilife City and Oreburgh City.
+   5. **The rules in the run.**
+      - `nuzlocke.Run` gets the route's name from `gen4.read_location`, and
+        the wild Pokémon's species and shininess (`scenario.is_shiny`).
+        `encounter()` becomes the battle's `catch` option.
+      - The run records catches, faints and bosses beaten.
+      - A fainted Pokémon stays out of battle: no switch to its PID, and the
+        party is reordered so it never leads after a Center revives it.
+        Moving it to the PC comes later.
+      - A wipe, or a whiteout, ends the run.
+   6. **After battles.** Move learning is handled in battle (§26). An
+      evolution scene after a battle is let run: the Pokémon evolves.
+      Picking up items is left out for now (the roadmap's Items).
+   7. **The episode.**
+      - One episode is a run from the state after the starter is chosen,
+        to Roark's badge, a wipe, or a step budget.
+      - The rewards are the battle rewards of now, plus one for each boss
+        beaten.
+      - The decisions are the battle actions, and the ball where the rules
+        allow it.
+   8. **Time one run first.** Before building training on it, play a few
+      runs with random battle actions. Measure the frames, the battles and
+      the decisions per run, and the runs per hour on 14 envs, to know what
+      training will cost.
+   9. **Train.** PPO over runs, with restart states. Every battle of every
+      run leaves a restart state; start some episodes from them, so that
+      later battles, Roark's above all, get practice while most early runs
+      still die on the first routes. As the policy gets through the early
+      routes reliably, more runs reach Roark on their own, so lower the
+      share of restarted episodes with it. Some restarts stay useful even
+      then: survival multiplies over the 25 or so battles before Roark, so
+      98% per battle still brings only about 60% of runs to him. This is
+      for training only: a run that counts plays from the start, with no
+      restarts.
 4. **Roark's real fight.** Effects in the observation (roadmap step 1):
    Stealth Rock, Light Screen, Sand Tomb's trapping, and Curse. Runs reach
    Roark without them, but the agent then fights him blind to those effects.
