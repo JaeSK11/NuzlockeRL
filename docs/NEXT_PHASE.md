@@ -269,6 +269,8 @@ each run to the decisions. In order:
       scripts for the vanilla order, the hack's trainers (`romdata.trainer`),
       and a playthrough with `src/drive.py` that saves a milestone state at
       each beat, after the existing 00 to 05. The hack may have moved things.
+      The ROM half is in [ROUTE_TO_ROARK.md](ROUTE_TO_ROARK.md); the
+      playthrough is next.
    2. **Overworld primitives** (`src/overworld.py`), each checked on those
       milestone states:
       - **Walking to a tile:** follow waypoints with `gen4.read_location`,

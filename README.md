@@ -47,6 +47,7 @@ learned later ([NEXT_PHASE.md](docs/NEXT_PHASE.md#after-the-pilot)).
 | [docs/PROGRESS.md](docs/PROGRESS.md) | What has been done so far, in order, and why each decision was made |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | What to do next, in priority order |
 | [docs/NEXT_PHASE.md](docs/NEXT_PHASE.md) | The PPO pilot's plan, and the plan after it: live runs to Roark, built to move to another game, then Emerald Kaizo |
+| [docs/ROUTE_TO_ROARK.md](docs/ROUTE_TO_ROARK.md) | The way to Roark in this hack: the story order and the trainers on the way, for the route script |
 | [docs/RAM_MAP.md](docs/RAM_MAP.md) | Verified memory addresses, the Gen 4 decryption, and caveats |
 | [docs/HACK_DATA.md](docs/HACK_DATA.md) | How the hack's species, moves, trainers, and encounters differ from vanilla |
 | [docs/EMULATOR.md](docs/EMULATOR.md) | PyNDS setup, test results, input timing, emulator quirks |
