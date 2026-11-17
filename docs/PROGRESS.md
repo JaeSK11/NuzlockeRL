@@ -1864,3 +1864,46 @@ What's left of step 3.2 is the milestone rebuild (3.2.6).
 | B through Rowan's question looped forever | B answers no, and he asks again | `advance_text(yes=True)` for scenes that need a yes |
 | A text helper that stopped at any battle would stop inside the battle it should finish | The battle's closing text and a whiteout run while the battle is still up | `advance_text` returns "battle" only for a battle that starts while it runs |
 | The nurse can't be talked to from a tile beside her | She stands behind a counter | `talk_from` takes the tile and the direction to face |
+
+## 36. Milestones 06 to 16 rebuilt by a script (2026-11-17)
+
+Goal: step 3.2.6 of the plan. Make the milestones, the map start states and
+the test fixtures on any machine that has milestone 04.
+
+**`scripts/make_milestones.py`** plays from milestone 04 to Roark's badge with
+the survey party, from a list of actions: walk to a tile, advance text (with
+yes or no), take a door, talk to a person or from a tile, take fixed steps,
+rewrite the party, save. Battles go through the battle env with the greedy
+policy of the playthrough. It takes 10 minutes.
+
+**Breaking a loop.** `walk_to` plans on a map's walkable graph, the graphs
+come from the start states, and on a new machine the start states come from
+this script. So the script plans on the ROM's collision layer instead:
+`walk_to`, `talk_to` and `take_exit` now take no graph and use `fieldmap`,
+with signs and visible people blocked, the map's warp events for doors, and
+the walk going on across a map's edge into the next map of the same matrix.
+That worked on every map of the playthrough but the Oreburgh Gym, whose
+raised floors the ROM's collision can't see. There the script takes fixed
+steps, from the gym's graph; no one wanders there, so they replay exactly.
+Wild encounters are off. The Ledyba fixture comes from the scenario
+generator: the level-7 Turtwig against a forced level-5 Ledyba in Route
+201's grass, keeping the first battle seed the Ledyba wins.
+
+**Verified:**
+- The script won all 19 trainer battles and saved every milestone, start
+  state and fixture.
+- Each rebuilt milestone matches the playthrough's in map, tile, story vars
+  and badges, but 09, where the player spoke to the president from
+  (173,771) instead of (174,770).
+- The playthrough's states were kept in `states/playthrough_backup/` and the
+  rebuilt ones put in their place. The overworld and RAM tests pass on them.
+- The maps explored again from the rebuilt start states came out within a
+  few tiles of the first exploration (Jubilife 1,375 against 1,376,
+  Oreburgh 1,219 against 1,223): people wander. The CPU peaked at 90 °C.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| On a new machine there's no walkable graph to walk with | The graphs are explored from start states that this script makes | Plan on the ROM's collision layer, and take fixed steps in the gym |
+| The walk to the first clown stayed blocked | The clown who opened the campaign stood still in the planned path | `walk_to` plans around a tile after 3 blocked tries, and forgets such tiles if that leaves no way |
+| The script's first run stopped at Rowan's scene | My bug: `("text", "yes")` passed "no" as the frame limit | Fixed before the full run |
+| Milestones 00 to 04 still have no input script, except 05 | They were made by hand before the scripted driver | Open: the runs start at milestone 01, so it matters for other machines |

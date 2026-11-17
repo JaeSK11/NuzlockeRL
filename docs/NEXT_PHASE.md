@@ -300,6 +300,8 @@ each run to the decisions. In order:
       6. **Rebuilding the milestones** 06 to 16 from input scripts made of
          these primitives, so another machine can make them. They keep the
          survey party: they're fixtures for these primitives, not run starts.
+         Done (§36): `scripts/make_milestones.py`, with the map start states
+         and the test fixtures.
    3. **Battles inside a run.** The battle env attaches to a battle already
       running in the runner's emulator, instead of loading a state:
       - When a battle starts, the runner saves its restart state at once,

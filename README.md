@@ -71,7 +71,7 @@ src/d               Shell wrapper for drive.py
 tests/              Regression tests against milestone save states
 emu_tests/          Original PyNDS smoke tests (boot, speed, touch, memory)
 scripts/            Environment setup, reference fetching, battle states and sets, the rollout runner, PPO training, evaluation and progress charts, and the RAM audit
-scripts/milestones/ Input scripts that rebuild milestone save states
+scripts/milestones/ Input scripts that rebuild milestone save states (05; 06 to 16 come from scripts/make_milestones.py)
 docs/               Documentation
 ```
 
@@ -106,6 +106,7 @@ src/d - mystate "w900 a*10 w120"                   # boot, press A, save state +
 ~/venvs/nuzlockerl/bin/python scripts/make_battle_set.py scripts/pilot_battles.json   # the PPO pilot's battles, each checked
 ~/venvs/nuzlockerl/bin/python scripts/eval_ppo.py --run-dir runs/pilot --states states/generated/pilot/heldout/*.state   # --mode random: the random-play baseline
 ~/venvs/nuzlockerl/bin/python scripts/plot_runs.py runs/pilot --baseline-win 0.56 --baseline-clean 0.06   # runs/progress.png
+~/venvs/nuzlockerl/bin/python scripts/make_milestones.py     # milestones 06-16, map start states and fixtures, from milestone 04 (10 min)
 ~/venvs/nuzlockerl/bin/python scripts/explore_maps.py --jobs 8   # each map's walkable graph, from states/walk/start/*.state
 ~/venvs/nuzlockerl/bin/python scripts/ram_audit.py --battles 200 --probe 4   # check RAM reads against invariants; exits 1 on a violation
 ```

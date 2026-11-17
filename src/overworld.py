@@ -65,8 +65,9 @@ class WalkGraph:
     def nodes(self) -> set[Node]:
         return set(self.edges) | {n for e in self.edges.values() for n in e.values()} | {self.start}
 
-    def path(self, start: Node, goal) -> list[str] | None:
-        """The fewest steps from start to goal: a node, or an (x, z) at any height."""
+    def path(self, start: Node, goal, avoid=frozenset()) -> list[str] | None:
+        """The fewest steps from start to goal (a node, or an (x, z) at any height), through no
+        (x, z) in avoid."""
         def reached(n):
             return n == goal if len(goal) == 3 else n[:2] == tuple(goal)
         prev, queue = {start: None}, deque([start])
@@ -79,7 +80,7 @@ class WalkGraph:
                     dirs.append(d)
                 return dirs[::-1]
             for d, to in self.edges.get(n, {}).items():
-                if to not in prev:
+                if to not in prev and to[:2] not in avoid:
                     prev[to] = (n, d)
                     queue.append(to)
         return None
@@ -137,31 +138,61 @@ def explore(nds, start_state: str, work_dir: str) -> WalkGraph:
 
 
 BLOCKED_WAIT, BLOCKED_TRIES = 30, 10   # a person who wanders into the way moves on within a few seconds
+AROUND_AFTER = 3                       # blocked tries before planning around a person who stands still
 
 
-def walk_to(nds, graph: WalkGraph, goal) -> str:
-    """Walk to goal (a node, or an (x, z) at any height) on the graph's map, re-planning from
-    the player's tile after every step, so a person in the way only costs a wait. Returns
-    "arrived", "scene" or "exit" when a step starts one, or "stuck" when the way stays blocked
-    or the graph has no path."""
-    blocked = 0
+def _rom_step(nds, goal, avoid=frozenset()) -> str | None:
+    """The first step of the cheapest walk to goal (x, z) on the ROM's collision layer, with
+    signs and the people not hidden blocking the way: "" when there, None when there's no way."""
+    loc = gen4.read_location(nds)
+    if (loc.x, loc.z) == tuple(goal[:2]):
+        return ""
+    signs, objs, _, _ = fieldmap.events(loc.map_id)
+    blocked = {(s.x, s.z) for s in signs} | {(o.x, o.z) for o in objs if not gen4.read_flag(nds, o.flag)} | set(avoid)
+    blocked.discard(tuple(goal[:2]))
+    runs = fieldmap.path(fieldmap.header(loc.map_id).matrix, (loc.x, loc.z), tuple(goal[:2]), frozenset(blocked))
+    return runs[0][0] if runs else None
+
+
+def walk_to(nds, graph: WalkGraph | None, goal) -> str:
+    """Walk to goal (a node, or an (x, z) at any height), planning again from the player's tile
+    after every step. A blocked step waits for the person in the way; after AROUND_AFTER blocked
+    tries the walk plans around that tile, and forgets such tiles again if that leaves no way.
+    With a graph the plan uses it; without one it uses the ROM's collision layer (`fieldmap`),
+    which sees no heights, and goes on across the edge into the next map of the same matrix, as
+    the outdoor maps are. Returns "arrived", "scene" or "exit" when a step starts one, or "stuck"
+    when the way stays blocked or there's no path."""
+    avoid, waits = set(), 0
     while True:
-        here = gen4.read_player_tile(nds)
-        dirs = graph.path(here, goal)
-        if dirs is None:
-            return "stuck"
-        if not dirs:
-            return "arrived"
-        outcome = step(nds, dirs[0])
-        if outcome in ("scene", "exit"):
-            return outcome
-        if outcome == "blocked":
-            blocked += 1
-            if blocked > BLOCKED_TRIES:
-                return "stuck"
-            nds.tick(BLOCKED_WAIT)
+        if graph is None:
+            first = _rom_step(nds, goal, avoid)
         else:
-            blocked = 0
+            dirs = graph.path(gen4.read_player_tile(nds), goal, avoid)
+            first = None if dirs is None else (dirs[0] if dirs else "")
+        if first is None:
+            if not avoid:
+                return "stuck"
+            avoid.clear()
+        elif first == "":
+            return "arrived"
+        else:
+            map_id, (x, z, _) = gen4.read_location(nds).map_id, gen4.read_player_tile(nds)
+            outcome = step(nds, first)
+            if outcome == "exit" and graph is None and \
+                    fieldmap.header(gen4.read_location(nds).map_id).matrix == fieldmap.header(map_id).matrix:
+                outcome = "moved"
+            if outcome in ("scene", "exit"):
+                return outcome
+            if outcome != "blocked":
+                waits = 0
+                continue
+            if waits % AROUND_AFTER == AROUND_AFTER - 1:
+                dx, dz = fieldmap.DIRS[first]
+                avoid.add((x + dx, z + dz))
+        waits += 1
+        if waits > BLOCKED_TRIES:
+            return "stuck"
+        nds.tick(BLOCKED_WAIT)
 
 
 TEXT_GAP, TEXT_QUIET, TEXT_LIMIT = 20, 40, 30000   # frames between presses; free this long = done; give up after
@@ -198,7 +229,7 @@ def advance_text(nds, yes: bool = False, limit: int = TEXT_LIMIT) -> str:
     return "stuck"
 
 
-def talk_from(nds, graph: WalkGraph, tile, direction: str) -> str:
+def talk_from(nds, graph: WalkGraph | None, tile, direction: str) -> str:
     """Walk to tile, face direction, press A. Returns "talking" when a script starts, "nothing"
     when none does, or walk_to's outcome when the walk doesn't arrive."""
     walked = walk_to(nds, graph, tile)
@@ -211,36 +242,63 @@ def talk_from(nds, graph: WalkGraph, tile, direction: str) -> str:
     return "talking" if gen4.field_task(nds) else "nothing"
 
 
-def talk_to(nds, graph: WalkGraph, x: int, z: int) -> str:
-    """Talk to the person at (x, z) from the nearest tile beside them."""
+def talk_to(nds, graph: WalkGraph | None, x: int, z: int) -> str:
+    """Talk to the person at (x, z) from the nearest free tile beside them, on the graph or,
+    without one, on the ROM's collision layer."""
     here = gen4.read_player_tile(nds)
     beside = []
-    for d, (dx, dz) in (("up", (0, -1)), ("down", (0, 1)), ("left", (-1, 0)), ("right", (1, 0))):
-        for n in graph.nodes():
-            if (n[0] + dx, n[1] + dz) == (x, z):
-                route = graph.path(here, n)
-                if route is not None:
-                    beside.append((len(route), n, d))
+    for d, (dx, dz) in fieldmap.DIRS.items():
+        tile = (x - dx, z - dz)
+        if graph is not None:
+            for n in graph.nodes():
+                if n[:2] == tile and (r := graph.path(here, n)) is not None:
+                    beside.append((len(r), n, d))
+        else:
+            loc = gen4.read_location(nds)
+            matrix = fieldmap.header(loc.map_id).matrix
+            people = {(o.x, o.z) for o in fieldmap.events(loc.map_id)[1] if not gen4.read_flag(nds, o.flag)}
+            if not fieldmap.attrs(matrix)[tile[1], tile[0]] & fieldmap.COLLISION and tile not in people \
+                    and (r := fieldmap.path(matrix, (loc.x, loc.z), tile)) is not None:
+                beside.append((sum(n for _, n in r), tile, d))
     if not beside:
         return "stuck"
     _, tile, d = min(beside)
     return talk_from(nds, graph, tile, d)
 
 
-def take_exit(nds, graph: WalkGraph, dest_map: int) -> str:
-    """Walk to the nearest step that leads to dest_map, take it, and wait out the warp.
-    Returns "arrived" on dest_map, or the outcome that stopped the walk."""
+def take_exit(nds, graph: WalkGraph | None, dest_map: int) -> str:
+    """Walk to the nearest way into dest_map, take it, and wait out the warp. With a graph, the
+    way is a step the graph recorded; without one, a warp event of the map, entered by walking
+    onto it, or from an exit mat, by walking on toward the wall. Returns "arrived" on dest_map,
+    or the outcome that stopped the walk."""
     here = gen4.read_player_tile(nds)
-    ways = [(len(r), n, d) for n, e in graph.exits.items() for d, m in e.items()
-            if m == dest_map and (r := graph.path(here, n)) is not None]
-    if not ways:
-        return "stuck"
-    _, tile, d = min(ways)
-    walked = walk_to(nds, graph, tile)
-    if walked != "arrived":
-        return walked
-    if step(nds, d) != "exit":
-        return "stuck"
+    if graph is not None:
+        ways = [(len(r), n, d) for n, e in graph.exits.items() for d, m in e.items()
+                if m == dest_map and (r := graph.path(here, n)) is not None]
+        if not ways:
+            return "stuck"
+        _, tile, d = min(ways)
+        walked = walk_to(nds, graph, tile)
+        if walked != "arrived" or step(nds, d) != "exit":
+            return walked if walked != "arrived" else "stuck"
+    else:
+        loc = gen4.read_location(nds)
+        matrix = fieldmap.header(loc.map_id).matrix
+        warps = [w for w in fieldmap.events(loc.map_id)[2] if w.dest_header == dest_map]
+        ways = [(sum(n for _, n in r), w) for w in warps
+                if (r := fieldmap.path(matrix, (loc.x, loc.z), (w.x, w.z))) is not None]
+        if not ways:
+            return "stuck"
+        _, w = min(ways)
+        walked = walk_to(nds, None, (w.x, w.z))
+        if walked == "arrived":
+            grid = fieldmap.attrs(matrix)
+            walls = [d for d, (dx, dz) in fieldmap.DIRS.items()
+                     if not (0 <= w.x + dx < grid.shape[1] and 0 <= w.z + dz < grid.shape[0])
+                     or grid[w.z + dz, w.x + dx] & fieldmap.COLLISION]
+            walked = next((o for d in walls if (o := step(nds, d)) == "exit"), "stuck")
+        if walked != "exit":
+            return walked
     for _ in range(WARP_FRAMES):
         if not gen4.field_task(nds):
             break
