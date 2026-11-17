@@ -30,6 +30,7 @@ TACKLE, SELFDESTRUCT, GROWL, MEGA_DRAIN, BITE, ROCK_THROW, RAZOR_LEAF, EMBER, SC
 WITHDRAW, ABSORB, WRAP, MEAN_LOOK, DISABLE, TORMENT, ENCORE, CHOICE_BAND = 110, 71, 35, 212, 50, 259, 227, 220
 STEALTH_ROCK, BRICK_BREAK, ACCELEROCK = 446, 280, 205      # with Selfdestruct, Roark's Bonsly; 205 is Rollout in vanilla
 ROAR, WHIRLWIND = 46, 18
+MASTER_BALL, POKE_BALL = 1, 4
 TEAM3 = [{"species": CHIMCHAR, "level": 12, "moves": [52, 10, 43, 183]},
          {"species": PIPLUP, "level": 11, "moves": [55, 1, 145, 64]},
          {"species": PIKACHU, "level": 10, "moves": [84, 98, 86, 45]}]
@@ -58,6 +59,8 @@ SCENARIOS = {   # name: (party or a function giving one, wild enemy (species, le
     "chimchar_skips_helping_hand": (one_exp_short(CHIMCHAR, 12, [EMBER, SCRATCH, TACKLE, BITE]), (BIDOOF, 2), 1, [GROWL]),
     "bidoof_roars": ([{"species": TURTWIG, "level": 14, "moves": [TACKLE, WITHDRAW]}], (BIDOOF, 25), 3, [ROAR]),
     "turtwig_whirlwinds": ([{"species": TURTWIG, "level": 30, "moves": [WHIRLWIND]}], (BIDOOF, 5), 3, [GROWL]),
+    "team6_catch_bidoof": (TEAM6, (BIDOOF, 3), 3, [GROWL]),
+    "catch_bidoof": ([{"species": TURTWIG, "level": 14, "moves": [TACKLE, WITHDRAW]}], (BIDOOF, 3), 3, [GROWL]),
     "bonsly_opens": ([{"species": TURTWIG, "level": 14, "moves": [TACKLE, WITHDRAW, BITE, ABSORB]}], (BONSLY, 15), 3,
                      [STEALTH_ROCK, SELFDESTRUCT, BRICK_BREAK, ACCELEROCK])}
 
@@ -242,7 +245,7 @@ def test_mask_matches_what_the_game_accepts(name, tmp_path, monkeypatch):
 @needs_rom
 def test_encore_allows_only_the_encored_move_and_uses_it_from_fight(tmp_path):
     path, s = lock_prompt("encore", tmp_path)
-    assert s.encored and action_mask(s).tolist() == [True, False, False, False, True] + [False] * 4
+    assert s.encored and action_mask(s).tolist() == [True, False, False, False, True] + [False] * 5
     e = BattleEnv([path], ROM)
     e.reset(options={"state": path, "keep_rng": True})
     pp = e.snap.player[e.snap.player_active].pp[0]
@@ -279,6 +282,62 @@ def test_roar_or_whirlwind_ends_a_wild_battle_as_fled(name, action):
     reward, events, term, trunc, info = rows[-1][2:]
     assert (len(rows), events, reward, term, trunc) == (1, ["FLED"], 0.0, True, False)
     assert info["outcome"] == "FLED" and info["result_mask"] == gen4.RESULT_FLED
+
+
+def set_first_ball(env, item, count):
+    """Put `count` of `item` first in the Poké Balls pocket of the bag and of the battle's copy."""
+    off = 4 * sum(n for _, n in gen4.BAG_POCKETS[:6])
+    for bag in ("bag", "bagBattle"):
+        env.nds.memory.write_u16(False, env.addrs[bag] + off, item)
+        env.nds.memory.write_u16(False, env.addrs[bag] + off + 2, count)
+
+
+@needs_rom
+def test_a_ball_is_offered_only_when_the_caller_allows_a_catch():
+    path = scenario_state("catch_bidoof")
+    e = BattleEnv([path], ROM)
+    _, info = e.reset(seed=1)
+    assert not info["action_mask"][battle_env.BALL_ACTION]
+    e.reset(seed=1, options={"catch": True})
+    set_first_ball(e, POKE_BALL, 5)
+    assert e._can_throw()
+    for bag in ("bag", "bagBattle"):
+        for k in range(15):
+            e.nds.memory.write_u32(False, e.addrs[bag] + 4 * sum(n for _, n in gen4.BAG_POCKETS[:6]) + 4 * k, 0)
+    assert not e._can_throw(), "no ball left in the bag"
+    e.close()
+
+
+@needs_rom
+def test_a_master_ball_catches_and_ends_the_battle_as_caught():
+    path = scenario_state("catch_bidoof")
+    e = BattleEnv([path], ROM)
+    e.reset(seed=1, options={"catch": True})
+    set_first_ball(e, MASTER_BALL, 1)
+    _, reward, term, trunc, info = e.step(battle_env.BALL_ACTION)
+    e._tick(120)
+    party = [m.species for m in gen4.read_party(e.nds, e.addrs["playerBase"])]
+    e.close()
+    assert (info["outcome"], info["result_mask"], reward, term, trunc) == ("CAUGHT", gen4.RESULT_CAUGHT, 0.0, True, False)
+    assert info["pick"] == "ball" and party == [TURTWIG, BIDOOF]
+
+
+@needs_rom
+def test_a_catch_with_a_full_party_goes_to_the_pc():
+    """With six in the party the game says the catch was sent to the PC, which waits for a
+    button, and stores it in the first box. The first real deposit read back by read_box."""
+    path = scenario_state("team6_catch_bidoof")
+    e = BattleEnv([path], ROM)
+    e.reset(seed=1, options={"catch": True})
+    set_first_ball(e, MASTER_BALL, 1)
+    _, _, term, trunc, info = e.step(battle_env.BALL_ACTION)
+    e._tick(120)
+    party, box = gen4.read_party(e.nds, e.addrs["playerBase"]), gen4.read_box(e.nds, 0, e.addrs)
+    e.close()
+    assert info["outcome"] == "CAUGHT" and len(party) == 6
+    # A boxed Pokémon keeps no level field; its level comes from its EXP
+    assert box[0] is not None and box[0].checksum_ok and box[0].species == BIDOOF
+    assert romdata.level_for_exp(BIDOOF, box[0].exp) == 3 and box[0].moves[0] == GROWL
 
 
 @needs_rom
@@ -330,13 +389,13 @@ def test_turn_cap_is_a_loss():
 @needs_rom
 def test_action_masks(env):
     info, _ = play(env, BARRY, [])
-    assert info["action_mask"].tolist() == [True] + [False] * 8 and info["input_mode"] == 0
+    assert info["action_mask"].tolist() == [True] + [False] * 9 and info["input_mode"] == 0
     with pytest.raises(ValueError):
         env.step(1)
     env.step(0)
 
     info, _ = play(env, WILD, [])
-    assert info["action_mask"].tolist() == [True, True] + [False] * 7 and info["input_mode"] == 1
+    assert info["action_mask"].tolist() == [True, True] + [False] * 8 and info["input_mode"] == 1
     for masked in (2, 4):
         with pytest.raises(ValueError):
             env.step(masked)
@@ -432,7 +491,7 @@ def test_switch_makes_the_target_active_and_the_game_keeps_the_menu_order(team_e
     env = team_env
     _, info = reset_on(env, "team3")
     start = [m.pid for m in env.snap.player]
-    assert info["action_mask"].tolist() == [True] * 6 + [False] * 3
+    assert info["action_mask"].tolist() == [True] * 6 + [False] * 4
     _, reward, term, trunc, info = env.step(4)
     assert (term, trunc, info["switched_in"]) == (False, False, True)
     assert active_pid(env) == start[1]
@@ -448,7 +507,7 @@ def test_switch_makes_the_target_active_and_the_game_keeps_the_menu_order(team_e
 def test_every_switch_position_reaches_its_pokemon(team_env, action):
     _, info = reset_on(team_env, "team6_vs_starly12")
     start = [m.pid for m in team_env.snap.player]
-    assert info["action_mask"].tolist() == [True] * 2 + [False] * 2 + [True] * 5
+    assert info["action_mask"].tolist() == [True] * 2 + [False] * 2 + [True] * 5 + [False]
     _, _, _, trunc, info = team_env.step(action)
     assert not trunc and info["switched_in"]
     assert active_pid(team_env) == start[action - 3]
@@ -479,7 +538,7 @@ def test_forced_switch_is_a_decision_that_only_allows_alive_teammates(team_env):
     lead = -(FAINT_BASE + FAINT_SCALE * strengths(team_env.snap.player)[0])
     assert rows[-1] == (lead, ["PLAYER_FAINTED"], False, False)
     assert info["forced_switch"] is True and info["turn"] == len(rows)
-    assert info["action_mask"].tolist() == [False] * 4 + [True, True] + [False] * 3
+    assert info["action_mask"].tolist() == [False] * 4 + [True, True] + [False] * 4
     assert team_env.snap.player[0].hp == 0
     obs = observation(team_env.snap, info["turn"], team_env.turn_cap, True)
     assert obs[OBS_SLICES["forced_switch"]][0] == 1.0
@@ -523,12 +582,12 @@ def test_struggle_is_the_only_action_with_no_pp_and_the_game_uses_it(team_env):
     env = team_env
     _, info = reset_on(env, "no_pp_vs_starly12", seed=0)
     enemy_hp = env.snap.enemy[0].hp
-    assert info["action_mask"].tolist() == [True, True, False, False, True] + [False] * 4
+    assert info["action_mask"].tolist() == [True, True, False, False, True] + [False] * 5
     env.step(0)
     _, _, _, _, info = env.step(1)
     assert env.snap.player[0].pp == [0, 0, 0, 0]
     assert env.snap.enemy[0].hp == enemy_hp, "Tail Whip and Meditate do no damage"
-    assert info["action_mask"].tolist() == [True] + [False] * 8, "a living teammate is masked too"
+    assert info["action_mask"].tolist() == [True] + [False] * 9, "a living teammate is masked too"
     obs = observation(env.snap, 2, env.turn_cap)
     assert [obs[OBS_SLICES[f"party0.move{k}.valid"]][0] for k in range(2)] == [0.0, 0.0]
     _, _, term, trunc, info = env.step(0)
@@ -639,15 +698,17 @@ def test_observation_carries_type_matchups_against_the_enemy():
 
 
 def test_action_mask_rules_without_an_emulator():
-    def mask(hps, pps=(3,) * 3, order=(), forced=False):
+    def mask(hps, pps=(3,) * 3, order=(), forced=False, can_throw=False):
         party = tuple(gen4.Mon(pid=i + 1, checksum_ok=True, species=1, hp=hp, max_hp=20, moves=[33, 0, 0, 0],
                                pp=[pp, 0, 0, 0]) for i, (hp, pp) in enumerate(zip(hps, pps)))
         enemy = (gen4.Mon(pid=9, checksum_ok=True, species=1, hp=5, max_hp=20, moves=[33, 0, 0, 0], pp=[3, 0, 0, 0]),)
-        return action_mask(Snapshot(party, enemy, 0, 0, (6,) * 8, (6,) * 8, order), forced).astype(int).tolist()
-    assert mask([5, 0, 7]) == [1, 0, 0, 0, 0, 1, 0, 0, 0], "the fainted teammate at position 1 is masked"
-    assert mask([5, 0, 7], order=(0, 2, 1, 3, 4, 5)) == [1, 0, 0, 0, 1, 0, 0, 0, 0], "switch targets follow the menu order"
-    assert mask([0, 4, 7], forced=True) == [0, 0, 0, 0, 1, 1, 0, 0, 0]
-    assert mask([5, 4, 7], pps=(0, 3, 3)) == [1, 0, 0, 0, 0, 0, 0, 0, 0], "Struggle is the only action"
+        return action_mask(Snapshot(party, enemy, 0, 0, (6,) * 8, (6,) * 8, order), forced, can_throw).astype(int).tolist()
+    assert mask([5, 0, 7]) == [1, 0, 0, 0, 0, 1, 0, 0, 0, 0], "the fainted teammate at position 1 is masked"
+    assert mask([5, 0, 7], order=(0, 2, 1, 3, 4, 5)) == [1, 0, 0, 0, 1, 0, 0, 0, 0, 0], "switch targets follow the menu order"
+    assert mask([0, 4, 7], forced=True) == [0, 0, 0, 0, 1, 1, 0, 0, 0, 0]
+    assert mask([5, 4, 7], pps=(0, 3, 3)) == [1, 0, 0, 0, 0, 0, 0, 0, 0, 0], "Struggle is the only action"
+    assert mask([5, 4, 7], can_throw=True)[9] == 1 and mask([5, 4, 7], pps=(0, 3, 3), can_throw=True)[9] == 1
+    assert mask([0, 4, 7], forced=True, can_throw=True)[9] == 0, "no ball at a forced switch"
 
 
 @needs_rom

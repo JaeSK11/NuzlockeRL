@@ -199,12 +199,14 @@ def in_battle(nds, addrs: dict | None = None) -> bool:
     return m.checksum_ok and 0 < m.species <= 493
 
 
+RESULT_CAUGHT = 4               # resultMask CAPTURED_MON
 RESULT_FLED = 5                 # resultMask PLAYER_FLED: a wild battle ended by Roar or Whirlwind, used by either side
 CMD_INIT_COMMAND_SELECTION = 4  # BattleContext.command for one frame before each turn's command selection, where the enemy picks its move
 CMD_SELECTION_INPUT = 5         # BattleContext.command while the game waits for the player
 CS_ACTION_MENU = 1              # curCommandState[0]: FIGHT / BAG / POKEMON / RUN is up
 CS_MOVE_MENU = 4                # curCommandState[0]: move menu is up (3 while it opens)
 CS_PARTY_MENU = 10              # curCommandState[0]: the party menu opened from the action menu is up
+CS_BAG = 8                      # curCommandState[0]: the battle bag is up, on any of its screens
 CMD_EXEC_SCRIPT = 21            # BattleContext.command while a battle script runs, also while it waits for the forced switch
 # BattleContext offsets from the decomp's struct order, checked against this hack's RAM
 CTX_STATUS_FLAGS = 0x13C        # u32 battlerStatusFlags[0], the player's side

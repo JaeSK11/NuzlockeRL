@@ -79,6 +79,14 @@ the pointer):
 | task `seqNum` | int at task+0x28 | The task's state. For the experience task (`GetExpTaskState`): 7 = "grew to Lv. N!", 11 and 13 = the two stat boxes, all three waiting for A or B; 21 = "Make it forget another move?"; 23 = choosing the move to forget; 34 = "Give up on learning this move?"; 36 = a move learned into a free slot. `gen4.read_script_task` |
 | task `tmpData` | 8 × int at task+0x30 | Experience task: [4] the move to learn, [6] the party slot (index in `playerBattleBase`) |
 
+The catch animation runs in the same struct (`CatchMonTaskState`): 5 and 6
+are the shakes, 9 "Gotcha! ... was caught!" (waits for A or B), 13 the new
+Pokédex entry (waits for A or a tap, not B), 19 "Give a nickname?" (B
+answers no), 24 "... was transferred to the PC" (waits), 28 to 31 "broke
+free", 32 done. The state numbers overlap the experience task's, so the
+env tells the two apart by whether it threw a ball. The battle bag reads
+`curCommandState[0]` 8 on every one of its screens.
+
 **The type chart** (`sTypeMatchupMultipliers`, from battle overlay 16) is
 at 0x0226EE34 during battle, one copy, the same bytes as in the ROM.
 Changing a row there changes the battle's damage.

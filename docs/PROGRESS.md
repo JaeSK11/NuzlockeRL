@@ -1542,3 +1542,65 @@ a surprise to handle then.
 | Issue | Cause | Resolution |
 |---|---|---|
 | A level-6 double battle looked like it might be on the way to Roark | Trainer 368 is in the ROM with a party | It is vanilla's unused entry; the real interviewers come at level 23. No double battle before Roark |
+
+## 31. A Poké Ball action (2026-11-17)
+
+Goal: step 2 of the plan after the pilot, its first part. Let the agent
+throw a Poké Ball, when the rules allow a catch.
+
+**The screens,** mapped with screenshots:
+1. BAG on the action menu, at (40, 172).
+2. The bag's four pockets: POKé BALLS at (193, 48).
+3. The ball list, two across: the first ball at (64, 40).
+4. That ball's page: USE at (100, 172).
+
+`curCommandState[0]` reads 8 on every bag screen (the decomp's
+`ITEM_SELECT`) and changes once the ball is thrown. A tap dropped inside the
+bag can't be retried in place, since the same spot on another bag screen
+picks something else. So a throw that doesn't leave the bag backs out with
+B and walks the route again.
+
+**The catch,** traced with the script task's state (the decomp's
+`CatchMonTaskState`) and screenshots:
+- A Poké Ball at a full-HP Bidoof shook three times and broke free (states
+  28 to 31). The turn went on as usual.
+- A Master Ball caught it. "Gotcha! BIDOOF was caught!" (9) waits for A or
+  B. The new Pokédex entry (13) waits for A or a tap, and 5,000 frames of B
+  did nothing. "Give a nickname?" (19) is a yes/no that B answers no. The
+  game then recorded `resultMask` 4, ended the battle, and Bidoof joined
+  the party.
+- With six in the party, "... was transferred to the PC" (24) waits for B,
+  and the catch went to box 1. That was the first real deposit read back:
+  `gen4.read_box` returned Bidoof with 27 EXP, its Growl and a good
+  checksum. A boxed Pokémon keeps no level, so the level comes from EXP.
+
+**What the env does:**
+- **Action 9** throws the first ball in the Poké Balls pocket. Which ball
+  to throw can become the agent's choice later.
+- **It is allowed** only when the caller passes `catch` at reset and the
+  battle's bag holds a ball, and never at a forced switch. The caller is
+  the route runner, from the rules (first encounter, duplicates, shiny).
+- **While a ball is in flight,** `_answer_task` answers the catch task: B
+  for the text and the nickname, a tap for the Pokédex entry. Otherwise it
+  answers the experience task, as before. The two share their struct and
+  their state numbers overlap.
+- **A catch ends the episode as CAUGHT,** read from the game's result 4,
+  with 0 reward. What a catch is worth shows up in later battles, which
+  the run sees and this env doesn't.
+- The action space grows from 9 actions to 10, so the pilot's checkpoints
+  no longer fit the env. They are kept as a record of the pilot.
+
+`test_a_ball_is_offered_only_when_the_caller_allows_a_catch`,
+`test_a_master_ball_catches_and_ends_the_battle_as_caught` and
+`test_a_catch_with_a_full_party_goes_to_the_pc` cover it, along with the
+mask rules without an emulator. The whole suite passes. The Pokédex screen
+and the nickname are only answered, never chosen: the nickname is always
+declined.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| The level-up handler would misread the catch | The catch and experience tasks share a struct, and their state numbers overlap | The env answers the catch task only while its ball is in flight |
+| B never closed the new Pokédex entry | That screen takes A or a tap | A tap |
+| A dropped tap in the bag can't be retried in place | Every bag screen reads the same, and a spot means something else on each | Back out with B and walk the route again |
+| A boxed Pokémon read level 0 | The box struct has no level field | The level comes from EXP (`romdata.level_for_exp`) |
+| The pilot's checkpoints no longer fit the env | The action space grew to 10 | Kept as a record; live runs train from scratch |

@@ -162,8 +162,9 @@ The hack changed abilities, so assume it changed more.
       table, and `platinum_locations` gives the name.
 - [x] Caught and seen flags (`gen4.read_pokedex`), for the duplicates clause.
 - [x] Badges (`gen4.read_badges`), for level caps.
-- [ ] PC boxes (`gen4.read_box`): the layout matches the decomp, but no real
-      deposit has been read. That needs a Pokémon Center.
+- [x] PC boxes (`gen4.read_box`): a Pokémon caught with a full party was
+      read back from box 1: species, EXP, moves, a good checksum
+      (PROGRESS.md §31). A boxed Pokémon keeps no level; it comes from EXP.
 - [x] Catch success: a caught Pokémon sets `battleResult` to 4, joins the
       party, and gets its caught flag.
 - [x] Bag (`gen4.read_bag`), for healing-item counts.
@@ -196,7 +197,7 @@ The hack changed abilities, so assume it changed more.
 
 The rules ban healing and battle items from the bag in battle (see the
 README), so those are used only between battles. The battle env's only bag
-action will be a Poké Ball, for an encounter the rules allow catching
+action is a Poké Ball (PROGRESS.md §31), for an encounter the rules allow catching
 ([NEXT_PHASE.md](NEXT_PHASE.md#after-the-pilot), step 5). Movement alone won't make the agent pick items up: it must be able
 to use them and see them first. The payoff of a pickup comes hundreds of
 decisions later, when a heal before a fight saves a Pokémon in it, and PPO

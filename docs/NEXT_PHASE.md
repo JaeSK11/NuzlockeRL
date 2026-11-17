@@ -242,7 +242,8 @@ each run to the decisions. In order:
 2. **Catching and the Nuzlocke rules.**
    - **A Poké Ball action,** allowed only in a wild encounter the rules let
      it catch (a route's first new species, or a shiny), and only while the
-     bag has a ball. It taps through the bag by touch and handles the catch
+     bag has a ball. Done in the battle env (PROGRESS.md §31): the caller
+     passes `catch` at reset, which the bookkeeping below will decide. It taps through the bag by touch and handles the catch
      flow: the Pokédex entry, the nickname prompt, and the PC when the party
      is full. The catch result is already read (`battleResult` 4, roadmap
      step 4).

@@ -31,7 +31,8 @@ FIGHT_XY, POKEMON_XY = (128, 87), (215, 160)
 MOVE_XY = [(64, 40), (192, 40), (64, 115), (192, 115)]
 PARTY_XY = [(64, 28), (192, 36), (64, 76), (192, 84), (64, 124), (192, 132)]   # party-menu positions 0-5
 SHIFT_XY = (128, 110)           # confirm button of the party submenu, also in the forced switch
-N_ACTIONS = 9                   # 0-3 move slot, 4-8 switch to party position 1-5
+N_ACTIONS = 10                  # 0-3 move slot, 4-8 switch to party position 1-5, 9 throw a ball
+BALL_ACTION = 9                 # the first ball in the Poké Balls pocket, when the caller allows a catch
 SETTLE = 20                     # frames to wait after the prompt rises; earlier taps are dropped
 TAP_HOLD, TAP_CHECK, TAP_TRIES = 6, 20, 4   # the game reacts 2 to 9 frames after a tap, depending on the button
 PARTY_SETTLE, PARTY_GAP, PARTY_CHECK = 50, 30, 40   # the party screen takes 40 frames to open and 30 to close
@@ -39,6 +40,16 @@ SNAPSHOT_EVERY = 10
 ENDED_CHECKS = 3                # snapshots in a row with no battle before it is called over; in_battle() reads False on a frame where the game holds the struct decrypted
 STEP_FRAME_GUARD = 6000         # frames one step or reset may run before it is called STUCK
 END_FRAME_GUARD = 4000          # frames to wait after a wipe for the game to record the result: 300 to 800 in a wild battle, about 1,150 after Barry 1's level-up
+# Throwing a ball: BAG on the action menu, the POKé BALLS pocket, the first ball, USE. Each bag
+# screen takes a moment to draw, and all of them read as Phase.BAG.
+BAG_XY, BALLS_POCKET_XY, FIRST_BALL_XY, USE_XY = (40, 172), (193, 48), (64, 40), (100, 172)
+BAG_SCREEN_FRAMES = 60
+# The catch task's states (the decomp's CatchMonTaskState) that wait for the player. It shares
+# its struct with the experience task, so the two are told apart by whether a ball is in flight.
+CATCH_TEXT_WAITS = (9, 24)      # "Gotcha! ... was caught!" and "... was transferred to the PC": B
+CATCH_POKEDEX = 13              # the new Pokédex entry: A or a tap, not B
+CATCH_NICKNAME = 19             # "Give a nickname?": B answers no
+POKEDEX_TAP = (128, 100)
 # The experience task's states (the decomp's GetExpTaskState) that wait for the player
 EXP_BUTTON_WAITS = (7, 11, 13)  # "grew to Lv. N!" and the two stat boxes: B moves them on and answers nothing
 EXP_FORGET_PROMPT = 21          # "Make it forget another move?": Forget a move! above, Keep old moves! below
@@ -56,13 +67,14 @@ class Phase(enum.Enum):
     ACTION_MENU = enum.auto()    # command 5, cs0 1
     MOVE_MENU = enum.auto()      # command 5, cs0 4
     PARTY_MENU = enum.auto()     # command 5, cs0 10
+    BAG = enum.auto()            # command 5, cs0 8: the battle bag, on any of its screens
     FORCED_SWITCH = enum.auto()  # command 21 with the SWITCHING flag; cs0 stays 14 and says nothing
     BUSY = enum.auto()           # everything else: animations, text, the turn running
 
 
 DECISIONS = (Phase.ACTION_MENU, Phase.FORCED_SWITCH)
 _MENU_OF_CS0 = {gen4.CS_ACTION_MENU: Phase.ACTION_MENU, gen4.CS_MOVE_MENU: Phase.MOVE_MENU,
-                gen4.CS_PARTY_MENU: Phase.PARTY_MENU}
+                gen4.CS_PARTY_MENU: Phase.PARTY_MENU, gen4.CS_BAG: Phase.BAG}
 
 
 def move_value(move: int, types) -> float:
@@ -136,6 +148,7 @@ class Event(enum.Enum):
     LOST = enum.auto()
     TURN_CAP = enum.auto()      # counts as a loss so stalling never pays
     FLED = enum.auto()          # the game recorded a flee: Roar or Whirlwind, by either side, ended a wild battle
+    CAUGHT = enum.auto()        # the game recorded a catch (resultMask 4)
     ENDED = enum.auto()         # battle over with neither side wiped, and no flee recorded
     STUCK = enum.auto()         # no prompt and no end in the frame guard
 
@@ -150,6 +163,7 @@ REWARDS: dict[Event, float] = {     # every event but PLAYER_FAINTED, whose cost
     Event.LOST: -10.0,
     Event.TURN_CAP: -10.0,
     Event.FLED: 0.0,
+    Event.CAUGHT: 0.0,          # a catch pays off in later battles, which the run, not this env, sees
     Event.ENDED: 0.0,
     Event.STUCK: 0.0,
 }
@@ -212,6 +226,8 @@ def decision(prev: Snapshot, action: int, forced: bool) -> dict:
     """What a decision was, for the logs: the move by name, its PP before the turn, and its
     kind. The kind is switch, forced_switch, struggle, status, or for an attack its type
     matchup against the enemy's active Pokémon: super, neutral, resisted or immune."""
+    if action == BALL_ACTION:
+        return {"pick": "ball", "move": None, "pp_before": None}
     if action >= 4:
         return {"pick": "forced_switch" if forced else "switch", "move": None, "pp_before": None}
     if is_struggling(prev):
@@ -318,14 +334,16 @@ def fights_at_once(snap: Snapshot) -> bool:
     return is_struggling(snap) or snap.encored
 
 
-def action_mask(snap: Snapshot, forced: bool = False) -> np.ndarray:
+def action_mask(snap: Snapshot, forced: bool = False, can_throw: bool = False) -> np.ndarray:
     """Moves the game accepts (allowed_moves), and switches to existing, unfainted, non-active
     Pokémon unless the active one is trapped. With no move allowed only action 0 is valid: the
     game then uses Struggle whatever slot is tapped. At a forced switch only the switches are
-    valid, trapped or not, since the trapped Pokémon has fainted."""
+    valid, trapped or not, since the trapped Pokémon has fainted. A ball can be thrown when
+    `can_throw` (the caller allows a catch and the bag has a ball), but not at a forced switch."""
     mask = np.zeros(N_ACTIONS, dtype=bool)
     if snap.player_active is None:
         return mask
+    mask[BALL_ACTION] = can_throw and not forced
     if not forced:
         allowed = allowed_moves(snap)
         if not any(allowed):
@@ -516,6 +534,46 @@ class BattleEnv(gym.Env):
             self.retries += 1
         raise _Stuck
 
+    def _can_throw(self) -> bool:
+        return self.catch_allowed and bool(gen4.read_bag(self.nds, self.addrs, from_battle=True)["balls"])
+
+    def _throw_ball(self):
+        """BAG, the Poké Balls pocket, the first ball in it, USE. A dropped tap inside the bag
+        can't be retried in place, since the same spot on another bag screen picks something
+        else, so the bag is closed with B and the whole route walked again."""
+        for _ in range(TAP_TRIES):
+            self._walk(Screen(Phase.ACTION_MENU, (BAG_XY,)))
+            for xy in (BALLS_POCKET_XY, FIRST_BALL_XY, USE_XY):
+                self._tick(BAG_SCREEN_FRAMES)
+                self._tap(xy)
+            for _ in range(BAG_SCREEN_FRAMES):
+                self._tick()
+                if self._phase() is not Phase.BAG:
+                    return
+            self.retries += 1
+            for _ in range(4):
+                self._press("b")
+                self._tick(BAG_SCREEN_FRAMES)
+        raise _Stuck
+
+    def _answer_task(self):
+        """While a ball is in flight the script task is the catch; otherwise it's the experience
+        task. The catch is over once its task is gone."""
+        if not self._throwing:
+            return self._answer_exp_task()
+        task = gen4.read_script_task(self.nds, self.addrs)
+        if task is None:
+            if self._catch_seen:
+                self._throwing = False
+            return
+        self._catch_seen = True
+        if task[0] in CATCH_TEXT_WAITS or task[0] == CATCH_NICKNAME:
+            self._press("b")
+        elif task[0] == CATCH_POKEDEX:
+            self._tick(SETTLE)
+            self._tap(POKEDEX_TAP)
+            self._tick(SETTLE)
+
     def _answer_exp_task(self):
         """Answer the experience task when it waits for the player: B through the level-up text
         and stat boxes, and move_to_forget's choice when a level-up offers a fifth move. In a
@@ -569,7 +627,7 @@ class BattleEnv(gym.Env):
         self.forced = False
         while self._frames - start < STEP_FRAME_GUARD:
             self._tick()
-            self._answer_exp_task()
+            self._answer_task()
             phase = self._phase()
             if phase in DECISIONS:
                 self._tick(SETTLE)
@@ -603,7 +661,7 @@ class BattleEnv(gym.Env):
         the result until it is answered (_answer_exp_task)."""
         start, gone = self._frames, 0
         while not self.result_mask and self._frames - start < END_FRAME_GUARD:
-            self._answer_exp_task()
+            self._answer_task()
             self._tick(SNAPSHOT_EVERY)
             snap = read_snapshot(self.nds, self.addrs)
             if snap is None:
@@ -616,7 +674,7 @@ class BattleEnv(gym.Env):
             self.result_mask = self.nds.memory.read_u8(False, self.addrs["battleResult"])
 
     def _info(self, **extra) -> dict:
-        return {"action_mask": action_mask(self.snap, self.forced), "state": self.state_name,
+        return {"action_mask": action_mask(self.snap, self.forced, self._can_throw()), "state": self.state_name,
                 "rng_seed": self.rng_seed, "turn": self.turn, "forced_switch": self.forced,
                 "result_mask": self.result_mask, **extra}
 
@@ -634,6 +692,7 @@ class BattleEnv(gym.Env):
         super().reset(seed=seed)
         options = options or {}
         self.state_name = options.get("state") or self.states[int(self.np_random.integers(len(self.states)))]
+        self.catch_allowed = bool(options.get("catch"))     # set by the caller from the rules: this encounter may be caught
         self.nds.load_state_from_file(self.state_name)
         self.addrs = gen4.resolve(self.nds)
         if options.get("keep_rng"):
@@ -648,6 +707,7 @@ class BattleEnv(gym.Env):
         self._frames = self._ep_frames = 0
         self.turn, self.ret, self.result_mask, self.retries = 0, 0.0, 0, 0
         self.snap, self.learned, self._forget = None, [], None
+        self._throwing = self._catch_seen = False
         self._episodes += 1
         self.episode_id = f"{os.getpid()}:{self._episodes}"
         self._done = False
@@ -663,25 +723,32 @@ class BattleEnv(gym.Env):
         if self._done:
             raise RuntimeError("step() after the episode ended; call reset()")
         action = int(action)
-        mask = action_mask(self.snap, self.forced)
+        mask = action_mask(self.snap, self.forced, self._can_throw())
         if not 0 <= action < N_ACTIONS or not mask[action]:
             raise ValueError(f"action {action} is masked: {mask.tolist()}")
         prev, forced, fight_only = self.snap, self.forced, fights_at_once(self.snap)
         chosen = decision(prev, action, forced)
-        target = prev.player[prev.slots()[action - 3]].pid if action >= 4 else None
+        target = prev.player[prev.slots()[action - 3]].pid if 4 <= action < BALL_ACTION else None
         self.turn += not forced
         self._frames = 0
         events, end = [], None
         try:
-            for screen in route_for(action, forced, fight_only):
-                self._walk(screen)
+            if action == BALL_ACTION:
+                self._throwing, self._catch_seen = True, False
+                self._throw_ball()
+            else:
+                for screen in route_for(action, forced, fight_only):
+                    self._walk(screen)
             end = self._run_to_prompt()
         except _Stuck:
             events.append(Event.STUCK)
+        finally:
+            self._throwing = False
         if Event.STUCK not in events:
             events += events_between(prev, self.snap)
             if end is Event.ENDED and not _wiped(self.snap):
-                events.append(Event.FLED if self.result_mask == gen4.RESULT_FLED else Event.ENDED)
+                events.append({gen4.RESULT_FLED: Event.FLED, gen4.RESULT_CAUGHT: Event.CAUGHT}.get(
+                    self.result_mask, Event.ENDED))
             elif end is None and self.turn >= self.turn_cap:
                 events.append(Event.TURN_CAP)
         reward = sum((REWARDS[e] for e in events if e is not Event.PLAYER_FAINTED), 0.0)
@@ -689,7 +756,7 @@ class BattleEnv(gym.Env):
             reward += faint_penalty(prev, self.snap)
         self.ret += reward
         stuck = Event.STUCK in events
-        terminated = not stuck and (_wiped(self.snap) or any(e in events for e in (Event.FLED, Event.ENDED, Event.TURN_CAP)))
+        terminated = not stuck and (_wiped(self.snap) or any(e in events for e in (Event.FLED, Event.CAUGHT, Event.ENDED, Event.TURN_CAP)))
         self._done = terminated or stuck
         names = [e.name for e in events]
         info = self._info(events=names, frames=self._frames, **chosen,
@@ -703,7 +770,7 @@ class BattleEnv(gym.Env):
             "enemy_hp": [m.hp for m in self.snap.enemy], "frames": self._frames,
             **({"signal": self._stuck_signal()} if stuck else {})})
         if self._done:
-            outcome = next(e.name for e in (Event.WON, Event.LOST, Event.TURN_CAP, Event.FLED, Event.ENDED, Event.STUCK)
+            outcome = next(e.name for e in (Event.WON, Event.LOST, Event.TURN_CAP, Event.FLED, Event.CAUGHT, Event.ENDED, Event.STUCK)
                            if e in events)
             info["outcome"], info["learned"] = outcome, self.learned
             self._write({"episode": self.episode_id, "summary": True, "outcome": outcome,
