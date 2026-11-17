@@ -127,6 +127,7 @@ class AsyncEnvPool:
         for obj in arrived:
             if obj in sentinels and sentinels[obj] in self._stepping:
                 i = sentinels[obj]
+                self._procs[i].join(1)
                 self._fail(f"env {i}'s worker died (exit code {self._procs[i].exitcode})")
 
     def recv(self, min_ready: int = 1) -> Batch:

@@ -1816,3 +1816,4 @@ half a second and tries again, up to 10 times.
 | Holding a direction for 40 frames walked up to 3 tiles | Walking takes 16 frames a tile | A step lets go as soon as the tile changes |
 | A planned walk in Oreburgh ended a tile short | A wandering worker stepped into the way | `walk_to` plans again after every step and waits when blocked |
 | The graphs and their start states aren't in git | They're made from local save states | The milestone rebuild (3.2.6) will make the start states reproducible |
+| `test_a_worker_crash_raises_instead_of_hanging` failed 3 times in 20 (found in this section's full test run; the pool wasn't changed) | When a worker's sentinel closed, the pool read its exit code before the process had exited, and got None | Wait for the process (`join(1)`) first, as the pool's other two checks did. 60 of 60 passed after |
