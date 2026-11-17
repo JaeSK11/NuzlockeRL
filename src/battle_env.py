@@ -38,7 +38,15 @@ PARTY_SETTLE, PARTY_GAP, PARTY_CHECK = 50, 30, 40   # the party screen takes 40 
 SNAPSHOT_EVERY = 10
 ENDED_CHECKS = 3                # snapshots in a row with no battle before it is called over; in_battle() reads False on a frame where the game holds the struct decrypted
 STEP_FRAME_GUARD = 6000         # frames one step or reset may run before it is called STUCK
-END_FRAME_GUARD = 2000          # frames to wait after a wipe for the game to record the result; it takes 300 to 800
+END_FRAME_GUARD = 4000          # frames to wait after a wipe for the game to record the result: 300 to 800 in a wild battle, about 1,150 after Barry 1's level-up
+# The experience task's states (the decomp's GetExpTaskState) that wait for the player
+EXP_BUTTON_WAITS = (7, 11, 13)  # "grew to Lv. N!" and the two stat boxes: B moves them on and answers nothing
+EXP_FORGET_PROMPT = 21          # "Make it forget another move?": Forget a move! above, Keep old moves! below
+EXP_FORGET_SELECT = 23          # the move to forget: tap it, then FORGET on its page
+EXP_GIVE_UP_PROMPT = 34         # "Should this Pokémon give up on learning this new move?": Give up above
+UPPER_BUTTON, LOWER_BUTTON = (128, 64), (128, 135)          # the two answers of either prompt
+FORGET_SLOTS = ((64, 70), (192, 70), (64, 120), (192, 120))   # the four moves on the forget screen
+FORGET_BUTTON, FORGET_PAGE_FRAMES = (115, 172), 30            # FORGET on the move's page, which takes a moment to open
 
 
 
@@ -55,6 +63,24 @@ class Phase(enum.Enum):
 DECISIONS = (Phase.ACTION_MENU, Phase.FORCED_SWITCH)
 _MENU_OF_CS0 = {gen4.CS_ACTION_MENU: Phase.ACTION_MENU, gen4.CS_MOVE_MENU: Phase.MOVE_MENU,
                 gen4.CS_PARTY_MENU: Phase.PARTY_MENU}
+
+
+def move_value(move: int, types) -> float:
+    """An attack's power times its accuracy, x1.5 in the user's own type; 0 for a status move."""
+    if not move:
+        return 0.0
+    m = romdata.move(move)
+    if m.cls == 2 or not m.power:
+        return 0.0
+    return m.power * (m.accuracy or 100) / 100 * (1.5 if m.type in types else 1.0)
+
+
+def move_to_forget(moves, types, new_move: int) -> int | None:
+    """A stand-in for the agent's choice when a level-up offers a fifth move: the slot of the
+    lowest-valued move (move_value) if the new move is worth more, else None to keep the old moves."""
+    values = [move_value(m, types) for m in moves]
+    slot = min(range(len(values)), key=values.__getitem__)
+    return slot if move_value(new_move, types) > values[slot] else None
 
 
 def _ctx_ptr(nds, addrs: dict) -> int | None:
@@ -408,6 +434,51 @@ class BattleEnv(gym.Env):
         self._tick(TAP_HOLD)
         self.nds.button.release_touch()
 
+    def _press(self, key: str):
+        self.nds.button.press_key(key)
+        self._tick(2)
+        self.nds.button.release_key(key)
+        self._tick(8)
+
+    def _tap_until_moved(self, taps, seq: int, settle: int):
+        """Tap `taps` in turn until the experience task leaves state `seq`, as _walk does for menus."""
+        for _ in range(TAP_TRIES):
+            self._tick(settle)
+            for i, xy in enumerate(taps):
+                if i:
+                    self._tick(FORGET_PAGE_FRAMES)
+                self._tap(xy)
+            for _ in range(TAP_CHECK * 3):
+                self._tick()
+                task = gen4.read_script_task(self.nds, self.addrs)
+                if task is None or task[0] != seq:
+                    return
+            self.retries += 1
+        raise _Stuck
+
+    def _answer_exp_task(self):
+        """Answer the experience task when it waits for the player: B through the level-up text
+        and stat boxes, and move_to_forget's choice when a level-up offers a fifth move. In a
+        trainer battle the game records the result only after this, and a mid-battle level-up
+        would otherwise hold the battle until the step is called STUCK."""
+        task = gen4.read_script_task(self.nds, self.addrs)
+        if task is None:
+            return
+        seq, tmp = task
+        if seq in EXP_BUTTON_WAITS:
+            self._press("b")
+        elif seq == EXP_FORGET_PROMPT:
+            mon = self.snap.player[tmp[gen4.EXP_TMP_PARTY_SLOT]]
+            new = tmp[gen4.EXP_TMP_MOVE]
+            self._forget = move_to_forget(mon.moves, romdata.species(mon.species).types, new)
+            self.learned.append({"pid": mon.pid, "move": romdata.move_name(new),
+                                 "forgot": None if self._forget is None else romdata.move_name(mon.moves[self._forget])})
+            self._tap_until_moved([UPPER_BUTTON if self._forget is not None else LOWER_BUTTON], seq, SETTLE)
+        elif seq == EXP_FORGET_SELECT:
+            self._tap_until_moved([FORGET_SLOTS[self._forget], FORGET_BUTTON], seq, 2 * SETTLE)
+        elif seq == EXP_GIVE_UP_PROMPT:
+            self._tap_until_moved([UPPER_BUTTON], seq, SETTLE)
+
     def _walk(self, screen: Screen):
         """Wait for the screen, then tap it until the game leaves it. Taps are dropped now
         and then, so a screen that is still up after `check` frames is tapped again."""
@@ -438,6 +509,7 @@ class BattleEnv(gym.Env):
         self.forced = False
         while self._frames - start < STEP_FRAME_GUARD:
             self._tick()
+            self._answer_exp_task()
             phase = self._phase()
             if phase in DECISIONS:
                 self._tick(SETTLE)
@@ -467,9 +539,11 @@ class BattleEnv(gym.Env):
         result, keeping the last snapshot, so every faint of the turn is counted. Stops early
         if the battle memory is freed first, or after END_FRAME_GUARD frames. A snapshot that
         reads invalid while the battle runs is skipped: the game decrypts a party struct in
-        place while it writes it, as when it adds the exp after a win."""
+        place while it writes it, as when it adds the exp after a win. A level-up's text holds
+        the result until it is answered (_answer_exp_task)."""
         start, gone = self._frames, 0
         while not self.result_mask and self._frames - start < END_FRAME_GUARD:
+            self._answer_exp_task()
             self._tick(SNAPSHOT_EVERY)
             snap = read_snapshot(self.nds, self.addrs)
             if snap is None:
@@ -513,7 +587,7 @@ class BattleEnv(gym.Env):
         self.input_mode = gen4.read_input_mode(self.nds, self.addrs)
         self._frames = self._ep_frames = 0
         self.turn, self.ret, self.result_mask, self.retries = 0, 0.0, 0, 0
-        self.snap = None
+        self.snap, self.learned, self._forget = None, [], None
         self._episodes += 1
         self.episode_id = f"{os.getpid()}:{self._episodes}"
         self._done = False
@@ -571,8 +645,8 @@ class BattleEnv(gym.Env):
         if self._done:
             outcome = next(e.name for e in (Event.WON, Event.LOST, Event.TURN_CAP, Event.ENDED, Event.STUCK)
                            if e in events)
-            info["outcome"] = outcome
+            info["outcome"], info["learned"] = outcome, self.learned
             self._write({"episode": self.episode_id, "summary": True, "outcome": outcome,
                          "turns": self.turn, "return": self.ret, "frames": self._ep_frames,
-                         "result_mask": self.result_mask})
+                         "result_mask": self.result_mask, "learned": self.learned})
         return self._obs(), reward, terminated, stuck, info

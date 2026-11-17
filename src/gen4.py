@@ -207,7 +207,13 @@ CMD_EXEC_SCRIPT = 21            # BattleContext.command while a battle script ru
 # BattleContext offsets from the decomp's struct order, checked against this hack's RAM
 CTX_STATUS_FLAGS = 0x13C        # u32 battlerStatusFlags[0], the player's side
 CTX_PARTY_ORDER = 0x312C        # u8 partyOrder[0][6]: party-menu position -> index in playerBattleBase
+CTX_TASK_DATA = 0x178           # BattleScriptTaskData *taskData: the script task that is running, NULL when none
 BATTLER_STATUS_SWITCHING = 1    # battlerStatusFlags bit: the game waits for the player to pick a replacement
+# BattleScriptTaskData fields: int seqNum, then int tmpData[8]. Found in RAM as the block whose
+# second word points back at the context, during Barry 1's level-up.
+TASK_SEQ, TASK_TMP = 0x28, 0x30
+# The experience task's tmpData (the decomp's GetExpTaskDataIndex)
+EXP_TMP_MOVE, EXP_TMP_PARTY_SLOT = 4, 6
 
 
 def read_clock(nds) -> tuple:
@@ -224,6 +230,21 @@ def read_battle_command(nds, addrs: dict) -> tuple[int, int] | None:
     if not (MAIN_RAM <= p < MAIN_RAM + 0x400000 - 0x100) or p & 3:
         return None
     return rd(False, p + 8), rd(False, p) & 0xFF
+
+
+def read_script_task(nds, addrs: dict) -> tuple[int, list[int]] | None:
+    """(seqNum, tmpData) of the battle's running script task, or None when none runs. After a
+    faint this is the experience task (the decomp's BattleScript_GetExpTask): level-ups and move
+    learning, with the move to learn in tmpData[EXP_TMP_MOVE] and the Pokémon's party slot in
+    tmpData[EXP_TMP_PARTY_SLOT]. The catch animation uses the same struct."""
+    rd = nds.memory.read_u32
+    p = rd(False, addrs["battleCtxPtr"])
+    if not (MAIN_RAM <= p < MAIN_RAM + 0x400000 - 0x200) or p & 3:
+        return None
+    t = rd(False, p + CTX_TASK_DATA)
+    if not (MAIN_RAM <= t < MAIN_RAM + 0x400000 - 0x60) or t & 3:
+        return None
+    return rd(False, t + TASK_SEQ), [rd(False, t + TASK_TMP + 4 * i) for i in range(8)]
 
 
 def waiting_for_command(nds, addrs: dict) -> bool:

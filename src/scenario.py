@@ -286,10 +286,16 @@ def start_wild_battle(nds, max_walk_frames: int = 20000, max_intro_frames: int =
 
 
 def mons_from_spec(spec: list[dict], trainer: Trainer, rng: random.Random) -> list[MonData]:
-    """spec items: {species, level, moves, and optional pid, ivs, evs, nature, ability_slot, item}."""
-    return [build_mon(s["species"], s["level"], s["moves"], trainer=trainer, rng=rng,
+    """spec items: {species, level, moves, and optional pid, ivs, evs, nature, ability_slot, item,
+    exp}. exp replaces the level's starting EXP, for a Pokémon close to its next level."""
+    mons = []
+    for s in spec:
+        m = build_mon(s["species"], s["level"], s["moves"], trainer=trainer, rng=rng,
                       **{k: s[k] for k in ("pid", "ivs", "evs", "nature", "ability_slot", "item") if k in s})
-            for s in spec]
+        if "exp" in s:
+            m["exp"] = s["exp"]
+        mons.append(m)
+    return mons
 
 
 def make_scenario(party_spec: list[dict], out_path: str, seed: int = 0, rom: str = DEFAULT_ROM,

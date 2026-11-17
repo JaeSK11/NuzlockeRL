@@ -75,6 +75,9 @@ the pointer):
 | `curCommandState[0]` | u8 at ctx+0 | 1 = the FIGHT, BAG, POKéMON, RUN menu is up; 3 = the move menu is opening; 4 = the move menu is up; 10 = the party menu is up; 13 = waiting; 14 = command chosen; 15 = an alert message; 17 = clearing the touch screen. Tapping a move with no PP left goes 17, 15, 13, 14 (Struggle) |
 | `battlerStatusFlags[0]` | u32 at ctx+0x13C | The player's side. Bit 0 (`SWITCHING`) is set while the game waits for the player to pick a replacement after a faint |
 | `partyOrder[0]` | 6 × u8 at ctx+0x312C | Party-menu position → index in `playerBattleBase`. A switch permutes this and never moves the structs. Position 0 is the active Pokémon |
+| `taskData` | u32 pointer at ctx+0x178 | The battle script's running task (`BattleScriptTaskData`), NULL when none runs. Found as the block whose second word points back at the context, during Barry 1's level-up |
+| task `seqNum` | int at task+0x28 | The task's state. For the experience task (`GetExpTaskState`): 7 = "grew to Lv. N!", 11 and 13 = the two stat boxes, all three waiting for A or B; 21 = "Make it forget another move?"; 23 = choosing the move to forget; 34 = "Give up on learning this move?"; 36 = a move learned into a free slot. `gen4.read_script_task` |
+| task `tmpData` | 8 × int at task+0x30 | Experience task: [4] the move to learn, [6] the party slot (index in `playerBattleBase`) |
 
 **The type chart** (`sTypeMatchupMultipliers`, from battle overlay 16) is
 at 0x0226EE34 during battle, one copy, the same bytes as in the ROM.

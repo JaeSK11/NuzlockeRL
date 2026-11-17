@@ -1100,7 +1100,7 @@ first updates ran at 6.2 to 6.3 decisions/s, where the stopped run ran at
 | About 3% of episodes ended before the game recorded the result | The wait for the result stopped at the first snapshot that read invalid, as one does while the game writes the exp after a win | Invalid reads are skipped while the battle runs. Found by the new mismatch count in the first update |
 | Move choice, PP and who faints weren't recorded | The trainer logged per-update aggregates; the step log was off and lacked the move and PP | Counted per battle in `metrics.jsonl`, in the step log, and charted (`--view`) |
 | Episodes are slower to finish | The wait for the result | Accepted: about 10% fewer decisions/s early on. A battle command that marks the end of the turn could cut the wait; it needs the decomp's command list |
-| After a trainer battle the wait runs to its 2,000-frame limit | The game records a trainer battle's result later, after the trainer's closing text | Open: wild battles only for now; needs a better end signal before trainer battles |
+| After a trainer battle the wait runs to its 2,000-frame limit | The game records a trainer battle's result later, after the trainer's closing text | Fixed in §26: the wait was a level-up's text, which waits for a button. The env answers it |
 | The battle set has no setup moves | The teams get their level-up moves, which have none at these levels | Open: give some teams a setup move, the way the generator sets the enemy's |
 | Status moves are told apart only by their numbers | The observation has no move-effect field | Open: an effect category from the ROM's battle effect id |
 
@@ -1253,9 +1253,82 @@ realistic, and it can be measured.
   adapter. The transfer test trains the Platinum model and a fresh one
   there with the same budget. KP Labs' 12 trainer battles are the baseline.
 - **Randomized ROMs** are a later tool for robustness, not needed now.
+- **Skills in the weights, facts from the ROM.** The policy learns what
+  every Pokémon game shares: matchups, switching, protecting the ace. What
+  differs between games, such as route encounters, boss teams, obstacles
+  and the field move that clears each, is read from the game's data and
+  put in the observation, as a player uses a guide.
+- **Field moves join team building.** Keep a Pokémon that can use the
+  move, and a backup in case it dies. Using it in the field is scripted at
+  first; none is needed before Roark.
 
 | Issue | Cause | Resolution |
 |---|---|---|
 | Live play would end within minutes | The env handles only the middle of a single wild battle. Level-up prompts, a trainer battle's late result, text, catching and trapping moves all end an episode | Steps 1 to 3 of the plan build each |
 | A run meets the same trainers every time, so runs alone can't tell learning from memorizing | The game's trainers are fixed | Battles generated against Pokémon the runs never meet, as a test only |
 | Scripted pieces would have to be rewritten for every new game | They encode Platinum's paths, menus and prompts | Treated as scaffolding: each gets a learned or generic replacement |
+
+## 26. Trainer battles' results and level-up prompts (2026-11-17)
+
+Goal: step 1 of the plan after the pilot. Make the env survive what a live
+run meets, starting with the end of a trainer battle (§23).
+
+**The cause was a level-up, not the trainer's text.** Barry 1 was played to
+the end while tracing `BattleContext.command`. With no input, the battle
+stopped 285 frames after the last faint, inside a battle script, and never
+recorded a result. Pressing A every 30 frames got the result 920 frames
+after the faint, *before* the trainer's closing text, which then ran
+without input. The decomp's experience task (`BattleScript_GetExpTask`)
+explains it:
+- Ordinary battle messages wait for a button *or* a timeout
+  (`WaitButtonABTime`), so they move on alone.
+- After a level-up, the "grew to Lv. N!" message waits for A or B, and the
+  two stat boxes wait for any button. X doesn't move the message on.
+- A fifth move brings two yes/no prompts on the touch screen, and a screen
+  to pick the move to forget.
+
+Barry's Chimchar gives Turtwig a level. Wild battles in the pilot gave too
+little EXP for one, so the problem hadn't shown up.
+
+**The experience task in RAM.** `BattleContext.taskData` (ctx+0x178) points
+to the running task, NULL when none runs. It was found as the block whose
+second word points back at the context. The task's state is at +0x28, the
+move to learn at +0x30 + 16, and the party slot at +0x30 + 24, all as the
+decomp's structs give them (`gen4.read_script_task`, RAM_MAP.md).
+
+**What the env does.** While a step runs and while it waits for the
+result, `_answer_exp_task` reads the task:
+- **Level-up text and stat boxes (states 7, 11, 13):** B. B answers no
+  question in those states.
+- **"Make it forget another move?" (21):** a stand-in for the agent's choice,
+  `move_to_forget`. It values each attack as power × accuracy, ×1.5 in the
+  Pokémon's own type, and a status move as 0. If the new move is worth more
+  than the lowest-valued one, the env taps "Forget a move!", taps that move,
+  then taps FORGET on its page. Otherwise it taps "Keep old moves!", then
+  "Give up on" the move (34).
+- Each decision is logged: the episode's final info and the step log's
+  summary list each offered move and what was forgotten.
+
+Evolution comes after a battle ends, outside the battle env, so it's left
+to the route runner.
+
+**Verified:**
+- Barry 1 now ends with the game's own result (1) inside the episode, about
+  1,150 frames after the last faint, for every seed tried.
+  `test_barry_with_fixed_rng_is_won_in_five_turns` checks it.
+- `test_a_fifth_move_replaces_the_weakest`: Turtwig, one EXP short of 15
+  with Tackle, Mega Drain, Bite and Rock Throw, beats a Bidoof. The battle's
+  copy of the party then reads Razor Leaf, Mega Drain, Bite, Rock Throw.
+- `test_a_weaker_fifth_move_is_given_up`: Chimchar, one EXP short of 12,
+  where it learns Helping Hand, keeps its four attacks.
+- The generator takes `exp` in a party spec, for a Pokémon close to its next
+  level. The whole suite passes, 104 tests.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| A trainer battle never recorded its result | Turtwig leveled up; the level-up message and stat boxes wait for a button | The env presses B in those states of the experience task |
+| A level-up in the middle of a trainer battle would hold the step until STUCK | The same wait, before the trainer's next Pokémon | The same handler runs while a step plays out, not only after a wipe |
+| A fifth move needs an answer | The game asks whether to forget a move | A stand-in choice, `move_to_forget`, until the agent makes it (NEXT_PHASE step 1) |
+| Tapping a move on the forget screen didn't forget it | The tap opens the move's page, which has its own FORGET button | Tap the move, wait 30 frames, tap FORGET |
+| The wait for the result could run past 2,000 frames | A level-up takes about 1,150 frames; a forgotten move adds more | `END_FRAME_GUARD` is 4,000 |
+| The catch animation uses the same task struct | Its states would read as the experience task's | Open: tell the two apart when the Poké Ball action comes (NEXT_PHASE step 2) |

@@ -115,9 +115,10 @@ The hack changed abilities, so assume it changed more.
       turn: the mask allows only living teammates, the reward is 0, and the
       turn counter doesn't move.
 - [ ] **Prompts the env doesn't model.** The trainer's "Will you switch?"
-      question in Shift style, and move-learn and evolution questions. They
-      end the episode as STUCK. No multi-Pokémon trainer state exists yet
-      to test the first.
+      question in Shift style; the env sets Set style, but no
+      multi-Pokémon trainer state exists yet to test it. Level-up text and
+      move learning are handled (PROGRESS.md §26), and evolution happens
+      after a battle, outside this env.
 - [ ] **Switching while trapped** (Wrap, Mean Look, Arena Trap) and **move
       locks** (Disable, Encore, Choice items) aren't in the action mask. A
       refused tap ends the step as STUCK. Against a wild Shuckle, which knows

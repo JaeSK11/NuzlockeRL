@@ -219,12 +219,13 @@ each run to the decisions. In order:
 
 1. **The live game's battles in the env.** A run meets what a generated
    wild battle never shows, and each of these ends an episode today:
-   - **Trainer battles.** The game records their result only after the
-     trainer's closing text, so the env's wait runs out (§23). Find an end
-     signal.
-   - **Level-up prompts.** Almost every win brings one: learn a new move,
-     or evolve. Script the answers first (evolve; learn a move in place of
-     the weakest one), and make them the agent's choice later.
+   - **Trainer battles.** Done (PROGRESS.md §26). The wait was a level-up's
+     text, not the trainer's; Barry 1 now ends on the game's own result.
+   - **Level-up prompts.** Done in battle (§26): B through the level-up text
+     and stat boxes, and a stand-in choice for a fifth move (forget the
+     lowest-valued move if the new one is worth more). Make it the agent's
+     choice later. Evolution comes after the battle, so it belongs to the
+     route runner (step 3).
    - **Trapping and Encore** in the action mask (roadmap step 3). A wild
      Pokémon's Roar or Whirlwind ends the battle, and the run goes on.
    - **The one early double battle** in the ROM (Interviewers Roxy & Oli,

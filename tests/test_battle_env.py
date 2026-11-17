@@ -12,7 +12,8 @@ import pynds
 import romdata
 import scenario
 from battle_env import (FAINT_BASE, FAINT_SCALE, BattleEnv, Event, FIGHT_XY, OBS_FIELDS, OBS_SIZE, OBS_SLICES,
-                        REWARDS, Snapshot, action_mask, events_between, faint_penalty, observation, strengths)
+                        REWARDS, Snapshot, action_mask, events_between, faint_penalty, move_to_forget, observation,
+                        strengths)
 
 ROM = os.environ.get("NUZLOCKERL_ROM", os.path.join(ROOT, "roms/plat-kaizo-nightmare-update-final.nds"))
 M = os.path.join(ROOT, "states/milestones")
@@ -24,7 +25,7 @@ needs_rom = pytest.mark.skipif(
 
 GEN = os.path.join(ROOT, "states/generated")
 CHIMCHAR, PIPLUP, PIKACHU, TURTWIG, STARLY, BIDOOF, EEVEE, BONSLY = 390, 393, 25, 387, 396, 399, 133, 438
-TACKLE, SELFDESTRUCT = 33, 120
+TACKLE, SELFDESTRUCT, GROWL, MEGA_DRAIN, BITE, ROCK_THROW, RAZOR_LEAF, EMBER, SCRATCH = 33, 120, 45, 72, 44, 88, 75, 52, 10
 TEAM3 = [{"species": CHIMCHAR, "level": 12, "moves": [52, 10, 43, 183]},
          {"species": PIPLUP, "level": 11, "moves": [55, 1, 145, 64]},
          {"species": PIKACHU, "level": 10, "moves": [84, 98, 86, 45]}]
@@ -36,17 +37,27 @@ NO_PP = [{"species": TURTWIG, "level": 10, "moves": [39, 96]}, {"species": PIKAC
 WEAKLEAD = [{"species": PIKACHU, "level": 2, "moves": [84, 45]}, {"species": TURTWIG, "level": 15, "moves": [33, 72, 75, 44]}]
 # A weak Starly lead against a Bonsly whose only move is Selfdestruct; Turtwig is the strongest.
 WEAK_STARLY = [{"species": STARLY, "level": 8, "moves": [TACKLE]}, {"species": TURTWIG, "level": 14, "moves": [TACKLE]}]
-SCENARIOS = {   # name: (party, wild enemy (species, level) or None, seed[, enemy moves]); built on first use, as make_scenario.py does
+def one_exp_short(species, level, moves):
+    """A party of one Pokémon with four moves, one EXP short of `level`. A function, since the EXP
+    table comes from the ROM: Turtwig learns Razor Leaf at 15, Chimchar Helping Hand at 12."""
+    return lambda: [{"species": species, "level": level - 1, "moves": moves,
+                     "exp": romdata.exp_for_level(species, level) - 1}]
+
+
+SCENARIOS = {   # name: (party or a function giving one, wild enemy (species, level) or None, seed[, enemy moves]); built on first use, as make_scenario.py does
     "team3": (TEAM3, None, 2), "team_vs_starly12": (TEAM3, (STARLY, 12), 4),
     "team6_vs_starly12": (TEAM6, (STARLY, 12), 5), "no_pp_vs_starly12": (NO_PP, (STARLY, 12), 3),
     "weaklead_vs_eevee": (WEAKLEAD, (EEVEE, 13), 7),
-    "starly_vs_selfdestruct": (WEAK_STARLY, (BONSLY, 15), 8, [SELFDESTRUCT])}
+    "starly_vs_selfdestruct": (WEAK_STARLY, (BONSLY, 15), 8, [SELFDESTRUCT]),
+    "turtwig_learns_razor_leaf": (one_exp_short(TURTWIG, 15, [TACKLE, MEGA_DRAIN, BITE, ROCK_THROW]), (BIDOOF, 2), 1, [GROWL]),
+    "chimchar_skips_helping_hand": (one_exp_short(CHIMCHAR, 12, [EMBER, SCRATCH, TACKLE, BITE]), (BIDOOF, 2), 1, [GROWL])}
 
 
 def scenario_state(name):
     path = os.path.join(GEN, name + ".state")
     if not os.path.exists(path):
         party, enemy, seed, *enemy_moves = SCENARIOS[name]
+        party = party() if callable(party) else party
         scenario.make_scenario(party, path, seed, ROM, enemy=enemy, enemy_moves=enemy_moves[0] if enemy_moves else None)
     return path
 
@@ -133,7 +144,45 @@ def test_barry_with_fixed_rng_is_won_in_five_turns(env):
     assert [r[4] for r in rows] == [False] * 4 + [True]
     assert rows[-1][3] == ["ENEMY_FAINTED", "WON"]
     assert sum(r[2] for r in rows) == 6.0 and rows[-1][6]["outcome"] == "WON"
+    # Turtwig levels up at the end, and the text waits for a button; the env answers it, so the
+    # game's own result arrives before the episode ends.
+    assert rows[-1][6]["result_mask"] == 1
     assert 1 in result_masks_after_end(env)
+
+
+@needs_rom
+def test_a_fifth_move_replaces_the_weakest():
+    path = scenario_state("turtwig_learns_razor_leaf")
+    e = BattleEnv([path], ROM)
+    _, rows = play(e, path, [0] * 5, seed=1)
+    info = rows[-1][6]
+    moves = gen4.read_party(e.nds, e.addrs["playerBattleBase"])[0].moves
+    e.close()
+    assert info["outcome"] == "WON" and info["result_mask"] == 1
+    assert [(d["move"], d["forgot"]) for d in info["learned"]] == [("Razor Leaf", "Tackle")]
+    assert list(moves) == [RAZOR_LEAF, MEGA_DRAIN, BITE, ROCK_THROW]
+
+
+@needs_rom
+def test_a_weaker_fifth_move_is_given_up():
+    path = scenario_state("chimchar_skips_helping_hand")
+    e = BattleEnv([path], ROM)
+    _, rows = play(e, path, [0] * 5, seed=1)
+    info = rows[-1][6]
+    moves = gen4.read_party(e.nds, e.addrs["playerBattleBase"])[0].moves
+    e.close()
+    assert info["outcome"] == "WON" and info["result_mask"] == 1
+    assert [(d["move"], d["forgot"]) for d in info["learned"]] == [("Helping Hand", None)]
+    assert list(moves) == [EMBER, SCRATCH, TACKLE, BITE]
+
+
+@needs_rom
+def test_move_to_forget_keeps_old_moves_for_a_weaker_one():
+    grass = romdata.species(TURTWIG).types
+    four = [TACKLE, MEGA_DRAIN, BITE, ROCK_THROW]
+    assert move_to_forget(four, grass, RAZOR_LEAF) == 0
+    assert move_to_forget(four, grass, GROWL) is None
+    assert move_to_forget([GROWL, MEGA_DRAIN, BITE, ROCK_THROW], grass, TACKLE) == 0
 
 
 @needs_rom
