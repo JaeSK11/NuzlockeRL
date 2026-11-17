@@ -303,7 +303,9 @@ each run to the decisions. In order:
          Done (§36): `scripts/make_milestones.py`, with the map start states
          and the test fixtures.
    3. **Battles inside a run.** The battle env attaches to a battle already
-      running in the runner's emulator, instead of loading a state:
+      running in the runner's emulator, instead of loading a state. The
+      attach is done (PROGRESS.md §37); the restart states come with training
+      (sub-step 10):
       - When a battle starts, the runner saves its restart state at once,
         long before the enemy picks its first move. The state must pass
         §28's check that it reloads the same after another battle.
@@ -313,13 +315,13 @@ each run to the decisions. In order:
         but writes a state file per battle.
       - When the battle ends (WON, FLED, CAUGHT or LOST), the script goes
         on.
-   4. **The route script:** segments from Twinleaf Town to the Oreburgh Gym,
+   4. **The route script:** done (§37), `src/route.py`. Segments from Twinleaf Town to the Oreburgh Gym,
       one per row of the order in [ROUTE_TO_ROARK.md](ROUTE_TO_ROARK.md),
       each a list of waypoints and story actions ending at a checkpoint (a
       map and a tile). The script is position-aware, so a wild or trainer
       battle anywhere in a segment only pauses it. It includes visits to
       the Pokémon Centers in Sandgem Town, Jubilife City and Oreburgh City.
-   5. **The rules in the run.**
+   5. **The rules in the run.** Done (§37), in `src/run_env.py`.
       - `nuzlocke.Run` gets the route's name from `gen4.read_location`, and
         the wild Pokémon's species and shininess (`scenario.is_shiny`).
         `encounter()` becomes the battle's `catch` option.
@@ -329,7 +331,8 @@ each run to the decisions. In order:
       - A wipe, or a whiteout, ends the run.
    6. **The party and the PC at each Pokémon Center.** Two kinds of change:
       - **Enforced by the rules:** the runner deposits every fainted
-        Pokémon in the PC, where it stays for good. It isn't left to the
+        Pokémon in the PC, where it stays for good. Done (§37), by writing
+        the box and the party in RAM until the PC's screens are mapped. It isn't left to the
         agent, which would otherwise break the rule while it learned.
       - **Learned by the agent:** which caught Pokémon to withdraw from the
         PC into the open slots, and the party's order, which sets the lead.
@@ -346,7 +349,7 @@ each run to the decisions. In order:
    8. **The episode.**
       - One episode is a run from the starter choice, to Roark's badge, a
         wipe, or a step budget.
-      - **The starter is the agent's first decision:** one of the three in
+      - **The starter is the agent's first decision** (done, §37): one of the three in
         Rowan's briefcase, each shown with the same features as in battle
         (types, stats and moves, from the ROM). The milestone state
         `01_starter_turtwig_box_screen` is at that screen; the choice and its

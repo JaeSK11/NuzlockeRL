@@ -1907,3 +1907,78 @@ generator: the level-7 Turtwig against a forced level-5 Ledyba in Route
 | The walk to the first clown stayed blocked | The clown who opened the campaign stood still in the planned path | `walk_to` plans around a tile after 3 blocked tries, and forgets such tiles if that leaves no way |
 | The script's first run stopped at Rowan's scene | My bug: `("text", "yes")` passed "no" as the frame limit | Fixed before the full run |
 | Milestones 00 to 04 still have no input script, except 05 | They were made by hand before the scripted driver | Open: the runs start at milestone 01, so it matters for other machines |
+
+## 37. A whole run as one episode (2026-11-17)
+
+Goal: steps 3.3 to 3.5 of the plan, and the starter decision of 3.8. Play
+a run from the starter choice to Roark's badge under the README's rules,
+with the agent making every battle and catch decision.
+
+**Where a run starts.** Milestone 01 turned out to come after the choice:
+the hack opens a PC box screen with the new starter in it. The new milestone
+`01_starter_choice` is Rowan's briefcase, with its cursor on the first ball.
+`make_milestones.py` makes it from milestone 00:
+- Every tile around the bed starts the opening; B carries it to Route 201.
+- Barry's scene on Route 201 must take A. **Answering one of his questions
+  no rolls the hack's joke ending:** the Hall of Fame and the credits, then
+  the game resets.
+- The briefcase opens from (112,854). Its text, pressed with A every 20
+  frames 14 times, leaves the cursor up; the cursor ignores the D-pad while
+  text prints. These are the playthrough's own inputs, which the emulator
+  repeats exactly, and the script checks that each ball gives its starter.
+- After the choice: A on the ball, A on "Will you take this Pokémon?", then
+  B closes the box screen (A opens its menu, where STORE is refused for the
+  last Pokémon), then A through Rowan's text into Barry's first battle. Barry's
+  team follows the choice: Turtwig meets trainer 851, Chimchar 852, Piplup 850.
+
+**The route** (`src/route.py`) is the way to Roark as data, as
+`make_milestones.py` plays it, plus the Pokémon Centers of Sandgem Town,
+Jubilife City and Oreburgh City. Its runner is a generator: it plays the
+route and stops at each decision, `("starter",)` and `("battle",)`, taking
+back the choice or the battle's outcome. A wild battle or a trainer during a
+walk pauses the walk. After a battle the text goes on with A, since B would
+stop an evolution.
+
+**Battles inside a run.** `BattleEnv` takes an emulator at construction and
+`reset(options={"attach": True})`, which plays the battle already running
+there instead of loading a state. Attached to Barry's first battle it reached
+the first prompt and won it.
+
+**The rules in the run** (`src/run_env.py`, `RunEnv`):
+- When a wild battle starts, `nuzlocke.Run.encounter` gets the location's
+  name, the wild species and whether it's shiny, and its answer is the battle
+  env's `catch`.
+- After each battle the run records the fainted, the catch, and a boss beaten
+  (+20 for Roark).
+- **At each Pokémon Center the fainted go to the PC before the nurse heals,**
+  so the rule holds. `scenario.deposit` writes them into the first empty box
+  slots and closes up the party. A box slot is the party struct's first 136
+  bytes. This stands in for the PC's screens until they're mapped (3.6).
+- A lost battle ends the run as a wipe.
+
+**The episode.** One step is one decision, with the battle env's observation
+and 10 actions, so one policy plays both. The first decision is the starter:
+its observation shows the three as a party, each at level 5 with its
+level-up moves, and actions 0 to 2 pick one. A run ends on Roark's badge, a
+wipe, the route ending without the badge (Roark turns down a party over his
+cap), a budget of 3,000 decisions, a battle the env couldn't play, or a route
+step that failed. Battle seeds come from the run's seed.
+
+**Verified:**
+- A greedy run: Turtwig, Barry won, then the wild Delibird of Route 201 won
+  and wiped the run. A random run: Piplup, Barry won, Route 201's Delibird
+  caught, a wild battle won, then a Burmy on Route 202 wiped it.
+- `tests/test_run_env.py`: the starter is the first decision and the ball
+  gives its starter and Barry's matching team; a run plays its battles and
+  ends on a wipe, with Route 201's encounter counted; a fainted Pokémon goes
+  to the PC and the nurse heals the other five.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| Milestone 01 isn't the starter choice | The hack opens a PC box screen with the starter just after the choice | New milestone `01_starter_choice` at the briefcase |
+| B through Barry's scene rolled the credits and reset the game | The hack's joke ending for answering him no | His scene takes A |
+| The briefcase's cursor didn't move | It ignores the D-pad while the text prints | The choice state is saved 150 frames after the last press |
+| The first rebuilt starter choice picked nothing | My presses came at another cadence than the playthrough's | The script replays the playthrough's inputs and checks each ball |
+| `field_task` raised in the middle of a fade | The location address `resolve` follows jumped for one frame | It checks only that the FieldSystem pointer is in main RAM |
+| A wild battle met on a walk was pressed through with A | The runner waited for the battle, then called `advance_text`, which reports only a battle that starts while it runs | The runner hands a battle that is already up to the agent |
+| The nurse would bring the dead back | She heals the whole party | The runner deposits the fainted first |
