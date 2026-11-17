@@ -237,8 +237,13 @@ each run to the decisions. In order:
      battle's command selection too, and checked to reload the same after
      another battle.
    - **The one early double battle** in the ROM (Interviewers Roxy & Oli,
-     trainer 368, level 6). Settled (PROGRESS.md §30): it is vanilla's
-     unused entry, and no double battle comes before Roark.
+     trainer 368, level 6) is vanilla's unused entry (PROGRESS.md §30).
+   - **The Jubilife City multi battle** is on the way, though: the player
+     and an AI partner (Lucas or Dawn) against two Galactic grunts, at level
+     16 (§30's correction). The env plays single battles only, and each move
+     in this battle first asks for a target. Open: map the target screen,
+     and the second enemy and the partner in the snapshot. A scripted stand-in
+     could play it first, like the other scaffolding.
 2. **Catching and the Nuzlocke rules.**
    - **A Poké Ball action,** allowed only in a wild encounter the rules let
      it catch (a route's first new species, or a shiny), and only while the

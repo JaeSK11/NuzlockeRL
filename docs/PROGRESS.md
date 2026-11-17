@@ -1549,9 +1549,21 @@ This rests on the vanilla scripts and that pattern. The hack's own map
 scripts weren't parsed, so a double battle the runner meets would still be
 a surprise to handle then.
 
+**Correction, found in the survey (3.1): there is one, in Jubilife City.**
+Vanilla names trainers 414 and 415 `GALACTIC_GRUNT_JUBILIFE_CITY_1` and `_2`,
+and 613 to 618 `LUCAS_JUBILIFE_CITY_*` and `DAWN_JUBILIFE_CITY_*`. That is
+Platinum's multi battle: the player and the professor's assistant, an AI
+partner whose team depends on the player's starter, against two Galactic
+grunts. The hack gives all of them hand-set moves (grunts at level 16, the
+partner at 15 and 16), so it uses them. The check above missed it because a
+multi battle is set up by the map's script, not by the trainer's double flag.
+The battle env plays single battles only: in a 2-against-2 battle, each move
+first asks which enemy to target.
+
 | Issue | Cause | Resolution |
 |---|---|---|
-| A level-6 double battle looked like it might be on the way to Roark | Trainer 368 is in the ROM with a party | It is vanilla's unused entry; the real interviewers come at level 23. No double battle before Roark |
+| A level-6 double battle looked like it might be on the way to Roark | Trainer 368 is in the ROM with a party | It is vanilla's unused entry; the real interviewers come at level 23 |
+| "No double battle before Roark" was wrong | A multi battle is set by the map's script, not the trainer's double flag | Jubilife City's multi battle against two Galactic grunts, with an AI partner, is on the way. Open: NEXT_PHASE step 1 |
 
 ## 31. A Poké Ball action (2026-11-17)
 
