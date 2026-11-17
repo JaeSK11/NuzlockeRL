@@ -141,9 +141,45 @@ BLOCKED_WAIT, BLOCKED_TRIES = 30, 10   # a person who wanders into the way moves
 AROUND_AFTER = 3                       # blocked tries before planning around a person who stands still
 
 
-def _rom_step(nds, goal, avoid=frozenset()) -> str | None:
-    """The first step of the cheapest walk to goal (x, z) on the ROM's collision layer, with
-    signs and the people not hidden blocking the way: "" when there, None when there's no way."""
+WALK_SETTLE = 16      # frames for the last step's walk to finish after its tile has changed
+
+
+def walk(nds, direction: str, target) -> str:
+    """Hold a direction until the player stands on target (x, z), the end of a straight stretch.
+    The tile changes as a step begins, so letting go then finishes that step and stops. Stops
+    early when a field task starts (a scene, a trainer, a door's warp, a battle), the map changes,
+    or the player stops moving. Returns step()'s outcomes; "blocked" when it didn't move at all."""
+    map_id, start = gen4.read_location(nds).map_id, gen4.read_player_tile(nds)
+    last, still = start, 0
+    nds.button.press_key(direction)
+    while True:
+        nds.tick(1)
+        tile = gen4.read_player_tile(nds)
+        if gen4.read_location(nds).map_id != map_id or gen4.field_task(nds) or tile[:2] == tuple(target):
+            break
+        if tile == last:
+            still += 1
+            if still > STEP_FRAMES:
+                break
+        else:
+            last, still = tile, 0
+    nds.button.release_key(direction)
+    if gen4.read_player_tile(nds) == start and gen4.read_location(nds).map_id == map_id and not gen4.field_task(nds):
+        return "blocked"
+    nds.tick(WALK_SETTLE)
+    for _ in range(WARP_FRAMES):
+        if not gen4.field_task(nds) or gen4.read_location(nds).map_id != map_id:
+            break
+        nds.tick(1)
+    if gen4.read_location(nds).map_id != map_id:
+        return "exit"
+    return "scene" if gen4.field_task(nds) or gen4.in_battle(nds) else "moved"
+
+
+def _rom_stretch(nds, goal, avoid=frozenset()):
+    """The first straight stretch of the cheapest walk to goal (x, z) on the ROM's collision
+    layer, with signs and the people not hidden blocking the way: (direction, end tile), "" when
+    there, None when there's no way."""
     loc = gen4.read_location(nds)
     if (loc.x, loc.z) == tuple(goal[:2]):
         return ""
@@ -151,33 +187,50 @@ def _rom_step(nds, goal, avoid=frozenset()) -> str | None:
     blocked = {(s.x, s.z) for s in signs} | {(o.x, o.z) for o in objs if not gen4.read_flag(nds, o.flag)} | set(avoid)
     blocked.discard(tuple(goal[:2]))
     runs = fieldmap.path(fieldmap.header(loc.map_id).matrix, (loc.x, loc.z), tuple(goal[:2]), frozenset(blocked))
-    return runs[0][0] if runs else None
+    if not runs:
+        return None
+    d, n = runs[0]
+    dx, dz = fieldmap.DIRS[d]
+    return d, (loc.x + dx * n, loc.z + dz * n)
+
+
+def _graph_stretch(graph: WalkGraph, here, goal, avoid=frozenset()):
+    """The same on a walkable graph: the first direction of the path and where its run ends."""
+    dirs = graph.path(here, goal, avoid)
+    if dirs is None:
+        return None
+    if not dirs:
+        return ""
+    node = here
+    for d in dirs:
+        if d != dirs[0]:
+            break
+        node = graph.edges[node][d]
+    return dirs[0], node[:2]
 
 
 def walk_to(nds, graph: WalkGraph | None, goal) -> str:
-    """Walk to goal (a node, or an (x, z) at any height), planning again from the player's tile
-    after every step. A blocked step waits for the person in the way; after AROUND_AFTER blocked
-    tries the walk plans around that tile, and forgets such tiles again if that leaves no way.
-    With a graph the plan uses it; without one it uses the ROM's collision layer (`fieldmap`),
-    which sees no heights, and goes on across the edge into the next map of the same matrix, as
-    the outdoor maps are. Returns "arrived", "scene" or "exit" when a step starts one, or "stuck"
-    when the way stays blocked or there's no path."""
+    """Walk to goal (a node, or an (x, z) at any height), a straight stretch at a time, planning
+    again from the player's tile after each. A blocked step waits for the person in the way;
+    after AROUND_AFTER blocked tries the walk plans around that tile, and forgets such tiles
+    again if that leaves no way. With a graph the plan uses it; without one it uses the ROM's
+    collision layer (`fieldmap`), which sees no heights, and goes on across the edge into the
+    next map of the same matrix, as the outdoor maps are. Returns "arrived", "scene" or "exit"
+    when a step starts one, or "stuck" when the way stays blocked or there's no path."""
     avoid, waits = set(), 0
     while True:
-        if graph is None:
-            first = _rom_step(nds, goal, avoid)
-        else:
-            dirs = graph.path(gen4.read_player_tile(nds), goal, avoid)
-            first = None if dirs is None else (dirs[0] if dirs else "")
-        if first is None:
+        here = gen4.read_player_tile(nds)
+        plan = _rom_stretch(nds, goal, avoid) if graph is None else _graph_stretch(graph, here, goal, avoid)
+        if plan is None:
             if not avoid:
                 return "stuck"
             avoid.clear()
-        elif first == "":
+        elif plan == "":
             return "arrived"
         else:
-            map_id, (x, z, _) = gen4.read_location(nds).map_id, gen4.read_player_tile(nds)
-            outcome = step(nds, first)
+            direction, end = plan
+            map_id = gen4.read_location(nds).map_id
+            outcome = walk(nds, direction, end)
             if outcome == "exit" and graph is None and \
                     fieldmap.header(gen4.read_location(nds).map_id).matrix == fieldmap.header(map_id).matrix:
                 outcome = "moved"
@@ -187,8 +240,8 @@ def walk_to(nds, graph: WalkGraph | None, goal) -> str:
                 waits = 0
                 continue
             if waits % AROUND_AFTER == AROUND_AFTER - 1:
-                dx, dz = fieldmap.DIRS[first]
-                avoid.add((x + dx, z + dz))
+                dx, dz = fieldmap.DIRS[direction]
+                avoid.add((here[0] + dx, here[1] + dz))
         waits += 1
         if waits > BLOCKED_TRIES:
             return "stuck"

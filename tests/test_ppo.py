@@ -146,8 +146,8 @@ def test_truncation_bootstraps_from_the_final_observation_and_termination_does_n
     adv = rollout.tensors(gamma=0.9, lam=0.95)["advantage"].tolist()
     assert adv[0] == pytest.approx(1.0 + 0.9 * v_final - truncated.value, abs=1e-5)
     assert adv[1] == pytest.approx(2.0 - terminated.value, abs=1e-5)
-    assert episodes == [{"state": "a.state", "outcome": "WON", "return": 1.0, "length": 1, "faints": 0, "tally": {}, "result_mask": None},
-                        {"state": "a.state", "outcome": "WON", "return": 2.0, "length": 1, "faints": 0, "tally": {}, "result_mask": None}]
+    assert episodes == [{"state": "a.state", "outcome": "WON", "return": 1.0, "length": 1, "faints": 0, "tally": {}, "result_mask": None, "route_step": None},
+                        {"state": "a.state", "outcome": "WON", "return": 2.0, "length": 1, "faints": 0, "tally": {}, "result_mask": None, "route_step": None}]
 
 
 def test_an_env_with_no_valid_action_is_an_error():

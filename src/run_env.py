@@ -6,7 +6,10 @@ switches, and the ball where the rules allow a catch. The walk between them is s
 (route.py). Observations and actions are the battle env's, so one policy plays both.
 """
 from __future__ import annotations
+import glob
+import json
 import os
+import uuid
 
 import gymnasium as gym
 import numpy as np
@@ -26,6 +29,7 @@ STARTERS = (387, 390, 393)          # the briefcase's balls, left to right: Turt
 BOSSES = {route.ROARK: "Roark"}     # trainer id -> the capped boss it is (nuzlocke.Rules.level_caps)
 BOSS_REWARD = 20.0
 MAX_DECISIONS = 3000
+RESTARTS_PER_STEP = 20      # restart states kept for each route step; the oldest go first
 
 
 def starter_snapshot() -> BE.Snapshot:
@@ -46,12 +50,22 @@ class RunEnv(gym.Env):
     over his level cap); truncated on the decision budget ("budget"), a battle the env couldn't
     play ("stuck") or a script that couldn't go on ("route_error").
 
-    Rewards: the battle env's in every battle, plus BOSS_REWARD for each capped boss beaten."""
+    Rewards: the battle env's in every battle, plus BOSS_REWARD for each capped boss beaten.
+
+    Restart states, for training only (NEXT_PHASE step 3.10): with restart_dir set, every battle
+    a run reaches leaves a state saved as it starts, with the run's bookkeeping beside it. A reset
+    then starts from one of them with probability restart_share: it picks a route step at random
+    among those with restarts, so later battles get practice while most runs still die early,
+    then a state of that step. A run that counts plays from the starter choice."""
     metadata = {"render_modes": []}
 
     def __init__(self, start_state: str = START_STATE, rom: str = BE.DEFAULT_ROM, rules: nuzlocke.Rules | None = None,
-                 max_decisions: int = MAX_DECISIONS, log_path: str | None = None):
+                 max_decisions: int = MAX_DECISIONS, log_path: str | None = None, route_actions=route.ROUTE,
+                 restart_dir: str | None = None, restart_share: float = 0.0):
         self.start_state, self.rules, self.max_decisions = start_state, rules or nuzlocke.Rules(), max_decisions
+        self.route_actions, self.restart_dir, self.restart_share = route_actions, restart_dir, restart_share
+        if restart_dir:
+            os.makedirs(restart_dir, exist_ok=True)
         self.battle = BE.BattleEnv([], rom=rom, log_path=log_path)
         self.nds = self.battle.nds
         self.action_space = gym.spaces.Discrete(BE.N_ACTIONS)
@@ -60,14 +74,73 @@ class RunEnv(gym.Env):
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
         self.battle.np_random = self.np_random              # battle seeds follow the run's seed
-        self.nds.load_state_from_file(self.start_state)
-        self.nds.tick(2)
         self.run = nuzlocke.Run(self.rules)
-        self.runner = route.Runner(self.nds)
-        self.script = self.runner.play()
+        self.runner = route.Runner(self.nds, self.route_actions)
         self.decisions, self.ret, self.battles, self.end = 0, 0.0, [], None
-        self.kind = None
-        return self._advance(None)
+        self.kind, self.restart, self.starter = None, None, None
+        resume = self._load_restart() if self.restart_share and self.np_random.random() < self.restart_share else None
+        if resume is None:
+            self.nds.load_state_from_file(self.start_state)
+            self.nds.tick(2)
+        self.script = self.runner.play(resume)
+        obs, info = self._advance(None)
+        info["restart"] = self.restart
+        return obs, info
+
+    def _restart_files(self) -> dict[int, list[str]]:
+        by_step = {}
+        for path in glob.glob(os.path.join(self.restart_dir or "", "*.json")):
+            by_step.setdefault(int(os.path.basename(path).split("_")[0]), []).append(path)
+        return by_step
+
+    def _load_restart(self):
+        """Load a restart state and its bookkeeping. Returns the runner's resume point, or None
+        when there is none yet or the one picked was trimmed away by another worker meanwhile."""
+        by_step = self._restart_files()
+        if not by_step:
+            return None
+        steps = sorted(by_step)
+        meta_path = by_step[steps[int(self.np_random.integers(len(steps)))]]
+        meta_path = meta_path[int(self.np_random.integers(len(meta_path)))]
+        try:
+            with open(meta_path) as f:
+                meta = json.load(f)
+            self.nds.load_state_from_file(meta_path.removesuffix(".json") + ".state")
+        except (OSError, ValueError, FileNotFoundError):
+            return None
+        self.nds.tick(2)
+        r = meta["run"]
+        self.run.routes, self.run.caught_lines = dict(r["routes"]), set(r["caught_lines"])
+        self.run.dead, self.run.beaten = set(r["dead"]), set(r["beaten"])
+        self.runner.trainers_beaten, self.starter = list(meta["trainers_beaten"]), meta["starter"]
+        self.restart = os.path.basename(meta_path).removesuffix(".json")
+        return meta["at"], meta["sub"]
+
+    def _save_restart(self):
+        """Save the battle that just started, and the run's bookkeeping, as a restart state."""
+        name = f"{self.runner.at:03d}_{uuid.uuid4().hex[:12]}"
+        base = os.path.join(self.restart_dir, name)
+        meta = {"at": self.runner.at, "sub": self.runner.sub, "starter": self.starter,
+                "trainers_beaten": self.runner.trainers_beaten,
+                "run": {"routes": self.run.routes, "caught_lines": sorted(self.run.caught_lines),
+                        "dead": sorted(self.run.dead), "beaten": sorted(self.run.beaten)}}
+        self.nds.save_state_to_file(base + ".state.tmp")
+        with open(base + ".json.tmp", "w") as f:
+            json.dump(meta, f)
+        os.replace(base + ".state.tmp", base + ".state")
+        os.replace(base + ".json.tmp", base + ".json")                 # last: a reader finds both files
+        def age(path):
+            try:
+                return os.path.getmtime(path)
+            except FileNotFoundError:                                   # another worker trimmed it
+                return 0.0
+        same_step = sorted(self._restart_files().get(self.runner.at, []), key=age)
+        for old in same_step[:-RESTARTS_PER_STEP]:
+            for path in (old, old.removesuffix(".json") + ".state"):
+                try:
+                    os.remove(path)
+                except FileNotFoundError:
+                    pass
 
     def _advance(self, value):
         """Play the route to the next decision. Returns (obs, info); sets self.end when the run is over."""
@@ -85,6 +158,8 @@ class RunEnv(gym.Env):
                 mask = np.zeros(BE.N_ACTIONS, dtype=bool)
                 mask[:len(STARTERS)] = True
                 return BE.observation(starter_snapshot(), 0, 1), {"action_mask": mask, "decision": "starter"}
+            if self.restart_dir and not (self.restart and self.kind is None):
+                self._save_restart()                        # not again for the battle a restart resumes
             self.kind = "battle"
             self.trainer = self.nds.memory.read_u16(False, gen4.resolve(self.nds)["enemyTrainerID"])
             catch = self._encounter() if not self.trainer else False
@@ -141,7 +216,8 @@ class RunEnv(gym.Env):
         terminated = self.end in ("badge", "wipe", "no_badge")
         truncated = self.end in ("budget", "stuck", "route_error")
         if self.end:
-            info.update(end=self.end, decisions=self.decisions, battles=self.battles, run_return=self.ret,
+            info.update(end=self.end, outcome=self.end, decisions=self.decisions, battles=self.battles, run_return=self.ret,
+                        route_step=self.runner.at, route_steps=len(self.runner.route),
                         caught=len(self.run.caught_lines), dead=len(self.run.dead), routes=dict(self.run.routes),
                         location=tuple(gen4.read_location(self.nds)[:3]))
         return obs, reward, terminated, truncated, info

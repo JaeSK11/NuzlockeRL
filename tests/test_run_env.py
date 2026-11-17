@@ -65,3 +65,28 @@ def test_a_fainted_pokemon_goes_to_the_pc_and_the_rest_are_healed():
     party = gen4.read_party(nds)
     assert len(party) == 5 and dead.pid not in [m.pid for m in party]
     assert all(m.hp == m.max_hp and m.checksum_ok for m in party)
+
+
+@needs_choice
+def test_a_run_leaves_restart_states_and_a_reset_resumes_one(tmp_path):
+    import json
+    import run_env as RE
+    env = RE.RunEnv(restart_dir=str(tmp_path))
+    obs, info = env.reset(seed=0)
+    done = False
+    while not done:
+        obs, reward, term, trunc, info = env.step(first_move(info))
+        done = term or trunc
+    saved = sorted(p.name for p in tmp_path.glob("*.json"))
+    assert len(saved) == len(info["battles"])                       # one per battle the run met
+    barry = json.loads((tmp_path / saved[0]).read_text())
+    assert barry["at"] == 0 and barry["starter"] == 387               # Barry's first battle, inside the starter's action
+    env = RE.RunEnv(restart_dir=str(tmp_path), restart_share=1.0)
+    obs, info = env.reset(seed=1)
+    assert info["restart"] and info["decision"] == "battle"           # the run starts at the saved battle
+    assert len(list(tmp_path.glob("*.json"))) == len(saved)           # and doesn't save it again
+    done = False
+    while not done:
+        obs, reward, term, trunc, info = env.step(first_move(info))
+        done = term or trunc
+    assert info["end"] in ("wipe", "badge", "no_badge")

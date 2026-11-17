@@ -65,10 +65,28 @@ class Runner:
     def __init__(self, nds, route=ROUTE):
         self.nds, self.route = nds, route
         self.trainers_beaten: list[int] = []
+        self.at = 0                                     # the route action playing now: how far the run got
+        self.sub = 0                                    # the step playing now, inside a fixed list of steps
 
-    def play(self):
-        for action, *args in self.route:
-            yield from getattr(self, "_" + action)(*args)
+    def play(self, resume: tuple[int, int] | None = None):
+        """Play the route. resume=(at, sub) restarts a run from a state saved at a battle's start
+        (a restart state): the battle comes first, then the route action it interrupted, from
+        its start (a walk or a door is position-aware) or, in a list of steps, from the next one."""
+        start, sub = 0, 0
+        if resume:
+            start, sub = resume
+            yield from self._battle()
+            yield from self._text("yes")
+            if self.route[start][0] == "starter":
+                start += 1
+            else:
+                sub += 1
+        for self.at in range(start, len(self.route)):
+            action, *args = self.route[self.at]
+            if action == "steps":
+                yield from self._steps(args[0], sub if self.at == start else 0)
+            else:
+                yield from getattr(self, "_" + action)(*args)
         return "done"
 
     def _battle(self):
@@ -117,8 +135,9 @@ class Runner:
                 raise RouteError(f"stuck walking to {goal} at {gen4.read_player_tile(self.nds)}")
             return
 
-    def _steps(self, dirs):
-        for d in dirs:
+    def _steps(self, dirs, first: int = 0):
+        for self.sub in range(first, len(dirs)):
+            d = dirs[self.sub]
             outcome = O.step(self.nds, d)
             if outcome == "blocked" or (outcome == "scene" and not (yield from self._battle_or_scene(outcome))):
                 raise RouteError(f"step {d} at {gen4.read_player_tile(self.nds)}: {outcome}")
@@ -148,6 +167,11 @@ class Runner:
             scenario.deposit(self.nds, dead)
         yield from self._talk_from(*NURSE)
         yield from self._text("yes")
+
+    def _call(self, fn):
+        """fn(nds): a hook for checks and fixtures, such as writing a party."""
+        fn(self.nds)
+        yield from ()
 
     def _starter(self):
         choice = yield ("starter",)
