@@ -1266,6 +1266,7 @@ realistic, and it can be measured.
   party's order. Depositing the fainted is enforced, not learned, since
   learning it would mean breaking the rule while it learned. Decided after
   the route runner's breakdown (NEXT_PHASE step 3).
+- **The agent chooses its starter,** as the first decision of every run.
 
 | Issue | Cause | Resolution |
 |---|---|---|

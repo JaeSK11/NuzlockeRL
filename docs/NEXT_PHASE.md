@@ -311,12 +311,20 @@ each run to the decisions. In order:
       evolution scene after a battle is let run: the Pokémon evolves.
       Picking up items is left out for now (the roadmap's Items).
    8. **The episode.**
-      - One episode is a run from the state after the starter is chosen,
-        to Roark's badge, a wipe, or a step budget.
+      - One episode is a run from the starter choice, to Roark's badge, a
+        wipe, or a step budget.
+      - **The starter is the agent's first decision:** one of the three in
+        Rowan's briefcase, each shown with the same features as in battle
+        (types, stats and moves, from the ROM). The milestone state
+        `01_starter_turtwig_box_screen` is at that screen; the choice and its
+        confirmation get mapped like the other screens. Its payoff shows
+        only over the whole run, so it is learned slowly, as a choice among
+        three over many runs.
       - The rewards are the battle rewards of now, plus one for each boss
         beaten.
-      - The decisions are the battle actions, the ball where the rules
-        allow it, and the party and PC choices at each Pokémon Center.
+      - The decisions are the starter, the battle actions, the ball where
+        the rules allow it, and the party and PC choices at each Pokémon
+        Center.
    9. **Time one run first.** Before building training on it, play a few
       runs with random battle actions. Measure the frames, the battles and
       the decisions per run, and the runs per hour on 14 envs, to know what
