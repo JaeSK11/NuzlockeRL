@@ -62,6 +62,7 @@ src/romdata.py      The hack's species, moves, learnsets, trainers, and encounte
 src/scenario.py     Battle-scenario generator: any party vs any wild Pokémon, saved as a battle state
 src/pool.py         Asynchronous env pool: one worker process per env, stepped as each is ready
 src/ppo.py          Masked PPO with checkpoints and resume
+src/fieldmap.py     The overworld from the ROM: maps, tiles, people, warps, triggers, trainers' sight, paths
 src/nuzlocke.py     The Nuzlocke rules as data, and a run's bookkeeping: which encounters may be caught, who is gone, the level cap
 src/thermal.py      Stops long runs when the CPU stays too hot
 src/drive.py        Scripted input driver for exploring the game and making save states

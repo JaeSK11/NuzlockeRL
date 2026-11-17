@@ -165,6 +165,20 @@ during the text after the final KO, which needs A presses to get through.
 Once the battle frees its memory, the byte reads garbage (168 was seen). The
 env decides wins and losses from HP instead.
 
+## Overworld
+
+Found during the playthrough to the Oreburgh Gym (PROGRESS.md §33).
+
+| Field | Address | Type | Status |
+|---|---|---|---|
+| FieldSystem pointer | 0x21C07DC (absolute) | `FieldSystem *` | ✅ The same pointer in every state tried, overworld and battle. Checked by `FieldSystem.location` (+0x1C) pointing at `location` |
+| FieldSystem.task | FieldSystem + 0x10 | `FieldTask *` | ✅ Non-zero while a script runs (text, a scene, a trainer walking up), during a warp, and in battle. 0 when the player can walk. `gen4.field_task` |
+| vars | v + 0xDC0 | u16 × 288, ids from 0x4000 | ✅ The story vars the map triggers test. Seen moving 0 → 1 → 2 in Sandgem (16497), Jubilife (16503) and the Trainers' School (16615). `gen4.read_var` |
+| flags | vars + 0x240 | bit array | ✅ Event flags. A person whose flag is set is hidden: Roark leaving the mine set 394, the boulder he smashed set 32. `gen4.read_flag` |
+
+The vars and flags were found by diffing RAM across the scenes that changed
+them, then checked against other vars and flags the scenes set.
+
 ## Differences from retail Platinum
 
 Everything below was seen in this hack (game code `JAK7`) and differs from

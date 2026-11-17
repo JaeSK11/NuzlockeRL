@@ -51,8 +51,12 @@ OFFSETS = {                     # added to the resolved version pointer
     "battlePokedexPtr": 0x4185C,  # u32 pointer to the battle's own Pokedex copy. Valid only during battle
     "bag": 0x644,               # Bag, see BAG_POCKETS. The battle copy is at "bagBattle"
     "bagBattle": 0x43DA0,       # battle copy of the bag, valid only during battle. Items used in battle drop here first
+    "vars": 0xDC0,              # VarsFlags: u16 story vars from id 0x4000, 288 of them, then the event flag bits (read_var, read_flag)
     "pcBoxes": 0xCF40,          # PCBoxes: u32 currentBoxID, 18 x 30 x 136-byte box mons, then names. Empty-box layout only; no occupied slot seen
 }
+FIELD_SYSTEM_PTR = 0x21C07DC    # FieldSystem *, the same in every state tried, overworld and battle
+FS_TASK, FS_LOCATION = 0x10, 0x1C   # FieldSystem.task (FieldTask *) and .location (points at "location")
+NUM_VARS = 288
 BATTLE_STATUS = 0x24A55A        # tracker global; reads 0 even mid-battle in Kaizo. Use in_battle()
 
 POKEDEX_MAGIC = 0xBEEFCAFE
@@ -365,6 +369,29 @@ def read_location(nds, addrs: dict | None = None) -> Location:
     a = addrs or resolve(nds)
     map_id, _warp, x, z = (nds.memory.read_u32(False, a["location"] + 4 * i) for i in range(4))
     return Location(map_id, x, z, nds.memory.read_u8(False, a["facingDirection"]))
+
+
+def field_task(nds, addrs: dict | None = None) -> int:
+    """The running field task: a script (text, a scene, a trainer's approach), a warp, or a battle.
+    0 when the player is free to walk. Pressing B until it reads 0 ends a scene without starting a
+    new talk, except at a yes/no the story needs answered yes: B says no, and it asks again."""
+    a = addrs or resolve(nds)
+    fs = nds.memory.read_u32(False, FIELD_SYSTEM_PTR)
+    if nds.memory.read_u32(False, fs + FS_LOCATION) != a["location"]:
+        raise RuntimeError(f"no FieldSystem at {fs:#x}; the ROM differs from the one measured")
+    return nds.memory.read_u32(False, fs + FS_TASK)
+
+
+def read_var(nds, var: int, addrs: dict | None = None) -> int:
+    """A story var (0x4000 and up), as the map events' triggers test them."""
+    a = addrs or resolve(nds)
+    return nds.memory.read_u16(False, a["vars"] + 2 * (var - 0x4000))
+
+
+def read_flag(nds, flag: int, addrs: dict | None = None) -> bool:
+    """An event flag. A person whose event flag is set is hidden."""
+    a = addrs or resolve(nds)
+    return bool(nds.memory.read_u8(False, a["vars"] + 2 * NUM_VARS + flag // 8) >> (flag % 8) & 1)
 
 
 def read_badges(nds, addrs: dict | None = None) -> int:

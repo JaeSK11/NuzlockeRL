@@ -75,3 +75,31 @@ def test_clock_is_fixed():
     n = load("04_after_barry1_home.state")
     n.tick(120)
     assert gen4.read_clock(n) == want
+
+
+def load_survey(name):
+    """A milestone from the playthrough to the Oreburgh Gym (PROGRESS.md §33), made locally."""
+    if not os.path.exists(os.path.join(M, name)):
+        pytest.skip(f"needs {name} from the playthrough of §33")
+    return load(name)
+
+
+def test_b_until_no_field_task_ends_a_scene_and_frees_the_player():
+    n = load("04_after_barry1_home.state")
+    assert gen4.field_task(n)                          # Mom's and Barry's mom's scene is running
+    frames = 0
+    while gen4.field_task(n) and frames < 6000:
+        n.button.press_key("b"); n.tick(4); n.button.release_key("b"); n.tick(16)
+        frames += 20
+    assert gen4.field_task(n) == 0
+    start = gen4.read_location(n)
+    n.button.press_key("down"); n.tick(40); n.button.release_key("down"); n.tick(20)
+    assert gen4.read_location(n).z > start.z
+
+
+def test_story_vars_and_event_flags():
+    n = load_survey("09_jubilife_poketch.state")
+    assert [gen4.read_var(n, v) for v in (16497, 16503, 16615)] == [2, 2, 2]   # Sandgem, Jubilife, the school
+    n = load_survey("13_oreburgh_mine_roark.state")
+    assert gen4.read_flag(n, 394) and gen4.read_flag(n, 32)    # Roark left the mine; he smashed one boulder
+    assert not gen4.read_flag(n, 33)                           # the other boulder is still there
