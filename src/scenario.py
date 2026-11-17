@@ -186,6 +186,27 @@ def write_party(nds, mons: list[MonData]) -> None:
     nds.memory.write_u32(False, base - 4, len(mons))
 
 
+def deposit(nds, slots: list[int]) -> list[tuple[int, int]]:
+    """Move the party Pokémon in `slots` into the first empty PC box slots, as the PC's deposit
+    does, and close up the party. A box slot holds the party struct's first 136 bytes, encrypted
+    the same way. Returns the (box, slot) each went to. Not the PC's screens: the runner's
+    stand-in until they are mapped (NEXT_PHASE step 3.6)."""
+    party = read_party_data(nds)
+    if not slots or len(slots) >= len(party):
+        raise ValueError(f"deposit {slots} would leave no Pokémon in a party of {len(party)}")
+    base = gen4.resolve(nds)["pcBoxes"] + 4
+    empty = [(b, i) for b in range(gen4.PC_BOXES) for i, m in enumerate(gen4.read_box(nds, b)) if m is None]
+    placed = []
+    for k, slot in zip(slots, empty):
+        box_mon = encode_mon(party[k])[:gen4.BOX_MON_SIZE]
+        addr = base + (slot[0] * gen4.BOX_SLOTS + slot[1]) * gen4.BOX_MON_SIZE
+        for i in range(0, len(box_mon), 4):
+            nds.memory.write_u32(False, addr + i, int.from_bytes(box_mon[i:i + 4], "little"))
+        placed.append(slot)
+    write_party(nds, [m for k, m in enumerate(party) if k not in slots])
+    return placed
+
+
 def read_party_data(nds) -> list[MonData]:
     base = gen4.resolve(nds)["playerBase"]
     count = nds.memory.read_u32(False, base - 4)

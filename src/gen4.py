@@ -373,13 +373,12 @@ def read_location(nds, addrs: dict | None = None) -> Location:
     return Location(map_id, x, z, nds.memory.read_u8(False, a["facingDirection"]))
 
 
-def field_task(nds, addrs: dict | None = None) -> int:
+def field_task(nds) -> int:
     """The running field task: a script (text, a scene, a trainer's approach), a warp, or a battle.
     0 when the player is free to walk. Pressing B until it reads 0 ends a scene without starting a
     new talk, except at a yes/no the story needs answered yes: B says no, and it asks again."""
-    a = addrs or resolve(nds)
     fs = nds.memory.read_u32(False, FIELD_SYSTEM_PTR)
-    if nds.memory.read_u32(False, fs + FS_LOCATION) != a["location"]:
+    if not MAIN_RAM <= fs < MAIN_RAM + 0x400000:
         raise RuntimeError(f"no FieldSystem at {fs:#x}; the ROM differs from the one measured")
     return nds.memory.read_u32(False, fs + FS_TASK)
 

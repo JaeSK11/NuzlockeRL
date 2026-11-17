@@ -477,11 +477,11 @@ class BattleEnv(gym.Env):
     metadata = {"render_modes": []}
 
     def __init__(self, states: list[str], rom: str = DEFAULT_ROM, turn_cap: int = 100,
-                 log_path: str | None = None, fast_battles: bool = True):
+                 log_path: str | None = None, fast_battles: bool = True, nds=None):
         pynds.config.set_threaded_2d(0)
         pynds.config.set_threaded_3d(0)
         self.states, self.turn_cap, self.fast_battles = list(states), turn_cap, fast_battles
-        self.nds = pynds.PyNDS(rom)
+        self.nds = nds or pynds.PyNDS(rom)     # a live run passes its own emulator and attaches to its battles
         self.action_space = gym.spaces.Discrete(N_ACTIONS)
         self.observation_space = gym.spaces.Box(-1.0, 1.0, (OBS_SIZE,), np.float32)
         self._log = open(log_path, "a", buffering=1) if log_path else None
@@ -691,9 +691,12 @@ class BattleEnv(gym.Env):
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
         options = options or {}
-        self.state_name = options.get("state") or self.states[int(self.np_random.integers(len(self.states)))]
         self.catch_allowed = bool(options.get("catch"))     # set by the caller from the rules: this encounter may be caught
-        self.nds.load_state_from_file(self.state_name)
+        if options.get("attach"):                           # a battle already running in self.nds
+            self.state_name = "attached"
+        else:
+            self.state_name = options.get("state") or self.states[int(self.np_random.integers(len(self.states)))]
+            self.nds.load_state_from_file(self.state_name)
         self.addrs = gen4.resolve(self.nds)
         if options.get("keep_rng"):
             self.rng_seed = self.nds.memory.read_u32(False, self.addrs["battleRngSeed"])

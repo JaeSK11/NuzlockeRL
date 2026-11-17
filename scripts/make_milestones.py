@@ -1,4 +1,4 @@
-"""Rebuild milestones 06 to 16 from milestone 04, with the map start states and test fixtures.
+"""Rebuild milestone 01_starter_choice from 00, and 06 to 16 from 04, with the map start states and test fixtures.
 
   python scripts/make_milestones.py [--root states]
 
@@ -215,6 +215,52 @@ class Run:
                 self.save("fixtures", args[0])
 
 
+def starter_choice(root: str):
+    """Milestone 01_starter_choice, from milestone 00: the opening, Barry on Route 201, then
+    Rowan's briefcase with its cursor on the first ball, where every run starts. A question of
+    Barry's answered no rolls the hack's joke credits and resets the game, so his scene takes A.
+    The briefcase's text is pressed through with A every 20 frames, 14 times; these are the
+    playthrough's own inputs, which the emulator repeats exactly. Checked: each ball gives its
+    starter."""
+    nds = pynds.PyNDS(ROM)
+    nds.load_state_from_file(os.path.join(ROOT, "states/milestones/00_twinleaf_bedroom_no_party.state"))
+    nds.tick(2)
+    for action, arg in (("step", "down"), ("text", "no"), ("text", "no"), ("step", "up"), ("text", "yes"),
+                        ("step", "down"), ("text", "no")):
+        if action == "step":
+            O.step(nds, arg)
+        elif O.advance_text(nds, arg == "yes") != "done":
+            raise SystemExit(f"the opening's text didn't end at {gen4.read_location(nds)[:3]}")
+    if O.talk_to(nds, None, 112, 854) != "talking":             # the briefcase
+        raise SystemExit("no briefcase at (112,854)")
+    presses, frame = 0, 0
+    while True:
+        if gen4.field_task(nds) and frame % 20 == 0:
+            if presses == 14:
+                break
+            O.press(nds, "a")
+            presses += 1
+        nds.tick(1)
+        frame += 1
+    nds.tick(152)
+    path = os.path.join(root, "milestones", "01_starter_choice.state")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    nds.save_state_to_file(path)
+    for k, species in enumerate((387, 390, 393)):
+        nds.load_state_from_file(path)
+        nds.tick(2)
+        for _ in range(k):
+            O.press(nds, "right", 8)
+            nds.tick(40)
+        O.press(nds, "a")
+        nds.tick(90)
+        O.press(nds, "a")
+        nds.tick(150)
+        if [m.species for m in gen4.read_party(nds)] != [species]:
+            raise SystemExit(f"ball {k} didn't give species {species} from the rebuilt starter choice")
+    print("  saved milestones/01_starter_choice", flush=True)
+
+
 def ledyba_fixture(root: str):
     """The wild Ledyba that beat the legit level-7 Turtwig (§33), in Route 201's grass, before
     any Pokémon Center: the first battle seed it wins is kept."""
@@ -239,5 +285,6 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", default=os.path.join(ROOT, "states"))
     root = ap.parse_args().root
+    starter_choice(root)
     Run(root).run()
     ledyba_fixture(root)
