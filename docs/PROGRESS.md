@@ -1267,6 +1267,10 @@ realistic, and it can be measured.
   learning it would mean breaking the rule while it learned. Decided after
   the route runner's breakdown (NEXT_PHASE step 3).
 - **The agent chooses its starter,** as the first decision of every run.
+- **+20 for each boss beaten, with γ = 0.999 for runs,** to start. The size
+  sits between an ordinary battle's reward and the cost of three strong
+  faints. The discount lets a reward 250 decisions away keep 78% of its
+  value, where 0.99 keeps 8%.
 
 | Issue | Cause | Resolution |
 |---|---|---|

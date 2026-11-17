@@ -320,8 +320,21 @@ each run to the decisions. In order:
         confirmation get mapped like the other screens. Its payoff shows
         only over the whole run, so it is learned slowly, as a choice among
         three over many runs.
-      - The rewards are the battle rewards of now, plus one for each boss
-        beaten.
+      - The rewards are the battle rewards of now, plus **+20 for each boss
+        beaten**, to start with:
+        - Beating Roark is already worth about +11 in battle rewards (his 6
+          faints and the win). The badge should be the run's biggest single
+          reward, above any ordinary battle's +6 to +10.
+        - +20 is about the cost of three strong faints (−8, −7, −6). The
+          agent will spend fodder (−2.4 each) for a badge, but not trade its
+          best team for one, and it needs that team at the next gym.
+        - The swing at Roark is then about +31 for a win against about −30
+          for a wipe.
+      - **The discount must rise with the episode.** At PPO's γ = 0.99, a
+        reward 250 decisions away keeps 8% of its value, so the badge would
+        barely reach the starter choice. Runs use γ = 0.999 (78% over 250
+        decisions). The timing run (sub-step 9) shows how long a run really
+        is; tune both then.
       - The decisions are the starter, the battle actions, the ball where
         the rules allow it, and the party and PC choices at each Pokémon
         Center.
