@@ -2,8 +2,9 @@
 
 Reinforcement learning for Pokémon Platinum Kaizo, played under Hardcore
 Nuzlocke rules: a fainted Pokémon is gone for good, you may only catch the
-first encounter on each route, and the hack's level caps apply. No items
-from the bag in battle; held items still work.
+first encounter on each route, and the hack's level caps apply. No healing
+or battle items from the bag in battle, only Poké Balls for a route's first
+encounter; held items still work.
 
 The plan follows the only public attempt we know of, KP Labs' Emerald Kaizo
 agent: **learn battles first**, starting each battle from an emulator save

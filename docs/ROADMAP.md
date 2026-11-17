@@ -169,13 +169,16 @@ The hack changed abilities, so assume it changed more.
       planner over the battle policy
 - [ ] Player position, map, facing direction, story flags, defeated-trainer
       flags, open menu
-- [ ] Overworld navigation, if it proves worth it at DS emulation speed
+- [ ] Overworld navigation: first a scripted route runner from Twinleaf
+      Town to Roark, then learned walking rewarded once per waypoint of its
+      path ([NEXT_PHASE.md](NEXT_PHASE.md#after-the-pilot), steps 6 and 7)
 
 ### Items
 
-The rules ban items from the bag in battle (see the README), so items are
-used only between battles. The battle env has no Bag action, and must not
-get one. Movement alone won't make the agent pick items up: it must be able
+The rules ban healing and battle items from the bag in battle (see the
+README), so those are used only between battles. The battle env's only bag
+action will be a Poké Ball, for a route's first encounter
+([NEXT_PHASE.md](NEXT_PHASE.md#after-the-pilot), step 5). Movement alone won't make the agent pick items up: it must be able
 to use them and see them first. The payoff of a pickup comes hundreds of
 decisions later, when a heal before a fight saves a Pokémon in it, and PPO
 learns poorly from rewards that late. Build it in this order:

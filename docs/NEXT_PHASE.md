@@ -204,21 +204,28 @@ These are proposals. Set the final numbers once the baseline is known.
 
 The pilot learned its 10 training battles in about 30,000 decisions. The
 held-out battles gained less, and one got worse with more training
-(PROGRESS.md §24). The emulator stays. The next steps, in order:
+(PROGRESS.md §24). The emulator stays. The goal from here is a run from
+Twinleaf Town to Roark's badge under the README's rules, with the agent
+first fighting, then catching, then walking. Decided on 2026-11-17, in order:
 
 1. **A varied battle set.** Hundreds of battles instead of 10, so that no
    single matchup can be memorized. `scenario.py` can already make any party
-   against any wild enemy, with any moves and held item. Draw:
-   - parties of 3 from the species catchable before Roark, at levels 12 to
-     14, with their level-up moves, and some with a setup move (§23);
-   - some parties with a clearly weak member, so the faint penalty separates
-     fodder from the ace (§24);
-   - enemies from the early trainers' teams in the ROM (`romdata.trainer`),
-     with their moves and items, at their levels.
-
-   Hold out whole enemy species, as the pilot did with Cranidos and Gible,
-   and a few party species too. A state is about 5.5 MB, so 500 battles
-   take about 2.7 GB. `make_battle_set.py` checks each state as it saves it.
+   against any wild enemy, with any moves and held item.
+   - **Enemies:** the Pokémon of the real trainers before Roark
+     (`romdata.trainer`, every Pokémon at level 16 or below): 159 sets of
+     102 species, almost all with their own moves and items, fought as wild
+     Pokémon. Roark's team is in the pool like any other. Leave out Roark's
+     Shuckle, whose Sand Tomb traps, until trapping is modeled.
+   - **Held out:** a random fifth of the enemy species, with every set of
+     each.
+   - **Parties:** 3 Pokémon catchable before Roark (Routes 201–204, Lake
+     Verity, Oreburgh Gate and Oreburgh Mine, about 60 species), or a
+     starter, at levels 12 to 14, with their level-up moves. Give some
+     parties a clearly weak member, so the faint penalty separates fodder
+     from the ace (§24), and some a setup move (§23).
+   - **A fixed set:** about 500 battles, generated once at about a second
+     each, and each checked as it's saved (`make_battle_set.py`). About
+     2.7 GB. A failed state can't stop a run, and runs are reproducible.
 2. **Evaluate the held-out battles during training.** `train_ppo.py` sees
    only the train split, so the pilot's held-out drop showed up only after
    the run. Every few updates, play the held-out battles without learning,
@@ -232,10 +239,43 @@ held-out battles gained less, and one got worse with more training
    the decisions until the held-out clean-win rate stops rising. If that
    takes more than about a million decisions (47 hours at 5.9 decisions/s),
    plan the Python battle simulator for training, and keep the emulator for
-   evaluation.
-4. **If variety doesn't fix generalization,** find what lets the policy tell
-   battles apart. The enemy's stats and level may matter more to it than the
-   type matchups (§24). Try training with those features noisy or removed.
+   evaluation. If variety doesn't fix generalization, find what lets the
+   policy tell battles apart. The enemy's stats and level may matter more
+   to it than the type matchups (§24). Try training with those features
+   noisy or removed.
+4. **Roark's real fight.**
+   - **Effects in the observation** (roadmap step 1): Stealth Rock, Light
+     Screen, Sand Tomb's trapping, and Curse.
+   - **Trapping and Encore in the action mask** (roadmap step 3).
+   - **An end signal for trainer battles.** The game records a trainer
+     battle's result only after the trainer's closing text (§23).
+   - **A state at Roark's battle:** his 6 Pokémon in a row, against a party
+     like the one a run would bring.
+5. **Catching and the Nuzlocke rules in the env.**
+   - **A Poké Ball action,** allowed only in a route's first wild encounter
+     and only while the bag has a ball. The catch result is already read
+     (`battleResult` 4, roadmap step 4).
+   - **Bookkeeping:** the first encounter per route, the duplicates clause
+     from evolution lines, a fainted Pokémon out for good, and the level cap
+     for the badge count.
+6. **A scripted route runner to Roark.** Scripted inputs walk a fixed path
+   from Twinleaf Town to the Oreburgh Gym, through the real encounters,
+   trainers and story events, and heal at each Pokémon Center. The agent
+   makes the decisions that matter: each battle, and whether to catch a
+   route's first encounter. An episode is a run, from the start to Roark's
+   badge or a wipe. Here the battle policy first trains on the team it
+   built itself.
+7. **Learned walking.** Replace the scripted walk with learned movement.
+   Reward each waypoint of the runner's path once per run, the first time
+   it's reached, so the walk can't be farmed and doesn't need a novelty
+   reward. Then let it choose the parts of the walk that are real choices:
+   optional trainers, training up to the level cap, items and detours (the
+   roadmap's Items, step 5).
+
+The walk is scripted before it's learned because the way to Oreburgh is close
+to linear. Learning it costs a lot of steps and doesn't make the run better.
+The choices that matter on the way are the battles and the catches. A
+scripted walk gets every run to them quickly.
 
 ## Work that can run alongside
 
