@@ -295,6 +295,14 @@ each run to the decisions. In order:
 
 Everything specific to Platinum is something a human must redo for the next
 game, so keep it in one place and keep it small:
+- **Skills in the weights, facts from the ROM.** The policy learns what
+  every Pokémon game shares: type matchups, when to switch, protecting the
+  ace, spending fodder, PP and HP. What differs between games is read from
+  the game's data while it plays and put in the observation: which Pokémon
+  live on which route, the next boss's team, the obstacles ahead and the
+  field move that clears each. In a new game the same model reads that
+  game's facts, the way a player uses a guide, instead of discovering each
+  one by losing runs.
 - **One game adapter:** memory reads, inputs, ROM data, and the route ID
   behind one interface. The env and the policy use only that interface.
 - **The rules as a config file,** read by the action mask and the rewards,

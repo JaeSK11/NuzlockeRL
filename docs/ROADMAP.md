@@ -166,6 +166,13 @@ The hack changed abilities, so assume it changed more.
 
 - [ ] Encounter choice and team-building policy, possibly a higher-level
       planner over the battle policy
+- [ ] Field moves (Rock Smash, Cut, Surf, Strength, and so on) as part of
+      team building. The obstacles ahead and the move that clears each come
+      from the ROM's map data, and which team members can use it from their
+      learnsets; both go in the observation. The policy learns to keep a
+      Pokémon that can use the move, and a backup in case it dies. Using
+      the move in the field is scripted at first. None is needed before
+      Roark.
 - [ ] Player position, map, facing direction, story flags, defeated-trainer
       flags, open menu
 - [ ] Overworld navigation: first a scripted route runner from Twinleaf
