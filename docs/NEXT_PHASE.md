@@ -229,7 +229,8 @@ each run to the decisions. In order:
    - **Trapping and Encore** in the action mask. Done (PROGRESS.md §27),
      checked action by action against what the game accepts.
    - **A wild Pokémon's Roar or Whirlwind** ends the battle, and the run
-     goes on.
+     goes on. Done (PROGRESS.md §29): the episode ends as FLED, read from
+     the game's result, with 0 reward.
    - **The enemy's first move is fixed in a saved battle state.** Done for
      generated battles (PROGRESS.md §28): they are saved 10 frames before
      the enemy picks. The restart states of step 3 must be saved before a

@@ -29,6 +29,7 @@ CHIMCHAR, PIPLUP, PIKACHU, TURTWIG, STARLY, BIDOOF, EEVEE, BONSLY, SHUCKLE = 390
 TACKLE, SELFDESTRUCT, GROWL, MEGA_DRAIN, BITE, ROCK_THROW, RAZOR_LEAF, EMBER, SCRATCH = 33, 120, 45, 72, 44, 88, 75, 52, 10
 WITHDRAW, ABSORB, WRAP, MEAN_LOOK, DISABLE, TORMENT, ENCORE, CHOICE_BAND = 110, 71, 35, 212, 50, 259, 227, 220
 STEALTH_ROCK, BRICK_BREAK, ACCELEROCK = 446, 280, 205      # with Selfdestruct, Roark's Bonsly; 205 is Rollout in vanilla
+ROAR, WHIRLWIND = 46, 18
 TEAM3 = [{"species": CHIMCHAR, "level": 12, "moves": [52, 10, 43, 183]},
          {"species": PIPLUP, "level": 11, "moves": [55, 1, 145, 64]},
          {"species": PIKACHU, "level": 10, "moves": [84, 98, 86, 45]}]
@@ -55,6 +56,8 @@ SCENARIOS = {   # name: (party or a function giving one, wild enemy (species, le
     "starly_vs_selfdestruct": (WEAK_STARLY, (BONSLY, 15), 8, [SELFDESTRUCT]),
     "turtwig_learns_razor_leaf": (one_exp_short(TURTWIG, 15, [TACKLE, MEGA_DRAIN, BITE, ROCK_THROW]), (BIDOOF, 2), 1, [GROWL]),
     "chimchar_skips_helping_hand": (one_exp_short(CHIMCHAR, 12, [EMBER, SCRATCH, TACKLE, BITE]), (BIDOOF, 2), 1, [GROWL]),
+    "bidoof_roars": ([{"species": TURTWIG, "level": 14, "moves": [TACKLE, WITHDRAW]}], (BIDOOF, 25), 3, [ROAR]),
+    "turtwig_whirlwinds": ([{"species": TURTWIG, "level": 30, "moves": [WHIRLWIND]}], (BIDOOF, 5), 3, [GROWL]),
     "bonsly_opens": ([{"species": TURTWIG, "level": 14, "moves": [TACKLE, WITHDRAW, BITE, ABSORB]}], (BONSLY, 15), 3,
                      [STEALTH_ROCK, SELFDESTRUCT, BRICK_BREAK, ACCELEROCK])}
 
@@ -95,7 +98,7 @@ def test_events_between():
 
 def test_event_rewards_use_only_faints_and_endings():
     assert REWARDS[Event.TURN_CAP] == REWARDS[Event.LOST] < -(FAINT_BASE + FAINT_SCALE) < -FAINT_BASE < 0
-    assert REWARDS[Event.STUCK] == REWARDS[Event.ENDED] == 0
+    assert REWARDS[Event.STUCK] == REWARDS[Event.ENDED] == REWARDS[Event.FLED] == 0
     assert Event.PLAYER_FAINTED not in REWARDS, "its cost depends on the Pokémon"
 
 
@@ -263,6 +266,19 @@ def test_trap_rules_the_game_cant_show_here():
     assert not is_trapped(effects(ability=battle_env.SHADOW_TAG), battle_env.SHADOW_TAG)
     assert not is_trapped(effects(item=battle_env.SHED_SHELL, volatile=battle_env.VOLATILE_MEAN_LOOK), None)
     assert is_trapped(effects(volatile=battle_env.VOLATILE_MEAN_LOOK), None)
+
+
+@needs_rom
+@pytest.mark.parametrize("name, action", [("bidoof_roars", 1), ("turtwig_whirlwinds", 0)])
+def test_roar_or_whirlwind_ends_a_wild_battle_as_fled(name, action):
+    """Either side's Roar or Whirlwind ends a wild battle, and the game records a flee (5)."""
+    path = scenario_state(name)
+    e = BattleEnv([path], ROM)
+    _, rows = play(e, path, [action] * 3, seed=1)
+    e.close()
+    reward, events, term, trunc, info = rows[-1][2:]
+    assert (len(rows), events, reward, term, trunc) == (1, ["FLED"], 0.0, True, False)
+    assert info["outcome"] == "FLED" and info["result_mask"] == gen4.RESULT_FLED
 
 
 @needs_rom

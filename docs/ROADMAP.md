@@ -23,8 +23,9 @@ the episode on win or wipe.
       player's `SWITCHING` flag set.
 - [x] **Battle result:** `resultMask` reads 1 after a win and 2 after a
       loss.
-- [ ] **Flee and capture results.** The decomp's values (4 = captured,
-      combined bits for fleeing) haven't been seen in RAM yet.
+- [x] **Flee and capture results.** 4 after a catch (step 4), and 5
+      (`PLAYER_FLED`) after Roar or Whirlwind ends a wild battle, used by
+      either side (PROGRESS.md §29). 6 (`ENEMY_FLED`) hasn't been seen.
 - [x] **Active battler's party slot.** `partyOrder` maps party-menu
       positions to party slots, and position 0 is the active Pokémon.
       Verified on teams of 2 to 6.

@@ -1487,3 +1487,31 @@ reload check.
 | A one-move enemy did nothing on turn 1 | Its moves were written after it had picked a slot | Its moves are written before the save, so it picks among them |
 | A state saved on the frame command selection begins reloaded differently after another battle | Some emulator state outside the save file is in flight on that frame | Saved 10 frames earlier, by playing the battle twice |
 | Rebuilt test battles broke three tests' fixed numbers | The enemy now acts on turn 1 | The tests measure or check what they mean, not exact counts |
+
+## 29. Roar and Whirlwind end a wild battle as FLED (2026-11-17)
+
+Goal: step 1 of the plan after the pilot. A wild Pokémon's Roar or
+Whirlwind ends the battle, and a live run goes on from there.
+
+**What the game does.** A Bidoof that knows only Roar, or only Whirlwind,
+ended the battle on its first turn in 3 of 3 seeds each. The game recorded
+`resultMask` 5, the decomp's `BATTLE_RESULT_PLAYER_FLED`. A Turtwig using
+Roar or Whirlwind on a wild Pokémon recorded the same 5. Either way the env
+already ended the episode without getting stuck: the battle memory is freed
+and the episode ends as ENDED, with 0 reward. That was the cause of §18's
+Cranidos battles that all ended.
+
+**The change.** ENDED was the env's catch-all for a battle that stopped
+with neither side wiped, and the health chart counts it among the episodes
+that need a look. In a live run, being blown away is normal play. When the
+game's result reads 5, the episode now ends as FLED: 0 reward, terminated,
+and not counted as an anomaly. Faints before it still count. Escaping a
+wild battle with Roar or Whirlwind is legal play. Under the Nuzlocke rules
+the route's encounter is then lost, which is bookkeeping for step 2.
+
+`test_roar_or_whirlwind_ends_a_wild_battle_as_fled` covers both sides. The
+whole suite passes, 114 tests.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| Roar or Whirlwind ended a wild battle as ENDED, among the anomalies | ENDED covered every end with neither side wiped | FLED when the game records a flee (5); ENDED is left for anything else |

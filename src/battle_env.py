@@ -135,7 +135,8 @@ class Event(enum.Enum):
     WON = enum.auto()
     LOST = enum.auto()
     TURN_CAP = enum.auto()      # counts as a loss so stalling never pays
-    ENDED = enum.auto()         # battle over with neither side wiped, e.g. a flee
+    FLED = enum.auto()          # the game recorded a flee: Roar or Whirlwind, by either side, ended a wild battle
+    ENDED = enum.auto()         # battle over with neither side wiped, and no flee recorded
     STUCK = enum.auto()         # no prompt and no end in the frame guard
 
 
@@ -148,6 +149,7 @@ REWARDS: dict[Event, float] = {     # every event but PLAYER_FAINTED, whose cost
     Event.WON: 5.0,
     Event.LOST: -10.0,
     Event.TURN_CAP: -10.0,
+    Event.FLED: 0.0,
     Event.ENDED: 0.0,
     Event.STUCK: 0.0,
 }
@@ -679,7 +681,7 @@ class BattleEnv(gym.Env):
         if Event.STUCK not in events:
             events += events_between(prev, self.snap)
             if end is Event.ENDED and not _wiped(self.snap):
-                events.append(Event.ENDED)
+                events.append(Event.FLED if self.result_mask == gen4.RESULT_FLED else Event.ENDED)
             elif end is None and self.turn >= self.turn_cap:
                 events.append(Event.TURN_CAP)
         reward = sum((REWARDS[e] for e in events if e is not Event.PLAYER_FAINTED), 0.0)
@@ -687,7 +689,7 @@ class BattleEnv(gym.Env):
             reward += faint_penalty(prev, self.snap)
         self.ret += reward
         stuck = Event.STUCK in events
-        terminated = not stuck and (_wiped(self.snap) or Event.ENDED in events or Event.TURN_CAP in events)
+        terminated = not stuck and (_wiped(self.snap) or any(e in events for e in (Event.FLED, Event.ENDED, Event.TURN_CAP)))
         self._done = terminated or stuck
         names = [e.name for e in events]
         info = self._info(events=names, frames=self._frames, **chosen,
@@ -701,7 +703,7 @@ class BattleEnv(gym.Env):
             "enemy_hp": [m.hp for m in self.snap.enemy], "frames": self._frames,
             **({"signal": self._stuck_signal()} if stuck else {})})
         if self._done:
-            outcome = next(e.name for e in (Event.WON, Event.LOST, Event.TURN_CAP, Event.ENDED, Event.STUCK)
+            outcome = next(e.name for e in (Event.WON, Event.LOST, Event.TURN_CAP, Event.FLED, Event.ENDED, Event.STUCK)
                            if e in events)
             info["outcome"], info["learned"] = outcome, self.learned
             self._write({"episode": self.episode_id, "summary": True, "outcome": outcome,

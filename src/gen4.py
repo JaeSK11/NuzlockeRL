@@ -199,6 +199,7 @@ def in_battle(nds, addrs: dict | None = None) -> bool:
     return m.checksum_ok and 0 < m.species <= 493
 
 
+RESULT_FLED = 5                 # resultMask PLAYER_FLED: a wild battle ended by Roar or Whirlwind, used by either side
 CMD_INIT_COMMAND_SELECTION = 4  # BattleContext.command for one frame before each turn's command selection, where the enemy picks its move
 CMD_SELECTION_INPUT = 5         # BattleContext.command while the game waits for the player
 CS_ACTION_MENU = 1              # curCommandState[0]: FIGHT / BAG / POKEMON / RUN is up

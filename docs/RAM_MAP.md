@@ -37,7 +37,7 @@ Re-resolve after every save-state load (`gen4.resolve(nds)`).
 | statStagesEnemy | 0x47690 | 8 × u8 | ✅ The enemy's `BattleMon.statBoosts`, the same layout |
 | battleRngSeed | 0x43C44 | u32, `BattleSystem.seedRandNext` | ✅ Both battles. Writing it right after a state load randomizes the battle |
 | battleRngStart | 0x43C48 | u32, `BattleSystem.seedDTO` | ✅ The seed the battle started with. At the first prompt, `seedRandNext` is this seed advanced 13 times (Barry 1) or 7 times (wild) |
-| battleResult | 0x43C1C | u8, `resultMask` | ✅ 1 after a win, 2 after a loss (one battle each). See [Battle system](#battle-system) |
+| battleResult | 0x43C1C | u8, `resultMask` | ✅ 1 after a win, 2 after a loss, 4 after a catch, 5 after Roar or Whirlwind ends a wild battle (either side). See [Battle system](#battle-system) |
 | battleCtxPtr | 0x4182C | u32 pointer to `BattleContext` | ✅ Both battles. See [Battle system](#battle-system) |
 | (party count) | playerBase − 4 | u32, `Party.currentCount`; the u32 before it is the capacity, 6 | ✅ 0 in state 00, 1 afterwards. `scenario.write_party` sets it |
 | (wild encounter table) | 0x233E4 | The current map's table, copied from `pl_enc_data.narc`: u32 rate, then 12 × (u32 level, u32 species), then 6 swarm, day, and night species | ✅ On Route 201. Writing it before an encounter picks the wild Pokémon (`scenario.set_wild_encounter`) |
