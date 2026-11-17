@@ -2042,6 +2042,13 @@ states by default, kept in `RUN_DIR/restarts`. A run's end is its episode
 outcome, and the metrics add the mean and furthest route step. A smoke run
 of 256 decisions on 4 envs played 7 runs and saved restart states.
 
+**The first training run** (`runs/runs1`, not in git) started on 2026-11-17
+at 6:30 PM Eastern: `train_ppo.py --runs --envs 14 --total-decisions 200000`.
+Its first two updates ran at 1.8 to 1.9 decisions a second, with the CPU at
+76 °C. All 54 runs so far wiped, at route step 6.4 on average and 10 at most.
+At this speed the 200,000 decisions take about 30 hours; the same command
+resumes it to a higher total.
+
 **Verified:** `test_a_run_leaves_restart_states_and_a_reset_resumes_one`;
 the overworld and run tests pass with running.
 
