@@ -82,3 +82,72 @@ def test_walking_past_the_people_of_oreburgh():
     O.no_encounters(nds)
     assert O.walk_to(nds, g, (316, 796, 2)) == "arrived"
     assert gen4.read_player_tile(nds) == (316, 796, 2)
+
+
+FIXTURES = os.path.join(ROOT, "states/fixtures")      # situations from the playthrough (PROGRESS.md §35), made locally
+
+
+def needs(*paths):
+    return pytest.mark.skipif(not all(os.path.exists(os.path.join(ROOT, p)) for p in (ROM, *paths)),
+                              reason=f"needs {', '.join(paths)} (local states, not in git)")
+
+
+def game(state):
+    import pynds
+    nds = pynds.PyNDS(ROM)
+    nds.load_state_from_file(os.path.join(ROOT, state))
+    nds.tick(2)
+    return nds
+
+
+def graph(map_id):
+    return O.WalkGraph.from_json(json.load(open(os.path.join(ROOT, f"states/walk/{map_id}.json"))))
+
+
+@needs("states/fixtures/rowan_question.state")
+def test_b_loops_a_question_that_needs_yes_and_a_answers_it():
+    nds = game("states/fixtures/rowan_question.state")
+    assert O.advance_text(nds, limit=3000) == "stuck"
+    assert O.advance_text(nds, yes=True) == "done"
+    assert gen4.read_location(nds).map_id == 422 and gen4.read_var(nds, 16497) == 1   # in the lab, Pokédex given
+
+
+@needs("states/fixtures/route202_entrance.state", "states/walk/343.json")
+def test_a_trainer_spotting_the_player_stops_the_walk_and_leads_to_battle():
+    nds = game("states/fixtures/route202_entrance.state")
+    O.no_encounters(nds)
+    assert O.walk_to(nds, graph(343), (173, 800)) == "scene"
+    assert O.spotted_by(nds) == [1]                      # Youngster Tristan
+    assert O.advance_text(nds) == "battle"
+
+
+@needs("states/fixtures/oreburgh_pokecenter_fainted.state", "states/walk/48.json")
+def test_the_nurse_heals_the_party():
+    nds = game("states/fixtures/oreburgh_pokecenter_fainted.state")
+    assert any(m.hp == 0 for m in gen4.read_party(nds))
+    assert O.talk_from(nds, graph(48), (8, 6), "up") == "talking"   # across the counter
+    assert O.advance_text(nds, yes=True) == "done"
+    assert all(m.hp == m.max_hp for m in gen4.read_party(nds))
+
+
+@needs("states/walk/start/029_trainers_school.state", "states/walk/29.json")
+def test_a_door_leads_to_the_next_map():
+    nds = game("states/walk/start/029_trainers_school.state")
+    assert O.take_exit(nds, graph(29), 3) == "arrived"
+    assert gen4.read_location(nds)[:3] == (3, 168, 777) and gen4.field_task(nds) == 0
+
+
+@needs("states/fixtures/route202_ledyba_whiteout.state")
+def test_a_lost_battle_whites_out_to_home_with_the_party_healed():
+    import battle_env as BE
+    state = os.path.join(ROOT, "states/fixtures/route202_ledyba_whiteout.state")
+    env = BE.BattleEnv([state], rom=ROM)
+    _, info = env.reset(options={"state": state, "keep_rng": True})
+    done = False
+    while not done:
+        _, _, term, trunc, info = env.step(next(a for a in range(BE.N_ACTIONS) if info["action_mask"][a]))
+        done = term or trunc
+    assert info["outcome"] == "LOST"
+    assert O.advance_text(env.nds) == "done"
+    assert gen4.read_location(env.nds)[:3] == (414, 8, 8)               # home: no Pokémon Center visited yet
+    assert all(m.hp == m.max_hp for m in gen4.read_party(env.nds))

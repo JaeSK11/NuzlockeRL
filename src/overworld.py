@@ -12,6 +12,7 @@ import shutil
 from collections import deque
 from dataclasses import dataclass, field
 
+import fieldmap
 import gen4
 import scenario
 
@@ -60,6 +61,9 @@ class WalkGraph:
     edges: dict[Node, dict[str, Node]] = field(default_factory=dict)   # steps within the map
     exits: dict[Node, dict[str, int]] = field(default_factory=dict)    # steps out, to the map entered
     scenes: dict[Node, list[str]] = field(default_factory=dict)        # steps that start a scene
+
+    def nodes(self) -> set[Node]:
+        return set(self.edges) | {n for e in self.edges.values() for n in e.values()} | {self.start}
 
     def path(self, start: Node, goal) -> list[str] | None:
         """The fewest steps from start to goal: a node, or an (x, z) at any height."""
@@ -158,3 +162,95 @@ def walk_to(nds, graph: WalkGraph, goal) -> str:
             nds.tick(BLOCKED_WAIT)
         else:
             blocked = 0
+
+
+TEXT_GAP, TEXT_QUIET, TEXT_LIMIT = 20, 40, 30000   # frames between presses; free this long = done; give up after
+
+
+def press(nds, key: str, frames: int = 4) -> None:
+    nds.button.press_key(key)
+    nds.tick(frames)
+    nds.button.release_key(key)
+
+
+def advance_text(nds, yes: bool = False, limit: int = TEXT_LIMIT) -> str:
+    """Press B every TEXT_GAP frames while a field task runs, until none has run for TEXT_QUIET
+    frames. B never starts a new talk, but answers no to a yes/no, and a question the story
+    needs answered yes then asks again forever (Rowan's Pokédex): yes=True presses A instead.
+    Also carries a battle's closing text and a whiteout through to the overworld.
+    Returns "done", "battle" when a battle starts, or "stuck" after limit frames."""
+    key, quiet, was_battle = ("a" if yes else "b"), 0, gen4.in_battle(nds)
+    for frame in range(limit):
+        if gen4.in_battle(nds):
+            if not was_battle:
+                return "battle"
+        else:
+            was_battle = False
+        if gen4.field_task(nds) or gen4.in_battle(nds):
+            quiet = 0
+            if frame % TEXT_GAP == 0:
+                press(nds, key)
+        else:
+            quiet += 1
+            if quiet >= TEXT_QUIET:
+                return "done"
+        nds.tick(1)
+    return "stuck"
+
+
+def talk_from(nds, graph: WalkGraph, tile, direction: str) -> str:
+    """Walk to tile, face direction, press A. Returns "talking" when a script starts, "nothing"
+    when none does, or walk_to's outcome when the walk doesn't arrive."""
+    walked = walk_to(nds, graph, tile)
+    if walked != "arrived":
+        return walked
+    press(nds, direction, 3)            # a short press turns the player without stepping
+    nds.tick(12)
+    press(nds, "a")
+    nds.tick(30)
+    return "talking" if gen4.field_task(nds) else "nothing"
+
+
+def talk_to(nds, graph: WalkGraph, x: int, z: int) -> str:
+    """Talk to the person at (x, z) from the nearest tile beside them."""
+    here = gen4.read_player_tile(nds)
+    beside = []
+    for d, (dx, dz) in (("up", (0, -1)), ("down", (0, 1)), ("left", (-1, 0)), ("right", (1, 0))):
+        for n in graph.nodes():
+            if (n[0] + dx, n[1] + dz) == (x, z):
+                route = graph.path(here, n)
+                if route is not None:
+                    beside.append((len(route), n, d))
+    if not beside:
+        return "stuck"
+    _, tile, d = min(beside)
+    return talk_from(nds, graph, tile, d)
+
+
+def take_exit(nds, graph: WalkGraph, dest_map: int) -> str:
+    """Walk to the nearest step that leads to dest_map, take it, and wait out the warp.
+    Returns "arrived" on dest_map, or the outcome that stopped the walk."""
+    here = gen4.read_player_tile(nds)
+    ways = [(len(r), n, d) for n, e in graph.exits.items() for d, m in e.items()
+            if m == dest_map and (r := graph.path(here, n)) is not None]
+    if not ways:
+        return "stuck"
+    _, tile, d = min(ways)
+    walked = walk_to(nds, graph, tile)
+    if walked != "arrived":
+        return walked
+    if step(nds, d) != "exit":
+        return "stuck"
+    for _ in range(WARP_FRAMES):
+        if not gen4.field_task(nds):
+            break
+        nds.tick(1)
+    return "arrived" if gen4.read_location(nds).map_id == dest_map else "stuck"
+
+
+def spotted_by(nds) -> list[int]:
+    """The trainers on this map whose sight covers the player's tile, among those not hidden.
+    A scene that starts on such a tile is a trainer walking up to battle."""
+    loc = gen4.read_location(nds)
+    return [fieldmap.trainer_id(o) for o in fieldmap.trainers(loc.map_id)
+            if not gen4.read_flag(nds, o.flag) and (loc.x, loc.z) in fieldmap.sight(loc.map_id, o)]
