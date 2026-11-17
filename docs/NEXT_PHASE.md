@@ -252,12 +252,14 @@ first fighting, then catching, then walking. Decided on 2026-11-17, in order:
    - **A state at Roark's battle:** his 6 Pokémon in a row, against a party
      like the one a run would bring.
 5. **Catching and the Nuzlocke rules in the env.**
-   - **A Poké Ball action,** allowed only in a route's first wild encounter
-     and only while the bag has a ball. The catch result is already read
+   - **A Poké Ball action,** allowed only in a wild encounter the rules let
+     it catch (a route's first new species, or a shiny), and only while the
+     bag has a ball. The catch result is already read
      (`battleResult` 4, roadmap step 4).
    - **Bookkeeping:** the first encounter per route, the duplicates clause
-     from evolution lines, a fainted Pokémon out for good, and the level cap
-     for the badge count.
+     from evolution lines, the shiny clause (`scenario.is_shiny` already
+     tells a shiny from its PID), a fainted Pokémon out for good, and the
+     level cap for the badge count.
 6. **A scripted route runner to Roark.** Scripted inputs walk a fixed path
    from Twinleaf Town to the Oreburgh Gym, through the real encounters,
    trainers and story events, and heal at each Pokémon Center. The agent

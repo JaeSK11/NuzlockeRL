@@ -177,7 +177,7 @@ The hack changed abilities, so assume it changed more.
 
 The rules ban healing and battle items from the bag in battle (see the
 README), so those are used only between battles. The battle env's only bag
-action will be a Poké Ball, for a route's first encounter
+action will be a Poké Ball, for an encounter the rules allow catching
 ([NEXT_PHASE.md](NEXT_PHASE.md#after-the-pilot), step 5). Movement alone won't make the agent pick items up: it must be able
 to use them and see them first. The payoff of a pickup comes hundreds of
 decisions later, when a heal before a fight saves a Pokémon in it, and PPO
