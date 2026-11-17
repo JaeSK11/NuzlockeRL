@@ -166,6 +166,32 @@ The hack changed abilities, so assume it changed more.
       flags, open menu
 - [ ] Overworld navigation, if it proves worth it at DS emulation speed
 
+### Items
+
+The rules ban items from the bag in battle (see the README), so items are
+used only between battles. The battle env has no Bag action, and must not
+get one. Movement alone won't make the agent pick items up: it must be able
+to use them and see them first. The payoff of a pickup comes hundreds of
+decisions later, when a heal before a fight saves a Pokémon in it, and PPO
+learns poorly from rewards that late. Build it in this order:
+
+1. [ ] **Use items between battles.** Healing from the Medicine pocket
+       between battles, and the bag's healing items in the observation. An
+       item is then worth the faints it prevents in the next fight, through
+       the battle rewards the env already gives. It matters most in a run of
+       trainers with no Pokémon Center between them. Needs step 4's lookup
+       of which items heal.
+2. [ ] **Pick items up.** Either script the pickups along the route from the
+       item locations in the ROM, with no learning, or reward the first time
+       each item ball's flag is set. One reward per flag, so pickups can't be
+       farmed (see the Magikarp lesson below). Needs the item locations and
+       their flags from the ROM. Hidden items, found with the Dowsing app,
+       can't be seen on screen, so script those.
+3. [ ] **Choose detours.** The planner above decides whether an area is worth
+       exploring: its items and its one catch, against the time it takes and
+       the risk, since every wild encounter can cost a Pokémon for good. It
+       uses the position and map from `gen4.read_location` (step 4).
+
 ## Later, as the project matures
 
 Ideas from the Pokémon Red agent (PWhiddy's PokemonRedExperiments video)
