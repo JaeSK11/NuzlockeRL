@@ -181,7 +181,10 @@ The hack changed abilities, so assume it changed more.
 ## 5. Team building and overworld (later)
 
 - [ ] Encounter choice and team-building policy, possibly a higher-level
-      planner over the battle policy
+      planner over the battle policy. Its first part comes with the route
+      runner: at each Pokémon Center the agent picks which caught Pokémon
+      to withdraw and the party's order, while fainted ones are deposited
+      by the rules ([NEXT_PHASE.md](NEXT_PHASE.md#after-the-pilot), step 3)
 - [ ] Field moves (Rock Smash, Cut, Surf, Strength, and so on) as part of
       team building. The obstacles ahead and the move that clears each come
       from the ROM's map data, and which team members can use it from their

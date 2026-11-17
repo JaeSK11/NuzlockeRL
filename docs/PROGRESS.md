@@ -1261,6 +1261,11 @@ realistic, and it can be measured.
 - **Field moves join team building.** Keep a Pokémon that can use the
   move, and a backup in case it dies. Using it in the field is scripted at
   first; none is needed before Roark.
+- **The party and the PC are the agent's to manage, within the rules.** At
+  each Pokémon Center it chooses which caught Pokémon to withdraw and the
+  party's order. Depositing the fainted is enforced, not learned, since
+  learning it would mean breaking the rule while it learned. Decided after
+  the route runner's breakdown (NEXT_PHASE step 3).
 
 | Issue | Cause | Resolution |
 |---|---|---|

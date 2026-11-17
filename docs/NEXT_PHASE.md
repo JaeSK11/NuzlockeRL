@@ -291,25 +291,37 @@ each run to the decisions. In order:
         the wild Pokémon's species and shininess (`scenario.is_shiny`).
         `encounter()` becomes the battle's `catch` option.
       - The run records catches, faints and bosses beaten.
-      - A fainted Pokémon stays out of battle: no switch to its PID, and the
-        party is reordered so it never leads after a Center revives it.
-        Moving it to the PC comes later.
+      - Until the next Pokémon Center, a fainted Pokémon stays in the party
+        but out of battle: no switch to its PID.
       - A wipe, or a whiteout, ends the run.
-   6. **After battles.** Move learning is handled in battle (§26). An
+   6. **The party and the PC at each Pokémon Center.** Two kinds of change:
+      - **Enforced by the rules:** the runner deposits every fainted
+        Pokémon in the PC, where it stays for good. It isn't left to the
+        agent, which would otherwise break the rule while it learned.
+      - **Learned by the agent:** which caught Pokémon to withdraw from the
+        PC into the open slots, and the party's order, which sets the lead.
+        Both are new decisions, besides the battle actions: a choice among
+        the boxed Pokémon for each open slot, one slot at a time, then the
+        order. The observation for them shows the party and the box
+        (`gen4.read_box`), the same features as in battle.
+      - This needs the PC's deposit and withdraw screens and the overworld
+        party menu mapped, as the battle bag was. It is the first part of the
+        roadmap's team-building policy (step 5).
+   7. **After battles.** Move learning is handled in battle (§26). An
       evolution scene after a battle is let run: the Pokémon evolves.
       Picking up items is left out for now (the roadmap's Items).
-   7. **The episode.**
+   8. **The episode.**
       - One episode is a run from the state after the starter is chosen,
         to Roark's badge, a wipe, or a step budget.
       - The rewards are the battle rewards of now, plus one for each boss
         beaten.
-      - The decisions are the battle actions, and the ball where the rules
-        allow it.
-   8. **Time one run first.** Before building training on it, play a few
+      - The decisions are the battle actions, the ball where the rules
+        allow it, and the party and PC choices at each Pokémon Center.
+   9. **Time one run first.** Before building training on it, play a few
       runs with random battle actions. Measure the frames, the battles and
       the decisions per run, and the runs per hour on 14 envs, to know what
       training will cost.
-   9. **Train.** PPO over runs, with restart states. Every battle of every
+   10. **Train.** PPO over runs, with restart states. Every battle of every
       run leaves a restart state; start some episodes from them, so that
       later battles, Roark's above all, get practice while most early runs
       still die on the first routes. As the policy gets through the early
