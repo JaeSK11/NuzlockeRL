@@ -14,7 +14,7 @@ RUN_DIR/metrics.jsonl. --envs defaults to the number of hardware threads minus 2
 The run saves a checkpoint and stops if the hottest CPU sensor stays above --max-temp
 for more than --hot-seconds.
 """
-import argparse, functools, os, sys
+import argparse, functools, os, signal, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
@@ -43,6 +43,9 @@ def main():
     ap.add_argument("--max-temp", type=float, default=99.0)
     ap.add_argument("--hot-seconds", type=float, default=30.0)
     args = ap.parse_args()
+    # `kill` would end the trainer with no cleanup, and its env workers would play on as orphans
+    # until they next report. As an exit, it closes the pool, which stops them.
+    signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(128 + signum))
     if not args.runs and not args.states:
         ap.error("give --states, or --runs")
 

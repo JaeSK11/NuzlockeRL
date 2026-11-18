@@ -2135,9 +2135,27 @@ against Diana there: 35 battles, 10 heals, return 224. Greedy isn't the
 agent; these runs show where the route stops a run, not how far a trained
 policy gets.
 
-**Roark's level cap.** That Chimchar reached the gate as a level-22 Monferno.
-The hack's bosses refuse to battle while any party Pokémon is over their cap,
-16 for Roark. The trainers that can't be avoided give a lone Pokémon about
+**Greedy on the finished route.** A greedy Chimchar run (seed 0) on the route
+with every heal trip got to route step 66 of 73: it beat every trainer
+through Jonathon in the gym and wiped against Darius, the second. 46
+battles, 18 heals, 145 decisions, in 1,594 seconds on one core, about 11
+seconds a decision, as in training. A profile of it put 97% of the time in
+the emulator's frames:
+
+| Part | Seconds | Share |
+|---|---|---|
+| Battles (the env's steps and resets) | 677 | 42% |
+| Text, scenes and the nurse | 431 | 27% |
+| Walking | 364 | 23% |
+| Heal trips (inside the walking and text) | 281 | 18% |
+| The nurse's healing alone | 136 | 8.5% |
+
+Battles already run with the battle scene off and fast text
+(`fast_battles`), so their cost is intros, endings and each turn's text.
+
+**Roark's level cap.** The first Chimchar run above reached the gate as a
+level-22 Monferno. The hack's bosses refuse to battle while any party
+Pokémon is over their cap, 16 for Roark. The trainers that can't be avoided give a lone Pokémon about
 11 levels between Route 202 and the gate. A run that reaches Roark must have
 shared its EXP over several Pokémon and leave the ones over the cap in the
 PC. As a stand-in for step 3.6's PC decisions, the trip before Roark leaves
@@ -2178,6 +2196,7 @@ checks the resumed step.
 | The test fixture's Turtwig won or lost by chance | `build_mon` draws a random personality, and so a nature, each call | The fixture passes a seeded `rng` |
 | Two or more trainers in a row with no heal: Route 202, the clowns, the gate, the mine, the gym | The route healed only at fixed points | Heal trips after battles on a walk, and `mend` before each trainer |
 | The heal trip between the mine's Workers had no way out | A one-way ledge in, and Roark's boulders (objects the ROM's collision doesn't show) out | The check moved above the ledge; the two Workers stay back to back |
+| Three env workers kept running at full CPU after the trainer was stopped | `kill` ended the trainer with no cleanup, so the pool never closed its daemon workers | `train_ppo.py` turns SIGTERM into an exit, which closes the pool; checked: a 2-env trainer's workers were gone within 6 seconds of `kill` |
 | A run can't get under Roark's cap | Unavoidable trainers' EXP | The trip before Roark leaves the Pokémon over his cap in the PC; whom to raise stays the agent's, and the PC choices are step 3.6 |
 
 ## 40. The move to forget on evolution (2026-11-18)
