@@ -2292,7 +2292,7 @@ tests do not read it; milestones 06 to 16 start from 04 and are unchanged.
 | The emulator ran at 4 frames a second beside training | Its threads fight the 15 training workers for the cores | Pin the run to a free core (`taskset -c 1`): about 190 frames a second |
 | 00 built on one machine may carry another trainer ID | The ID comes from the clock and the frame count of the intro | Fixed by the inputs: every machine with this ROM gets the same ID, which differs from the hand-made one |
 
-## 42. One core per env worker, and why runs end on a route error (2026-11-18)
+## 42. An emulator beside training, and why runs end on a route error (2026-11-18)
 
 Goal: two things the night's training showed. Building milestone 00 (§41)
 found the emulator crawling beside training. And runs3 began ending 1 or 2
@@ -2303,23 +2303,23 @@ workers ran at 2 frames a second. The same process pinned to one core
 (`taskset -c 15`), a core a worker was also using, ran at 119. Unpinned it
 had 20 threads; pinned, 6, so some of its threads are sized by the cores it
 may use. They hand every frame between them, and spread over busy cores,
-each handoff waits on the scheduler. Training's workers were spread the same
-way.
+each handoff waits on the scheduler.
 
-**The fix.** `AsyncEnvPool` gives each worker a core of its own, the highest
-first, so the lowest stay free for the trainer. The worker pins itself
-before it builds its env, so the emulator's threads, started then, keep to
-that core. Systems without CPU affinity skip it.
+**Training's workers aren't slowed by it.** The pool was changed to give
+each worker a core of its own, and runs3 restarted on it at update 40. It
+ran at 1.3 and 1.4 decisions a second, as before: each worker already had a
+core. The slowdown hits a process that squeezes in beside them. So the pool
+change was taken back out, and a job run beside training is pinned instead:
+`taskset -c 1 python ...`.
 
 **Route errors in the metrics.** Each episode record keeps the run's error
 message, and the metrics count them by message (`errors`), so a route error
 can be found from the trainer's log alone.
 
-**Verified:** `test_each_worker_runs_on_a_core_of_its_own` (4 workers, each
-on one core, all different) and
-`test_episode_stats_count_why_runs_ended_on_a_route_error`.
+**Verified:** `test_episode_stats_count_why_runs_ended_on_a_route_error`.
 
 | Issue | Cause | Resolution |
 |---|---|---|
-| An emulator beside training ran at 2 frames a second | Its threads, spread over busy cores, wait on the scheduler at every handoff | Each env worker keeps to a core of its own |
+| An emulator beside training ran at 2 frames a second | Its threads, spread over busy cores, wait on the scheduler at every handoff | Pin a side job to one core with `taskset`: 119 frames a second |
+| Pinning each training worker didn't speed training | Each worker already had a core of its own | Taken back out |
 | Runs ended `route_error` with no way to see why | The episode record dropped the run's error message | The record keeps it, and the metrics count errors by message |

@@ -154,19 +154,3 @@ def test_a_hung_worker_raises_after_the_timeout():
     with pytest.raises(WorkerError, match="no env answered within 1 s"):
         within(30, pool.recv)
 
-
-class CoreEnv(FakeEnv):
-    def reset(self, *, seed=None, options=None):
-        obs, info = super().reset(seed=seed, options=options)
-        return obs, {**info, "cores": sorted(os.sched_getaffinity(0))}
-
-
-@pytest.mark.skipif(not hasattr(os, "sched_setaffinity"), reason="no CPU affinity on this system")
-def test_each_worker_runs_on_a_core_of_its_own():
-    """The emulator's threads hand every frame between them, and spread over busy cores each
-    handoff waits on the scheduler (PROGRESS.md §42), so each worker keeps to one core."""
-    n = min(4, len(os.sched_getaffinity(0)))
-    with AsyncEnvPool([functools.partial(CoreEnv, k) for k in range(n)], seed=0) as pool:
-        first = within(30, lambda: pool.recv(min_ready=n))
-        cores = [first.infos[r]["cores"] for r in range(n)]
-    assert all(len(c) == 1 for c in cores) and len({c[0] for c in cores}) == n
