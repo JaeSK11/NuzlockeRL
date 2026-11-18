@@ -259,13 +259,57 @@ def press(nds, key: str, frames: int = 4) -> None:
     nds.button.release_key(key)
 
 
-def advance_text(nds, yes: bool = False, limit: int = TEXT_LIMIT) -> str:
+def _yes_no_up(nds) -> bool:
+    """The YES/NO box in the top screen's lower right: its white inside and dark border."""
+    top = nds.get_frame()[0]
+    return tuple(top[125, 235, :3]) == (250, 250, 250) and tuple(top[100, 240, :3]) == (72, 97, 121)
+
+
+def _move_select_up(nds) -> bool:
+    """The move list an evolution's "Should a move be deleted?" opens: a blue bottom screen,
+    where the text scenes' is tan."""
+    px = nds.get_frame()[1][100, 5, :3]
+    return int(px[2]) > int(px[0])
+
+
+def _answer_forget(nds, slot_choice, state: dict) -> None:
+    """One press for an evolution's fifth move. The YES/NO box "Should a move be deleted?" takes
+    A on YES, or Down then A on NO, which asks "Stop trying to teach it?" and takes A; the move
+    list takes Down to the slot, then A. slot_choice() gives the slot, "keep", or None when no
+    evolution is pending: the box is another question, and takes A as all other text does."""
+    box = _yes_no_up(nds)
+    if _move_select_up(nds):
+        nds.tick(30)                            # the list takes a moment to answer Down
+        for _ in range(state.pop("slot", 0)):
+            press(nds, "down")
+            nds.tick(10)
+    elif box and not state.get("boxed"):
+        if state.pop("gave_up", False):
+            pass                                # "Stop trying to teach it?": YES
+        else:
+            slot = slot_choice()
+            if slot == "keep":
+                press(nds, "down")
+                nds.tick(10)
+                state["gave_up"] = True
+            elif slot is not None:
+                state["slot"] = slot
+    elif box:
+        return                                  # the box is closing on an answer already given
+    state["boxed"] = box
+    press(nds, "a")
+
+
+def advance_text(nds, yes: bool = False, limit: int = TEXT_LIMIT, forget=None) -> str:
     """Press B every TEXT_GAP frames while a field task runs, until none has run for TEXT_QUIET
     frames. B never starts a new talk, but answers no to a yes/no, and a question the story
     needs answered yes then asks again forever (Rowan's Pokédex): yes=True presses A instead.
+    With forget, a function returning the move slot to forget, "keep" for the old moves, or None
+    when no evolution is pending, A's prompts for an evolution's fifth move are answered with its
+    choice (_answer_forget).
     Also carries a battle's closing text and a whiteout through to the overworld.
     Returns "done", "battle" when a battle starts, or "stuck" after limit frames."""
-    key, quiet, was_battle = ("a" if yes else "b"), 0, gen4.in_battle(nds)
+    key, quiet, was_battle, state = ("a" if yes else "b"), 0, gen4.in_battle(nds), {}
     for frame in range(limit):
         if gen4.in_battle(nds):
             if not was_battle:
@@ -275,7 +319,10 @@ def advance_text(nds, yes: bool = False, limit: int = TEXT_LIMIT) -> str:
         if gen4.field_task(nds) or gen4.in_battle(nds):
             quiet = 0
             if frame % TEXT_GAP == 0:
-                press(nds, key)
+                if forget and not gen4.in_battle(nds):
+                    _answer_forget(nds, forget, state)
+                else:
+                    press(nds, key)
         else:
             quiet += 1
             if quiet >= TEXT_QUIET:

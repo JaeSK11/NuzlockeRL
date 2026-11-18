@@ -2058,7 +2058,7 @@ the overworld and run tests pass with running.
 | Random runs never pass Route 202 | Kaizo's early wild Pokémon | Expected; restart states give later battles practice once runs reach them |
 | The trainer's episode records had no outcome for a run | A run's final info had `end`, not `outcome` | `outcome` is the run's end, and the route step is recorded |
 | Roark turns down a party over his cap, and nothing in a run can bring it under | The agent has no PC decisions yet (3.6) | Open: a run ends "no_badge" with no reward |
-| An evolution's fifth move replaces the first slot | A on the forget screen picks the first move | Open: a stand-in, to become the agent's choice |
+| An evolution's fifth move replaces the first slot | A on the forget screen picks the first move | `move_to_forget` answers it, as in battle (§40) |
 | Milestone 00 has no input script from boot | The new game's intro and naming were played by hand | Open: every run starts from `01_starter_choice`, which is rebuilt from 00 |
 
 ## 39. Runs stalled on Route 202: training up, and healing between trainers (2026-11-17)
@@ -2179,3 +2179,48 @@ checks the resumed step.
 | Two or more trainers in a row with no heal: Route 202, the clowns, the gate, the mine, the gym | The route healed only at fixed points | Heal trips after battles on a walk, and `mend` before each trainer |
 | The heal trip between the mine's Workers had no way out | A one-way ledge in, and Roark's boulders (objects the ROM's collision doesn't show) out | The check moved above the ledge; the two Workers stay back to back |
 | A run can't get under Roark's cap | Unavoidable trainers' EXP | The trip before Roark leaves the Pokémon over his cap in the PC; whom to raise stays the agent's, and the PC choices are step 3.6 |
+
+## 40. The move to forget on evolution (2026-11-18)
+
+After a battle, an evolution can offer a fifth move. Section 38 answered it
+with A, which always forgot the first slot. The route now answers it with
+`battle_env.move_to_forget`, the choice the battle env uses in battle.
+
+**The screens.** The evolution is a field screen, not the battle UI, and
+none of it is on the touch screen. In order:
+- Text: "wants to learn False Swipe. However, it already knows four moves."
+- A YES/NO box on the top screen, "Should a move be deleted?" The cursor
+  starts on YES. A answers yes. Down, then A, answers no.
+- After yes, a blue move list with the cursor on the first move. Down moves
+  it one move at a time, and A forgets the one it is on.
+- After no, a second YES/NO box, "Stop trying to teach it?" A (on YES) gives
+  up the move and keeps the four.
+
+`advance_text` takes a `forget` function for this. It reads the YES/NO box
+and the blue list from the screen's pixels, since the game's task struct for
+this screen is not mapped, and presses the keys above. It answers one box
+once, then waits for it to close. The runner passes `forget` only for text
+after a battle, so story yes/no boxes still get A.
+
+**Which Pokémon.** The party is not updated until the evolution ends: it
+still holds the old species, level and EXP when the question comes. So the
+runner takes the Pokémon with four moves that has a level evolution within
+three levels, and the move is what the evolution learns at that level. If
+none matches, the box isn't an evolution's, and it takes A as before: a
+story question answered no can end the game (Barry's, §37).
+
+**Verified:** `test_an_evolutions_fifth_move_replaces_the_weakest` (a
+Kricketot with Tackle, Growl, Leer and Bite, one EXP short of level 10: Growl
+is replaced by False Swipe, where A alone replaced Tackle) and
+`test_an_evolution_keeps_four_better_moves` (Slash, Karate Chop, Brick Break
+and Bug Buzz are kept). Both failed before the change.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| An evolution's fifth move always replaced the first slot | A answers yes, then picks the cursor's first move | The box and list are answered with `move_to_forget`'s choice |
+| The evolution's new move can't be read from the game | Its task struct is not mapped | Taken from the evolution's learnset at the level it evolves |
+| The party shows the old level and EXP during the question | The party is written when the evolution ends | The Pokémon is found by its level evolution coming within three levels |
+| Down on the move list did nothing | The list ignores keys for a moment after it appears | Wait 30 frames before pressing |
+| A box seen twice would be answered twice | The box stays up for a few frames after A | Each box is answered once and the next waits for it to close |
+| A YES/NO box after a battle that isn't an evolution's would have been answered no | "No evolution found" and "keep the old moves" were the same answer | "keep" answers no; no evolution found presses A as before |
+| Two moves offered at one level are not told apart | Only the first new move is looked up | Open: rare, and the choice is made for the first |

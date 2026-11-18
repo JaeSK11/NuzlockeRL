@@ -23,9 +23,10 @@ def first_move(info):
     return next(a for a in range(len(info["action_mask"])) if info["action_mask"][a])
 
 
-def lone_turtwig(tmp_path, level=7, hp=None):
+def lone_turtwig(tmp_path, level=7, hp=None, species=387, moves=None, exp=None):
     """The Route 202 fixture with a lone Turtwig, as a run brings it there, and the route's wild
-    encounters back on (the milestone script turns them off)."""
+    encounters back on (the milestone script turns them off). `species`, `moves` and `exp` set
+    another Pokémon in its place."""
     import random
     import pynds
     import romdata as R
@@ -33,10 +34,12 @@ def lone_turtwig(tmp_path, level=7, hp=None):
     nds = pynds.PyNDS(ROM)
     nds.load_state_from_file(ENTRANCE)
     nds.tick(2)
-    mon = scenario.build_mon(387, level, R.default_moves(387, level), ivs=15,
+    mon = scenario.build_mon(species, level, moves or R.default_moves(species, level), ivs=15,
                              trainer=scenario.Trainer.from_mon(scenario.read_party_data(nds)[0]), rng=random.Random(0))
     if hp is not None:
         mon["hp"] = hp
+    if exp is not None:
+        mon["exp"] = exp
     scenario.write_party(nds, [mon])
     nds.memory.write_u32(False, gen4.resolve(nds)["_version"] + scenario.ENCOUNTER_OFFSET, R.encounters_for_map(343).grass_rate)
     path = str(tmp_path / "lone_turtwig.state")
@@ -174,6 +177,34 @@ def test_grinding_fights_wild_battles_until_the_level(tmp_path):
     assert info["end"] == "no_badge"                                  # the route (one grind) played to its end
     assert [m.level for m in gen4.read_party(env.nds)] == [8]
     assert info["battles"] and all(b["trainer"] == 0 and b["outcome"] in ("WON", "CAUGHT", "FLED") for b in info["battles"])
+
+
+def evolve_kricketot(tmp_path, moves):
+    """A Kricketot one EXP short of level 10 with these four moves, played through a wild battle
+    that evolves it into a Kricketune, whose level-10 move is False Swipe."""
+    import route
+    import romdata as R
+    import run_env as RE
+    start = lone_turtwig(tmp_path, level=9, species=401, moves=moves, exp=R.exp_for_level(401, 10) - 1)
+    env = RE.RunEnv(start_state=start, route_actions=[("grind", 10, route.ROUTE202_GRASS, route.SANDGEM_HEAL)])
+    obs, info = env.reset(seed=0)
+    play_out(env, info)
+    (mon,) = gen4.read_party(env.nds)
+    assert mon.species == 402 and mon.level == 10
+    return [R.move_name(m) for m in mon.moves]
+
+
+@needs_entrance
+def test_an_evolutions_fifth_move_replaces_the_weakest(tmp_path):
+    """Tackle, Growl, Leer and Bite: the status moves are worth nothing, so Growl (slot 1) goes,
+    where the game's first choice would be Tackle."""
+    assert evolve_kricketot(tmp_path, [33, 45, 43, 44]) == ["Tackle", "False Swipe", "Leer", "Bite"]
+
+
+@needs_entrance
+def test_an_evolution_keeps_four_better_moves(tmp_path):
+    """Four moves worth more than False Swipe: the new move is given up."""
+    assert evolve_kricketot(tmp_path, [163, 2, 280, 405]) == ["Slash", "Karate Chop", "Brick Break", "Bug Buzz"]
 
 
 @needs_entrance

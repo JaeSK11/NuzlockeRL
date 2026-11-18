@@ -9,6 +9,7 @@ crossed with fixed steps.
 """
 from __future__ import annotations
 
+import battle_env
 import gen4
 import nuzlocke
 import overworld as O
@@ -18,6 +19,7 @@ import scenario
 GYM_DOOR_TO_JONATHON = ["up"] * 3 + ["left"] * 3 + ["up"] * 3 + ["right", "up"]
 GYM_JONATHON_TO_DARIUS = ["right"] * 5 + ["up"] * 5 + ["left"]
 GYM_DARIUS_TO_ROARK = ["left", "up", "up", "up", "left"] + ["up"] * 5
+LEVEL_EVOLUTION = romdata.EVO_METHODS.index("level")
 NURSE = ((8, 6), "up")          # every Pokémon Center on the way: face the nurse across her counter
 ROARK = 246
 ROARK_CAP = dict(nuzlocke.PLATINUM_KAIZO_CAPS)["Roark"]
@@ -128,7 +130,7 @@ class Runner:
             start, sub = resume
             self.at, self.sub = start, sub
             yield from self._battle()
-            yield from self._text("yes")
+            yield from self._text("yes", after_battle=True)
             if self.route[start][0] == "starter":
                 start += 1
             else:
@@ -149,15 +151,33 @@ class Runner:
         if trainer and outcome == "WON":
             self.trainers_beaten.append(trainer)
 
-    def _text(self, answer="no", limit=O.TEXT_LIMIT):
+    def _text(self, answer="no", limit=O.TEXT_LIMIT, after_battle=False):
         """Advance text; every battle it leads to is played. After a battle the text goes on
-        with A, since B would stop an evolution."""
+        with A, since B would stop an evolution, and an evolution's fifth move is answered by
+        move_to_forget as in battle."""
         yes = answer == "yes"
-        while (r := O.advance_text(self.nds, yes, limit)) == "battle":
+        while (r := O.advance_text(self.nds, yes, limit, self._evolution_forget if after_battle else None)) == "battle":
             yield from self._battle()
-            yes = True
+            yes = after_battle = True
         if r == "stuck":
             raise RouteError(f"text stuck at {gen4.read_location(self.nds)[:3]}")
+
+    def _evolution_forget(self):
+        """The slot of the move to forget for an evolution's fifth move, or "keep" for the old four.
+        The party still holds the old form at its old level and EXP until the evolution ends, so
+        the Pokémon is the one with four moves whose level evolution comes within three levels,
+        and the move is what the evolution learns at that level. None when no Pokémon matches:
+        then the YES/NO box isn't an evolution's, and takes A as before (a story question answered
+        no can end the game: Barry's)."""
+        for mon in gen4.read_party(self.nds):
+            for evo in romdata.evolutions(mon.species):
+                if evo.method != LEVEL_EVOLUTION or not 0 < evo.param - mon.level <= 3:
+                    continue
+                new = [m for lv, m in romdata.learnset(evo.target) if lv == evo.param and m not in mon.moves]
+                if new and all(mon.moves):
+                    slot = battle_env.move_to_forget(mon.moves, romdata.species(evo.target).types, new[0])
+                    return "keep" if slot is None else slot
+        return None
 
     def _battle_or_scene(self, outcome):
         """After a step that started a scene: a wild battle or a trainer who saw the player is
@@ -171,7 +191,7 @@ class Runner:
             self.nds.tick(1)
         if gen4.in_battle(self.nds):                    # a wild battle, already up: advance_text wouldn't report it
             yield from self._battle()
-            yield from self._text("yes")
+            yield from self._text("yes", after_battle=True)
             return True
         if not spotted:
             return False
