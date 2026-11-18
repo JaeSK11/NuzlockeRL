@@ -2338,3 +2338,67 @@ already saved go away.
 | Pinning each training worker didn't speed training | Each worker already had a core of its own | Taken back out |
 | Runs ended `route_error` with no way to see why | The episode record dropped the run's error message | The record keeps it, and the metrics count errors by message |
 | Runs resumed from some restart states ended `route_error` | They were saved inside a heal trip, which can't be resumed halfway | No restart is saved inside a trip; one that fails in its own route action is dropped |
+
+## 43. Battle effects in RAM (2026-11-18)
+
+Goal: the first part of NEXT_PHASE step 4. The battle observation can't
+see effects such as Stealth Rock, Light Screen, Sand Tomb's trap or Curse,
+and Roark's Pokémon use them. This finds where the game keeps them. Putting
+them in the observation comes next. It changes the network's input size,
+so it waits for the switch from runs3 (§42).
+
+**Where they are.** In the battle context, the struct the env already
+reads for the menu state. The decomp's layout gives the offsets. The
+fields just before them already matched this hack: `taskData` at 0x178,
+and `totalTurns` at 0x150 counts the turns.
+
+- `fieldConditionsMask` at 0x180: the weather, and the turns left of
+  Gravity (bits 12-14) and Trick Room (bits 16-18).
+- `weatherTurns` at 0x184: the turns left of a move's weather.
+- `sideConditionsMask[2]` at 0x1BC, one per side, the player's first:
+  which screens and hazards are up, and Tailwind's turns (bits 8-9).
+- `SideConditions[2]` at 0x1C4, 8 bytes per side: the turns left of
+  Reflect, Light Screen, Mist and Safeguard, and the layers of Spikes and
+  Toxic Spikes.
+- Each Pokémon's `statusVolatile`, already read for the action mask, holds
+  the rest: the turns left of Sand Tomb's trap (bits 13-15), Curse (bit
+  28), confusion's turns (bits 0-2) and Substitute (bit 24).
+
+`gen4.read_field_effects` reads the field and both sides.
+
+**Curse from Shuckle is a stat change.** Curse used by a Pokémon that isn't
+a Ghost raises its Attack and Defense and lowers its Speed. Those stages
+are already in the observation. Only a Ghost's Curse sets the bit.
+
+**How it was checked.** Each effect got a wild battle against an enemy
+that knew only the effect's move. Turtwig used Withdraw, so the battle
+lasted, and the fields were read after each turn. All ran beside training,
+pinned to one core.
+
+| Move | Where it showed | What changed each turn |
+|---|---|---|
+| Light Screen | The enemy's side, mask bit 1 | Turns 4, 3, 2, 1, then the bit cleared |
+| Reflect | The enemy's side, mask bit 0 | Turns 4, 3, 2, 1, then cleared |
+| Safeguard | The enemy's side, mask bit 3 | Turns 4, 3, 2, 1, then cleared |
+| Tailwind | The enemy's side, mask bits 8-9 | Turns 2, 1, then cleared |
+| Stealth Rock | The player's side, mask bit 7 | Stayed |
+| Spikes | The player's side, mask bit 2 | Layers 1, 2, 3, then no more |
+| Toxic Spikes | The player's side, mask bit 10 | Layers 1, 2, then no more |
+| Sandstorm, Rain Dance | The field mask | Turns 4, 3, 2, 1, then cleared |
+| Trick Room | The field mask, bits 16-18 | Turns 4, 3, 2, 1 |
+| Sand Tomb | Turtwig's volatile bits 13-15 | Turns 3, 2, 1, then free |
+| Curse, from Gastly | Turtwig's volatile bit 28 | Stayed, and Gastly lost half its HP |
+| Confuse Ray | Turtwig's volatile bits 0-2 | Turns 5, 4, 3, 2, 1 |
+| Substitute | The enemy's volatile bit 24 | Stayed, and the enemy lost a quarter of its HP |
+
+Not checked: Mist and Gravity (same layout as their checked neighbours),
+the weather an ability starts, and Leech Seed, which fails on a Grass type.
+
+**Verified:** `test_field_and_side_effects_are_read_from_ram` (Light Screen,
+Stealth Rock, Spikes, Sandstorm).
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| The observation can't see screens, hazards, weather or traps | Nothing read them from RAM | Found in the battle context; `read_field_effects` reads them |
+| Light Screen and Reflect seemed to last 4 turns | The read comes after the turn the move was used, which counts as one of its 5 | Expected |
+| Leech Seed set nothing | Turtwig is a Grass type, which Leech Seed can't seed | Left unchecked |

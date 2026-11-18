@@ -30,6 +30,7 @@ TACKLE, SELFDESTRUCT, GROWL, MEGA_DRAIN, BITE, ROCK_THROW, RAZOR_LEAF, EMBER, SC
 WITHDRAW, ABSORB, WRAP, MEAN_LOOK, DISABLE, TORMENT, ENCORE, CHOICE_BAND = 110, 71, 35, 212, 50, 259, 227, 220
 STEALTH_ROCK, BRICK_BREAK, ACCELEROCK = 446, 280, 205      # with Selfdestruct, Roark's Bonsly; 205 is Rollout in vanilla
 ROAR, WHIRLWIND = 46, 18
+LIGHT_SCREEN, SPIKES, SANDSTORM = 113, 191, 201
 MASTER_BALL, POKE_BALL = 1, 4
 TEAM3 = [{"species": CHIMCHAR, "level": 12, "moves": [52, 10, 43, 183]},
          {"species": PIPLUP, "level": 11, "moves": [55, 1, 145, 64]},
@@ -73,6 +74,16 @@ for _name, (_moves, _item) in LOCK_CASES.items():
     SCENARIOS["lock_" + _name] = (
         [{"species": TURTWIG, "level": 14, "moves": [TACKLE, WITHDRAW, BITE, ABSORB], **({"item": _item} if _item else {})},
          {"species": STARLY, "level": 12, "moves": [TACKLE, GROWL]}], (SHUCKLE, 25), 3, _moves)
+
+
+# Shuckle knows only the effect's move and uses it on turn 1, while Turtwig uses Withdraw.
+NO_EFFECTS = gen4.SideEffects()
+EFFECT_CASES = {"light_screen": (LIGHT_SCREEN, gen4.FieldEffects(sides=(NO_EFFECTS, gen4.SideEffects(light_screen=4)))),
+                "stealth_rock": (STEALTH_ROCK, gen4.FieldEffects(sides=(gen4.SideEffects(stealth_rock=True), NO_EFFECTS))),
+                "spikes": (SPIKES, gen4.FieldEffects(sides=(gen4.SideEffects(spikes=1), NO_EFFECTS))),
+                "sandstorm": (SANDSTORM, gen4.FieldEffects(weather="sand", weather_turns=4))}
+for _name, (_move, _) in EFFECT_CASES.items():
+    SCENARIOS["effect_" + _name] = ([{"species": TURTWIG, "level": 14, "moves": [TACKLE, WITHDRAW]}], (SHUCKLE, 25), 3, [_move])
 
 
 def scenario_state(name):
@@ -253,6 +264,18 @@ def test_encore_allows_only_the_encored_move_and_uses_it_from_fight(tmp_path):
     after = e.snap.player[e.snap.player_active].pp[0]
     e.close()
     assert not stuck and info["move"] == "Tackle" and after == pp - 1
+
+
+@needs_rom
+@pytest.mark.parametrize("name", list(EFFECT_CASES))
+def test_field_and_side_effects_are_read_from_ram(name):
+    e = BattleEnv([scenario_state("effect_" + name)], ROM)
+    e.reset(seed=0)
+    before = gen4.read_field_effects(e.nds, e.addrs)
+    e.step(1)
+    after = gen4.read_field_effects(e.nds, e.addrs)
+    e.close()
+    assert (before, after) == (gen4.FieldEffects(), EFFECT_CASES[name][1])
 
 
 def test_trap_rules_the_game_cant_show_here():

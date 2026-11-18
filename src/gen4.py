@@ -303,6 +303,64 @@ def read_battle_effects(nds, addrs: dict, battler: int) -> BattleEffects | None:
         last_move=rd16(False, ctx + CTX_MOVE_PREV + 2 * battler))
 
 
+# BattleContext's field and side conditions (decomp include/battle/battle_context.h, bits from
+# include/constants/battle/condition.h), checked in RAM against an enemy that knew only the
+# move (PROGRESS §43). Side 0 is the player's. A turn count is the turns left.
+CTX_FIELD_MASK = 0x180          # u32 fieldConditionsMask
+CTX_WEATHER_TURNS = 0x184       # u32 FieldConditions.weatherTurns
+CTX_SIDE_MASK = 0x1BC           # u32 sideConditionsMask[2]
+CTX_SIDE_CONDITIONS = 0x1C4     # SideConditions[2], two bit-field words each
+WEATHER_BITS = (("rain", 0x3), ("sand", 0xC), ("sun", 0x30), ("hail", 0xC0), ("fog", 1 << 15))
+SIDE_REFLECT, SIDE_LIGHT_SCREEN, SIDE_SPIKES, SIDE_SAFEGUARD = 1, 2, 4, 8
+SIDE_MIST, SIDE_STEALTH_ROCK, SIDE_TOXIC_SPIKES = 1 << 6, 1 << 7, 1 << 10
+
+
+@dataclass(frozen=True)
+class SideEffects:
+    reflect: int = 0
+    light_screen: int = 0
+    safeguard: int = 0
+    mist: int = 0
+    tailwind: int = 0
+    spikes: int = 0             # layers, up to 3
+    toxic_spikes: int = 0       # layers, up to 2
+    stealth_rock: bool = False
+
+
+@dataclass(frozen=True)
+class FieldEffects:
+    weather: str | None = None  # a name from WEATHER_BITS
+    weather_turns: int = 0
+    gravity: int = 0
+    trick_room: int = 0
+    sides: tuple = (SideEffects(), SideEffects())
+
+
+def read_field_effects(nds, addrs: dict) -> FieldEffects | None:
+    """None when the context pointer isn't in main RAM."""
+    rd = nds.memory.read_u32
+    ctx = rd(False, addrs["battleCtxPtr"])
+    if not (MAIN_RAM <= ctx < MAIN_RAM + 0x400000 - 0x200) or ctx & 3:
+        return None
+    sides = []
+    for s in range(2):
+        mask = rd(False, ctx + CTX_SIDE_MASK + 4 * s)
+        w0, w1 = rd(False, ctx + CTX_SIDE_CONDITIONS + 8 * s), rd(False, ctx + CTX_SIDE_CONDITIONS + 8 * s + 4)
+        sides.append(SideEffects(
+            reflect=(w0 >> 2) & 7 if mask & SIDE_REFLECT else 0,
+            light_screen=(w0 >> 7) & 7 if mask & SIDE_LIGHT_SCREEN else 0,
+            mist=(w0 >> 12) & 7 if mask & SIDE_MIST else 0,
+            safeguard=(w0 >> 17) & 7 if mask & SIDE_SAFEGUARD else 0,
+            tailwind=(mask >> 8) & 3,
+            spikes=w1 & 3 if mask & SIDE_SPIKES else 0,
+            toxic_spikes=(w1 >> 2) & 3 if mask & SIDE_TOXIC_SPIKES else 0,
+            stealth_rock=bool(mask & SIDE_STEALTH_ROCK)))
+    field = rd(False, ctx + CTX_FIELD_MASK)
+    weather = next((name for name, bits in WEATHER_BITS if field & bits), None)
+    return FieldEffects(weather=weather, weather_turns=rd(False, ctx + CTX_WEATHER_TURNS) if weather else 0,
+                        gravity=(field >> 12) & 7, trick_room=(field >> 16) & 7, sides=tuple(sides))
+
+
 def waiting_for_command(nds, addrs: dict) -> bool:
     """True while the game shows the action menu and waits for the player."""
     c = read_battle_command(nds, addrs)
