@@ -116,7 +116,7 @@ class RunEnv(gym.Env):
         self.run.routes, self.run.caught_lines = dict(r["routes"]), set(r["caught_lines"])
         self.run.dead, self.run.beaten = set(r["dead"]), set(r["beaten"])
         self.runner.trainers_beaten, self.starter = list(meta["trainers_beaten"]), meta["starter"]
-        self.restart = os.path.basename(meta_path).removesuffix(".json")
+        self.restart, self.restart_at = os.path.basename(meta_path).removesuffix(".json"), meta["at"]
         return meta["at"], meta["sub"]
 
     def _save_restart(self):
@@ -166,8 +166,10 @@ class RunEnv(gym.Env):
                 mask = np.zeros(BE.N_ACTIONS, dtype=bool)
                 mask[:len(STARTERS)] = True
                 return BE.observation(starter_snapshot(), 0, 1), {"action_mask": mask, "decision": "starter"}
-            if self.restart_dir and not (self.restart and self.kind is None):
-                self._save_restart()                        # not again for the battle a restart resumes
+            # Not again for the battle a restart resumes, and not inside a heal trip: a restart
+            # replays its route action from the start, and a trip half done can't be.
+            if self.restart_dir and not (self.restart and self.kind is None) and not self.runner.in_trip:
+                self._save_restart()
             self.kind = "battle"
             self.trainer = self.nds.memory.read_u16(False, gen4.resolve(self.nds)["enemyTrainerID"])
             catch = self._encounter() if not self.trainer else False
@@ -220,6 +222,8 @@ class RunEnv(gym.Env):
                 info["decision"] = "battle"
         if not self.end and self.decisions >= self.max_decisions:
             obs, info = self._finish("budget")
+        if self.end == "route_error" and self.restart and self.runner.at == self.restart_at:
+            self._drop_restart(os.path.join(self.restart_dir, self.restart + ".json"))  # it can't resume
         self.ret += reward
         terminated = self.end in ("badge", "wipe", "no_badge")
         truncated = self.end in ("budget", "stuck", "route_error")

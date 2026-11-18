@@ -2316,10 +2316,25 @@ change was taken back out, and a job run beside training is pinned instead:
 message, and the metrics count them by message (`errors`), so a route error
 can be found from the trainer's log alone.
 
-**Verified:** `test_episode_stats_count_why_runs_ended_on_a_route_error`.
+**What the route errors were.** The first update with the new metric
+(update 41) showed three: twice "stuck walking to (27, 22)" with the player
+on Route 203, and once "no way into map 198" from map 198. All three were
+runs resumed from a restart state saved during a wild battle inside a heal
+trip. A restart replays its route action from that action's start, and a
+trip half done can't be: the gate's top-up found the party healthy and
+skipped the rest of its trip back, and the mine's began again with an exit
+to the floor the player was already on. Now no restart state is saved
+inside a heal trip; its battles are still played. And a restart that ends
+in a route error in the very action it resumed is dropped, so the bad ones
+already saved go away.
+
+**Verified:** `test_episode_stats_count_why_runs_ended_on_a_route_error`,
+`test_a_battle_inside_a_heal_trip_leaves_no_restart_state`,
+`test_a_restart_that_ends_in_a_route_error_is_dropped`.
 
 | Issue | Cause | Resolution |
 |---|---|---|
 | An emulator beside training ran at 2 frames a second | Its threads, spread over busy cores, wait on the scheduler at every handoff | Pin a side job to one core with `taskset`: 119 frames a second |
 | Pinning each training worker didn't speed training | Each worker already had a core of its own | Taken back out |
 | Runs ended `route_error` with no way to see why | The episode record dropped the run's error message | The record keeps it, and the metrics count errors by message |
+| Runs resumed from some restart states ended `route_error` | They were saved inside a heal trip, which can't be resumed halfway | No restart is saved inside a trip; one that fails in its own route action is dropped |

@@ -294,3 +294,47 @@ def test_a_run_leaves_restart_states_and_a_reset_resumes_one(tmp_path):
         done = term or trunc
     assert info["end"] in ("wipe", "badge", "no_badge")
     assert info["route_step"] >= resumed_at
+
+
+@pytest.mark.skipif(not (os.path.exists(ROM) and os.path.exists(os.path.join(ROOT, "states/walk/start/199_oreburgh_mine_b2f.state"))),
+                    reason="needs the map start states (scripts/make_milestones.py)")
+def test_a_battle_inside_a_heal_trip_leaves_no_restart_state(tmp_path):
+    """A restart resumes the route action it interrupted from that action's start, and a heal
+    trip half done can't be: the mine's would exit to the floor the player is on."""
+    import route
+    import run_env as RE
+    start = hurt_state(tmp_path, os.path.join(ROOT, "states/walk/start/199_oreburgh_mine_b2f.state"))
+    restarts = tmp_path / "restarts"
+    env = RE.RunEnv(start_state=start, route_actions=[("mend", route.MINE_HEAL)], restart_dir=str(restarts))
+    obs, info = env.reset(seed=0)
+    assert not env.end and info["decision"] == "battle"               # the mine's wild battle on the trip
+    play_out(env, info)
+    assert env.end == "no_badge" and env.battles
+    assert not list(restarts.glob("*.json"))
+
+
+@needs_choice
+def test_a_restart_that_ends_in_a_route_error_is_dropped(tmp_path):
+    """Restarts saved inside a heal trip before that was ruled out resume into a route error.
+    One that fails in the very route action it resumed is dropped, so bad states heal away."""
+    import json
+    import route
+    import run_env as RE
+    env = RE.RunEnv(restart_dir=str(tmp_path))
+    play_out(env, env.reset(seed=0)[1])
+    at3 = [p for p in tmp_path.glob("003_*.json")]                    # Route 201's wild battles
+    assert at3
+    for p in tmp_path.glob("*.json"):
+        if p not in at3[:1]:
+            p.unlink()
+    broken = list(route.ROUTE)
+    broken[3] = ("exit", 9999)                                         # no way there: the action fails
+    meta = json.loads(at3[0].read_text())
+    meta["action"] = repr(broken[3])
+    at3[0].write_text(json.dumps(meta))
+    env = RE.RunEnv(restart_dir=str(tmp_path), restart_share=1.0, route_actions=broken)
+    obs, info = env.reset(seed=1)
+    assert info["restart"] == at3[0].stem
+    info = play_out(env, info)
+    assert info["end"] == "route_error"                               # the battle won, the exit failed
+    assert not at3[0].exists() and not at3[0].with_suffix(".state").exists()

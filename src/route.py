@@ -118,6 +118,7 @@ class Runner:
         self.nds, self.route = nds, route
         self.trainers_beaten: list[int] = []
         self.heals = 0                                  # nurse visits
+        self.in_trip = 0                                # heal trips under way (a trip can't be resumed halfway)
         self.at = 0                                     # the route action playing now: how far the run got
         self.sub = 0                                    # the step playing now, inside a fixed list of steps
 
@@ -218,8 +219,12 @@ class Runner:
             yield from self._trip(heal_trip)
 
     def _trip(self, actions):
-        for action, *args in actions:
-            yield from getattr(self, "_" + action)(*args)
+        self.in_trip += 1
+        try:
+            for action, *args in actions:
+                yield from getattr(self, "_" + action)(*args)
+        finally:
+            self.in_trip -= 1
 
     def _grind(self, level, tiles, heal_trip):
         """Wild battles in the grass, pacing between two tiles, until a party Pokémon reaches
