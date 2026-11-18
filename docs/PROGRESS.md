@@ -2059,7 +2059,7 @@ the overworld and run tests pass with running.
 | The trainer's episode records had no outcome for a run | A run's final info had `end`, not `outcome` | `outcome` is the run's end, and the route step is recorded |
 | Roark turns down a party over his cap, and nothing in a run can bring it under | The agent has no PC decisions yet (3.6) | Open: a run ends "no_badge" with no reward |
 | An evolution's fifth move replaces the first slot | A on the forget screen picks the first move | `move_to_forget` answers it, as in battle (§40) |
-| Milestone 00 has no input script from boot | The new game's intro and naming were played by hand | Open: every run starts from `01_starter_choice`, which is rebuilt from 00 |
+| Milestone 00 has no input script from boot | The new game's intro and naming were played by hand | `boot` in `make_milestones.py` plays it from power-on (§41) |
 
 ## 39. Runs stalled on Route 202: training up, and healing between trainers (2026-11-17)
 
@@ -2243,3 +2243,51 @@ and Bug Buzz are kept). Both failed before the change.
 | A box seen twice would be answered twice | The box stays up for a few frames after A | Each box is answered once and the next waits for it to close |
 | A YES/NO box after a battle that isn't an evolution's would have been answered no | "No evolution found" and "keep the old moves" were the same answer | "keep" answers no; no evolution found presses A as before |
 | Two moves offered at one level are not told apart | Only the first new move is looked up | Open: rare, and the choice is made for the first |
+
+## 41. Milestone 00 from power-on (2026-11-18)
+
+Goal: build every milestone from the ROM alone, so a new machine needs no
+hand-made state. Milestone 00 (the player free in the Twinleaf bedroom, no
+party) was the last one played by hand.
+
+**The intro.** `boot` in `scripts/make_milestones.py` powers on and plays
+these screens. Each press is A held 4 frames, then a wait, unless noted.
+
+1. Power on and run 1,500 frames: the legal screen, the logos and the title.
+2. A, 18 times, 110 frames apart: the title, Rowan's greeting, "Is this your
+   first adventure?", the control info, to "Please touch a button".
+3. Touch YES at (119, 82): "Do you understand everything so far?". The
+   touch screen holds the buttons; A does nothing there.
+4. A twice, then down twice (30 frames each), then A: the "Would you like to
+   know more" menu, NO INFO NEEDED.
+5. A three times to "Touch the button on the middle of the Poké Ball", then
+   touch (128, 98).
+6. A 16 times: Rowan's talk and "Are you a boy?". The cursor starts on boy,
+   so A answers it. "So you're a boy?" takes A on YES.
+7. The name keyboard: wait 120 frames, A (it only wakes the cursor), A
+   (types A), down, right 7 times, A (types R), START (OK). The name is AR.
+8. A 7 times: "Your name is AR?" (YES), Rowan, and the rival's menu.
+9. Down (Barry is the second entry), then A 8 times. The rival is Barry.
+10. A until the player is free in map 415, then 60 frames.
+
+**Checked.** The state is map 415 at tile (4, 6), facing 0, with no party and no
+field task, the same as the hand-made one. `boot` then `starter_choice` run on
+a scratch root: 01_starter_choice was made from the new 00 and all three balls
+gave their starters. The name (AR), the boy sprite and Barry match the
+hand-made state's save screen. The two 00 states differ in the trainer ID (the
+u32 after the name block: 0x182A8B45 by hand, 0x99E93A96 from boot) and in
+the RNG seed word beside the clock; every other word of the save block matches
+once the heap shift of 0x54 bytes is allowed for. Pokémon made later carry
+the new trainer ID as their OT, and shininess depends on it. The battle env
+and `scenario` write their own seeds and take the OT from the starter, so the
+tests do not read it; milestones 06 to 16 start from 04 and are unchanged.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| The title showed CONTINUE, not the intro | The emulator loads the `.sav` beside the ROM, and a machine that has played the game has one | `boot` links the ROM into an empty folder, so no save is found, as on a new machine |
+| `field_task` raised during the intro | No FieldSystem exists until the bedroom loads | The wait for the bedroom treats that error as "not free yet" |
+| A did nothing at "Do you understand" and "Please touch" | These take the touch screen | Touch YES at (119, 82) and the Poké Ball at (128, 98) |
+| A looped through the info menu | The menu's first entry shows more info and returns | Down twice to NO INFO NEEDED |
+| The first name came out as R, not AR | The first A on the keyboard only wakes its cursor | Wait 120 frames and press A twice before the first letter |
+| The emulator ran at 4 frames a second beside training | Its threads fight the 15 training workers for the cores | Pin the run to a free core (`taskset -c 1`): about 190 frames a second |
+| 00 built on one machine may carry another trainer ID | The ID comes from the clock and the frame count of the intro | Fixed by the inputs: every machine with this ROM gets the same ID, which differs from the hand-made one |

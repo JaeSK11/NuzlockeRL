@@ -1,4 +1,4 @@
-"""Rebuild milestone 01_starter_choice from 00, and 06 to 16 from 04, with the map start states and test fixtures.
+"""Rebuild milestone 00 from power-on (if missing), 01_starter_choice from 00, and 06 to 16 from 04, with the map start states and test fixtures.
 
   python scripts/make_milestones.py [--root states]
 
@@ -13,6 +13,7 @@ import argparse
 import os
 import random
 import sys
+import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
@@ -215,6 +216,75 @@ class Run:
                 self.save("fixtures", args[0])
 
 
+def boot(root: str):
+    """Milestone 00_twinleaf_bedroom_no_party, from power-on: the title, Rowan's talk, the
+    player AR (a boy) and the rival Barry, to the free player in the bedroom. The ROM is linked
+    into an empty folder so no save file beside it turns the title into CONTINUE. Every press is
+    A held 4 frames, then a wait; touches hold 8 frames. The first A on the keyboard only wakes
+    its cursor, so each name takes a wait and a second A. The emulator repeats the inputs
+    exactly. Checked: the bedroom tile, no party, and the player free."""
+    def press(key, wait=110):
+        O.press(nds, key)
+        nds.tick(wait)
+
+    def tap(x, y, wait=110):
+        nds.button.set_touch(x, y)
+        nds.button.touch()
+        nds.tick(8)
+        nds.button.release_touch()
+        nds.tick(wait)
+
+    def free():
+        try:                                # no FieldSystem exists until the bedroom loads
+            return gen4.read_location(nds).map_id == 415 and not gen4.field_task(nds)
+        except RuntimeError:
+            return False
+
+    with tempfile.TemporaryDirectory() as tmp:
+        rom = os.path.join(tmp, "rom.nds")
+        os.symlink(os.path.abspath(ROM), rom)
+        nds = pynds.PyNDS(rom)
+        nds.tick(1500)
+        for _ in range(18):                 # title, Rowan's greeting, to "Please touch a button"
+            press("a")
+        tap(119, 82)                        # YES: "Do you understand everything so far?"
+        press("a")
+        press("a")
+        press("down", 30)                   # the menu: NO INFO NEEDED
+        press("down", 30)
+        for _ in range(3):
+            press("a")
+        tap(128, 98, 150)                   # the middle of the Poké Ball
+        for _ in range(7 + 9):              # Rowan's talk, the boy (the default), to the name's keyboard
+            press("a")
+        nds.tick(120)
+        press("a", 60)                      # wakes the cursor
+        press("a", 60)                      # A
+        press("down", 20)
+        for _ in range(7):
+            press("right", 20)
+        press("a", 60)                      # R
+        press("start", 60)                  # OK
+        for _ in range(7):                  # "Your name is AR?" YES, Rowan, then the rival's menu
+            press("a")
+        press("down", 30)                   # Barry
+        for _ in range(8):
+            press("a")
+        for _ in range(60):                 # the rest of the talk, the bedroom
+            if free():
+                break
+            press("a")
+        nds.tick(60)
+        loc = gen4.read_location(nds)
+        if (loc.map_id, gen4.read_player_tile(nds)) != (415, (4, 6, 0)) or gen4.field_task(nds) \
+                or gen4.read_party(nds):
+            raise SystemExit(f"the intro didn't end free in the bedroom: {loc}")
+        path = os.path.join(root, "milestones", "00_twinleaf_bedroom_no_party.state")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        nds.save_state_to_file(path)
+    print("  saved milestones/00_twinleaf_bedroom_no_party", flush=True)
+
+
 def starter_choice(root: str):
     """Milestone 01_starter_choice, from milestone 00: the opening, Barry on Route 201, then
     Rowan's briefcase with its cursor on the first ball, where every run starts. A question of
@@ -223,7 +293,7 @@ def starter_choice(root: str):
     playthrough's own inputs, which the emulator repeats exactly. Checked: each ball gives its
     starter."""
     nds = pynds.PyNDS(ROM)
-    nds.load_state_from_file(os.path.join(ROOT, "states/milestones/00_twinleaf_bedroom_no_party.state"))
+    nds.load_state_from_file(os.path.join(root, "milestones", "00_twinleaf_bedroom_no_party.state"))
     nds.tick(2)
     for action, arg in (("step", "down"), ("text", "no"), ("text", "no"), ("step", "up"), ("text", "yes"),
                         ("step", "down"), ("text", "no")):
@@ -285,6 +355,8 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", default=os.path.join(ROOT, "states"))
     root = ap.parse_args().root
+    if not os.path.exists(os.path.join(root, "milestones", "00_twinleaf_bedroom_no_party.state")):
+        boot(root)
     starter_choice(root)
     Run(root).run()
     ledyba_fixture(root)
