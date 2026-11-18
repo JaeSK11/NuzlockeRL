@@ -96,6 +96,73 @@ def test_a_hurt_party_heals_before_a_clown(tmp_path):
     assert all(m.hp == m.max_hp for m in gen4.read_party(env.nds))
 
 
+def hurt_state(tmp_path, start):
+    import pynds
+    import scenario
+    nds = pynds.PyNDS(ROM)
+    nds.load_state_from_file(start)
+    nds.tick(2)
+    party = scenario.read_party_data(nds)
+    party[0]["hp"] = 1
+    scenario.write_party(nds, party)
+    path = str(tmp_path / "hurt.state")
+    nds.save_state_to_file(path)
+    return path
+
+
+@pytest.mark.parametrize("start, trip, back_in", [
+    ("states/walk/start/344_route_203.state", "ROUTE203_HEAL", 3),     # Route 203 to Jubilife's Pokémon Center
+    ("states/walk/start/258_oreburgh_gate.state", "GATE_HEAL", 258),   # the gate, by Route 203, and back
+    ("states/walk/start/199_oreburgh_mine_b2f.state", "MINE_HEAL", 199),  # the mine to Oreburgh's, and back
+])
+def test_a_heal_trip_heals_and_comes_back(tmp_path, start, trip, back_in):
+    import route
+    import run_env as RE
+    start = os.path.join(ROOT, start)
+    if not (os.path.exists(ROM) and os.path.exists(start)):
+        pytest.skip("needs the map start states (scripts/make_milestones.py)")
+    env = RE.RunEnv(start_state=hurt_state(tmp_path, start), route_actions=[("mend", getattr(route, trip))])
+    obs, info = env.reset(seed=0)
+    if not env.end:                                                   # wild battles on the way (the mine's)
+        play_out(env, info)
+    assert env.end == "no_badge" and env.runner.heals == 1
+    assert gen4.read_location(env.nds).map_id == back_in
+    party = gen4.read_party(env.nds)
+    assert party[0].hp > 1                                            # the lead had 1 HP
+    if not env.battles:                                               # else a wild battle after the nurse
+        assert all(m.hp == m.max_hp for m in party)
+
+
+BEFORE_ROARK = os.path.join(ROOT, "states/milestones/15_oreburgh_gym_before_roark.state")
+
+
+@pytest.mark.skipif(not (os.path.exists(ROM) and os.path.exists(BEFORE_ROARK)), reason="needs milestone 15 (scripts/make_milestones.py)")
+def test_before_roark_the_party_heals_and_leaves_the_pokemon_over_his_cap(tmp_path):
+    """The gym's steps back to the door, Oreburgh's Pokémon Center, and the steps up again: the
+    party is healed, a Pokémon over Roark's cap goes to the PC, and the player is back at Roark."""
+    import pynds
+    import romdata as R
+    import route
+    import run_env as RE
+    import scenario
+    nds = pynds.PyNDS(ROM)
+    nds.load_state_from_file(BEFORE_ROARK)
+    nds.tick(2)
+    party = scenario.read_party_data(nds)
+    party[0]["level"], party[0]["exp"] = 17, R.exp_for_level(party[0]["species"], 17)
+    party[1]["hp"] = 1
+    scenario.write_party(nds, party)
+    path = str(tmp_path / "over_cap.state")
+    nds.save_state_to_file(path)
+    env = RE.RunEnv(start_state=path, route_actions=[route.ROUTE[-3]])        # the mend before Roark
+    env.reset(seed=0)
+    assert env.end == "no_badge" and env.runner.heals == 1
+    assert gen4.read_location(env.nds).map_id == 47 and gen4.read_player_tile(env.nds)[:2] == (5, 4)
+    left = gen4.read_party(env.nds)
+    assert len(left) == 5 and all(m.level <= 16 and m.hp == m.max_hp for m in left)
+    assert party[0].pid in [m.pid for m in gen4.read_box(env.nds, 0) if m]
+
+
 @needs_entrance
 def test_grinding_fights_wild_battles_until_the_level(tmp_path):
     import route

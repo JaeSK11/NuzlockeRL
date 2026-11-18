@@ -58,7 +58,12 @@ needs about level 11 to 16 to beat Route 202's three trainers back to back
 - **Heals between trainers.** The walk across Route 202 stops past each
   trainer's sight, at (170,815) after Tristan and (183,820) after Natalie,
   and goes back to Sandgem to heal if the party has any damage. Jubilife's
-  clowns each come after the same check at Jubilife's Pokémon Center.
+  clowns each come after the same check at Jubilife's Pokémon Center, and so
+  do Route 203's trainers, the gate's two (split at (20,22), healed at
+  Jubilife), the mine's Workers (checked at (13,16), above the ledge) and the gym's trainers
+  and Roark (healed at Oreburgh).
+- **Leaves the Pokémon over Roark's cap in the PC** at Oreburgh's Pokémon
+  Center, on the trip before Roark, if one able to battle stays.
 
 Roark's cap of 16 is the limit on training up: the trainers that can't be
 avoided give a lone Pokémon about 11 levels between Route 202 and the

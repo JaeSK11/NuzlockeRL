@@ -10,6 +10,7 @@ crossed with fixed steps.
 from __future__ import annotations
 
 import gen4
+import nuzlocke
 import overworld as O
 import romdata
 import scenario
@@ -19,10 +20,26 @@ GYM_JONATHON_TO_DARIUS = ["right"] * 5 + ["up"] * 5 + ["left"]
 GYM_DARIUS_TO_ROARK = ["left", "up", "up", "up", "left"] + ["up"] * 5
 NURSE = ((8, 6), "up")          # every Pokémon Center on the way: face the nurse across her counter
 ROARK = 246
+ROARK_CAP = dict(nuzlocke.PLATINUM_KAIZO_CAPS)["Roark"]
+OPPOSITE = {"up": "down", "down": "up", "left": "right", "right": "left"}
 
 # Heal trips: route actions that go to a Pokémon Center, heal, and leave by its door.
 SANDGEM_HEAL = (("walk", (184, 845)), ("exit", 420), ("heal",), ("exit", 418))
 JUBILIFE_HEAL = (("exit", 6), ("heal",), ("exit", 3))
+ROUTE203_HEAL = (("walk", (186, 758)),) + JUBILIFE_HEAL
+# From the Oreburgh Gate, back west: Oreburgh's center is nearer, but entering Oreburgh plays its arrival scene.
+GATE_HEAL = (("exit", 344),) + ROUTE203_HEAL + (("walk", (246, 749)), ("exit", 258))
+OREBURGH_HEAL = (("exit", 48), ("heal",), ("exit", 45))
+MINE_HEAL = (("exit", 198), ("exit", 45)) + OREBURGH_HEAL + (("exit", 198), ("exit", 199))
+
+
+def gym_trip(*walked, cap=None):
+    """From partway up the gym, after the step lists `walked`: the same steps back to the door
+    (the ROM's collision can't see the gym's raised floors), Oreburgh's Pokémon Center, and the
+    steps up again. With cap, the Pokémon Center also leaves the Pokémon over it in the PC."""
+    back = [OPPOSITE[d] for steps in reversed(walked) for d in reversed(steps)]
+    heal = ("heal", cap) if cap else ("heal",)
+    return (("steps", back), ("exit", 45), ("exit", 48), heal, ("exit", 45), ("exit", 47)) + tuple(("steps", w) for w in walked)
 ROUTE202_GRASS = ((175, 827), (178, 827))   # south of Route 202's first ledge, out of every trainer's sight
 GRIND_BATTLES = 60      # wild battles at most in one grind; past it the route goes on
 GRIND_PACES = 200       # paces in the grass with no battle before the script gives up
@@ -56,18 +73,30 @@ ROUTE = [
     ("mend", JUBILIFE_HEAL), ("talk", (164, 752)), ("text", "yes"),
     ("talk", (174, 771)), ("text", "yes"),             # the Pokétch; the east exit opens
     ("exit", 6), ("heal",), ("exit", 3),
-    ("walk", (197, 758)), ("text", "yes"),             # Barry's second battle
-    ("walk", (246, 749)), ("exit", 258),               # Route 203's trainers; the gate
+    ("walk", (197, 758)), ("text", "yes"), ("mend", ROUTE203_HEAL),  # Barry's second battle
+    ("walk", (246, 749), ROUTE203_HEAL), ("exit", 258),  # Route 203's trainers; the gate
     ("walk", (7, 22)), ("text", "yes"),                # the hiker's HM06
-    ("walk", (27, 22)), ("exit", 45),                  # Curtis and Diana
+    ("walk", (20, 22), GATE_HEAL), ("mend", GATE_HEAL),  # past Curtis
+    ("walk", (27, 22)), ("exit", 45),                  # past Diana
     ("walk", (303, 757)), ("text", "yes"),             # a local walks the player to the gym
     ("exit", 48), ("heal",), ("exit", 45),
-    ("exit", 198), ("exit", 199), ("walk", (17, 28)),  # both Workers
+    ("exit", 198), ("exit", 199),
+    ("walk", (13, 16), MINE_HEAL), ("mend", MINE_HEAL),  # above the ledge down to the Workers' corridor
+    ("walk", (17, 28)),        # past Mason and Colin: the ledge and Roark's boulders leave no way out between them
     ("talk_from", (17, 28), "right"), ("text", "yes"),  # Roark's Rock Smash demonstration
-    ("exit", 198), ("exit", 45), ("exit", 47),
-    ("steps", GYM_DOOR_TO_JONATHON), ("steps", GYM_JONATHON_TO_DARIUS), ("steps", GYM_DARIUS_TO_ROARK),
+    ("exit", 198), ("exit", 45), ("mend", OREBURGH_HEAL), ("exit", 47),
+    ("steps", GYM_DOOR_TO_JONATHON), ("mend", gym_trip(GYM_DOOR_TO_JONATHON)),
+    ("steps", GYM_JONATHON_TO_DARIUS), ("steps", GYM_DARIUS_TO_ROARK),
+    ("mend", gym_trip(GYM_DOOR_TO_JONATHON, GYM_JONATHON_TO_DARIUS, GYM_DARIUS_TO_ROARK, cap=ROARK_CAP), ROARK_CAP),
     ("talk_from", (5, 4), "up"), ("text", "yes"),      # Roark
 ]
+
+
+def _over_cap(party, cap) -> list[int]:
+    """The party slots over cap, if some Pokémon able to battle would stay; else none, as the
+    PC can't take the whole party."""
+    over = [k for k, m in enumerate(party) if m.level > cap]
+    return over if any(m.hp and m.level <= cap for m in party) else []
 
 
 class RouteError(Exception):
@@ -162,9 +191,10 @@ class Runner:
                 raise RouteError(f"stuck walking to {goal} at {gen4.read_player_tile(self.nds)}")
             return
 
-    def _mend(self, heal_trip):
-        """Before the next trainer: a heal trip if the party has any damage."""
-        if needs_heal(self.nds, hp_share=1.0):
+    def _mend(self, heal_trip, cap=None):
+        """Before the next trainer: a heal trip if the party has any damage, or, with cap, a
+        Pokémon over the boss's level cap."""
+        if needs_heal(self.nds, hp_share=1.0) or (cap and _over_cap(gen4.read_party(self.nds), cap)):
             yield from self._trip(heal_trip)
 
     def _trip(self, actions):
@@ -214,11 +244,16 @@ class Runner:
             raise RouteError(f"nobody to talk to from {tile} facing {direction}")
         yield from ()
 
-    def _heal(self):
-        """The rule first: a fainted Pokémon goes to the PC for good. Then the nurse."""
-        dead = [k for k, m in enumerate(gen4.read_party(self.nds)) if m.hp == 0]
-        if dead:
-            scenario.deposit(self.nds, dead)
+    def _heal(self, cap=None):
+        """The rule first: a fainted Pokémon goes to the PC for good. With cap, the Pokémon over
+        it go to the PC too, since the boss refuses a party with one; a stand-in for the agent's
+        PC decisions (NEXT_PHASE step 3.6)."""
+        party = gen4.read_party(self.nds)
+        leave = [k for k, m in enumerate(party) if m.hp == 0]
+        if cap:
+            leave = sorted(set(leave) | set(_over_cap(party, cap)))
+        if leave:
+            scenario.deposit(self.nds, leave)
         yield from self._talk_from(*NURSE)
         yield from self._text("yes")
         self.heals += 1

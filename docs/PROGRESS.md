@@ -2109,6 +2109,24 @@ enter the Pokémon Center, heal, leave. Two uses:
   Tristan and Natalie. Each of the three clowns in Jubilife comes after a
   `mend` at Jubilife's Pokémon Center.
 
+The same goes for the rest of the route:
+
+| Where | Split at | Heals at |
+|---|---|---|
+| Route 203, after Barry's second battle and on the way past its trainers | | Jubilife, walking back west |
+| Oreburgh Gate, between Curtis and Diana | (20,22) | Jubilife, by Route 203: Oreburgh's center is nearer, but entering Oreburgh plays its arrival scene |
+| Oreburgh Mine B2F, above the ledge down to the Workers' corridor | (13,16) | Oreburgh |
+| Before the gym, after Jonathon, and before Roark | | Oreburgh |
+
+In the gym the trip retraces the fixed steps back to the door, since the
+ROM's collision can't see the raised floors, and climbs them again after.
+A heal trip can meet wild battles of its own, in grass or in the mine; the
+agent plays them. The mine's two Workers are the one pair with no heal
+between them: the corridor between them is entered down a one-way ledge,
+and Roark's boulders close its other end until his demonstration. The first
+version split there, at (5,27), and a full-route check stopped on it: the
+walk out planned through the boulders, which are objects, not collision.
+
 **Greedy full runs** on the route with training up (before the split): of 4
 seeds for each starter, Turtwig wiped 4 times by its first Route 202 battle,
 Piplup 3 times on Route 201 and once at Natalie. One Chimchar beat 14
@@ -2122,7 +2140,10 @@ The hack's bosses refuse to battle while any party Pokémon is over their cap,
 16 for Roark. The trainers that can't be avoided give a lone Pokémon about
 11 levels between Route 202 and the gate. A run that reaches Roark must have
 shared its EXP over several Pokémon and leave the ones over the cap in the
-PC. That is step 3.6's PC decisions, still open.
+PC. As a stand-in for step 3.6's PC decisions, the trip before Roark leaves
+every Pokémon over his cap in the PC, as long as one able to battle stays.
+It comes after the gym's two trainers, whose EXP can push the party over
+again.
 
 **Restart states and route changes.** A restart state names its route step by
 index, so inserting route actions moved every later step under the saved
@@ -2134,9 +2155,17 @@ that first battle reported route step 0, so the metrics undercounted how far
 restarted runs got. The runner now takes the restart's step before playing
 its battle.
 
+**The whole route, checked as in §38.** The survey party was written after
+Barry's first battle, and its Garchomp raised to level 18 just before the
+trip before Roark. Greedy play ended on Roark's badge: 36 battles won, 12
+heals, return 281.4, in 125 decisions. Garchomp was left in the PC, and the
+other five beat Roark.
+
 **Verified:** `test_grinding_fights_wild_battles_until_the_level`,
 `test_a_hurt_party_goes_to_the_pokemon_center_before_grinding`,
 `test_a_hurt_party_heals_before_a_clown`,
+`test_a_heal_trip_heals_and_comes_back` (Route 203, the gate, the mine),
+`test_before_roark_the_party_heals_and_leaves_the_pokemon_over_his_cap`,
 `test_a_restart_saved_on_another_route_is_dropped`, and the restart test now
 checks the resumed step.
 
@@ -2147,4 +2176,6 @@ checks the resumed step.
 | A run resumed from a restart reported route step 0 | The runner set its step only after the resumed battle | It takes the restart's step first |
 | Restart states pointed at the wrong route step after the route changed | They named the step only by its index | They save the route action, and a mismatch is dropped |
 | The test fixture's Turtwig won or lost by chance | `build_mon` draws a random personality, and so a nature, each call | The fixture passes a seeded `rng` |
-| A run can't get under Roark's cap | Unavoidable trainers' EXP; no PC decisions | Open: step 3.6 |
+| Two or more trainers in a row with no heal: Route 202, the clowns, the gate, the mine, the gym | The route healed only at fixed points | Heal trips after battles on a walk, and `mend` before each trainer |
+| The heal trip between the mine's Workers had no way out | A one-way ledge in, and Roark's boulders (objects the ROM's collision doesn't show) out | The check moved above the ledge; the two Workers stay back to back |
+| A run can't get under Roark's cap | Unavoidable trainers' EXP | The trip before Roark leaves the Pokémon over his cap in the PC; whom to raise stays the agent's, and the PC choices are step 3.6 |
