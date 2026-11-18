@@ -105,6 +105,9 @@ class RunEnv(gym.Env):
         try:
             with open(meta_path) as f:
                 meta = json.load(f)
+            if not (meta["at"] < len(self.runner.route) and meta.get("action") == repr(self.runner.route[meta["at"]])):
+                self._drop_restart(meta_path)                   # saved on an older route: its step moved
+                return None
             self.nds.load_state_from_file(meta_path.removesuffix(".json") + ".state")
         except (OSError, ValueError, FileNotFoundError):
             return None
@@ -120,7 +123,8 @@ class RunEnv(gym.Env):
         """Save the battle that just started, and the run's bookkeeping, as a restart state."""
         name = f"{self.runner.at:03d}_{uuid.uuid4().hex[:12]}"
         base = os.path.join(self.restart_dir, name)
-        meta = {"at": self.runner.at, "sub": self.runner.sub, "starter": self.starter,
+        meta = {"at": self.runner.at, "sub": self.runner.sub, "action": repr(self.runner.route[self.runner.at]),
+                "starter": self.starter,
                 "trainers_beaten": self.runner.trainers_beaten,
                 "run": {"routes": self.run.routes, "caught_lines": sorted(self.run.caught_lines),
                         "dead": sorted(self.run.dead), "beaten": sorted(self.run.beaten)}}
@@ -136,11 +140,15 @@ class RunEnv(gym.Env):
                 return 0.0
         same_step = sorted(self._restart_files().get(self.runner.at, []), key=age)
         for old in same_step[:-RESTARTS_PER_STEP]:
-            for path in (old, old.removesuffix(".json") + ".state"):
-                try:
-                    os.remove(path)
-                except FileNotFoundError:
-                    pass
+            self._drop_restart(old)
+
+    @staticmethod
+    def _drop_restart(meta_path: str):
+        for path in (meta_path, meta_path.removesuffix(".json") + ".state"):
+            try:
+                os.remove(path)
+            except FileNotFoundError:                                   # another worker dropped it
+                pass
 
     def _advance(self, value):
         """Play the route to the next decision. Returns (obs, info); sets self.end when the run is over."""
@@ -217,7 +225,7 @@ class RunEnv(gym.Env):
         truncated = self.end in ("budget", "stuck", "route_error")
         if self.end:
             info.update(end=self.end, outcome=self.end, decisions=self.decisions, battles=self.battles, run_return=self.ret,
-                        route_step=self.runner.at, route_steps=len(self.runner.route),
+                        route_step=self.runner.at, route_steps=len(self.runner.route), heals=self.runner.heals,
                         caught=len(self.run.caught_lines), dead=len(self.run.dead), routes=dict(self.run.routes),
                         location=tuple(gen4.read_location(self.nds)[:3]))
         return obs, reward, terminated, truncated, info

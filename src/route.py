@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import gen4
 import overworld as O
+import romdata
 import scenario
 
 GYM_DOOR_TO_JONATHON = ["up"] * 3 + ["left"] * 3 + ["up"] * 3 + ["right", "up"]
@@ -18,6 +19,23 @@ GYM_JONATHON_TO_DARIUS = ["right"] * 5 + ["up"] * 5 + ["left"]
 GYM_DARIUS_TO_ROARK = ["left", "up", "up", "up", "left"] + ["up"] * 5
 NURSE = ((8, 6), "up")          # every Pokémon Center on the way: face the nurse across her counter
 ROARK = 246
+
+# Heal trips: route actions that go to a Pokémon Center, heal, and leave by its door.
+SANDGEM_HEAL = (("walk", (184, 845)), ("exit", 420), ("heal",), ("exit", 418))
+JUBILIFE_HEAL = (("exit", 6), ("heal",), ("exit", 3))
+ROUTE202_GRASS = ((175, 827), (178, 827))   # south of Route 202's first ledge, out of every trainer's sight
+GRIND_BATTLES = 60      # wild battles at most in one grind; past it the route goes on
+GRIND_PACES = 200       # paces in the grass with no battle before the script gives up
+
+
+def needs_heal(nds, hp_share: float = 0.5) -> bool:
+    """What sends a player back to the Pokémon Center: a party Pokémon under hp_share of its HP
+    (a fainted one too), with a status condition, or with under a quarter of its PP left."""
+    for m in gen4.read_party(nds):
+        full_pp = sum(romdata.move(x).pp for x in m.moves if x)
+        if m.hp < hp_share * m.max_hp or m.status or sum(m.pp) * 4 < full_pp:
+            return True
+    return False
 
 # From states/milestones/01_starter_choice: the briefcase, its cursor on the first ball.
 ROUTE = [
@@ -27,12 +45,15 @@ ROUTE = [
     ("walk", (164, 843)), ("text", "yes"),             # Sandgem's entrance, to the lab: Rowan's Pokédex needs a yes
     ("exit", 418), ("text", "yes"),                    # the scene outside the lab
     ("exit", 420), ("heal",), ("exit", 418),
-    ("walk", (173, 796)), ("text", "yes"),             # Route 202's three trainers; Jubilife's arrival
+    ("grind", 11, ROUTE202_GRASS, SANDGEM_HEAL),       # a run comes at level 7; Route 202's trainers need more
+    ("walk", (170, 815), SANDGEM_HEAL), ("mend", SANDGEM_HEAL),  # past Tristan; each trainer is met healed
+    ("walk", (183, 820), SANDGEM_HEAL), ("mend", SANDGEM_HEAL),  # past Natalie
+    ("walk", (173, 796), SANDGEM_HEAL), ("text", "yes"),  # past Logan; Jubilife's arrival
     ("exit", 29), ("talk", (6, 3)), ("text", "yes"),   # Barry takes the Parcel
     ("exit", 3), ("walk", (174, 776)), ("text", "yes"),  # the Pokétch campaign
-    ("talk", (183, 769)), ("text", "yes"),             # each clown: a quiz, a battle, a coupon
-    ("talk", (143, 754)), ("text", "yes"),
-    ("talk", (164, 752)), ("text", "yes"),
+    ("mend", JUBILIFE_HEAL), ("talk", (183, 769)), ("text", "yes"),  # each clown: a quiz, a battle, a coupon
+    ("mend", JUBILIFE_HEAL), ("talk", (143, 754)), ("text", "yes"),
+    ("mend", JUBILIFE_HEAL), ("talk", (164, 752)), ("text", "yes"),
     ("talk", (174, 771)), ("text", "yes"),             # the Pokétch; the east exit opens
     ("exit", 6), ("heal",), ("exit", 3),
     ("walk", (197, 758)), ("text", "yes"),             # Barry's second battle
@@ -65,6 +86,7 @@ class Runner:
     def __init__(self, nds, route=ROUTE):
         self.nds, self.route = nds, route
         self.trainers_beaten: list[int] = []
+        self.heals = 0                                  # nurse visits
         self.at = 0                                     # the route action playing now: how far the run got
         self.sub = 0                                    # the step playing now, inside a fixed list of steps
 
@@ -75,6 +97,7 @@ class Runner:
         start, sub = 0, 0
         if resume:
             start, sub = resume
+            self.at, self.sub = start, sub
             yield from self._battle()
             yield from self._text("yes")
             if self.route[start][0] == "starter":
@@ -126,14 +149,45 @@ class Runner:
         yield from self._text()                         # the trainer walks up and talks; the battle follows
         return True
 
-    def _walk(self, goal):
+    def _walk(self, goal, heal_trip=()):
+        """Walk to goal, playing the battles on the way. With heal_trip, a party hurt by one
+        (needs_heal) goes to heal first, and the walk goes on from the Pokémon Center."""
         while True:
             outcome = O.walk_to(self.nds, None, goal)
             if (yield from self._battle_or_scene(outcome)):
+                if heal_trip and needs_heal(self.nds):
+                    yield from self._trip(heal_trip)
                 continue
             if outcome == "stuck":
                 raise RouteError(f"stuck walking to {goal} at {gen4.read_player_tile(self.nds)}")
             return
+
+    def _mend(self, heal_trip):
+        """Before the next trainer: a heal trip if the party has any damage."""
+        if needs_heal(self.nds, hp_share=1.0):
+            yield from self._trip(heal_trip)
+
+    def _trip(self, actions):
+        for action, *args in actions:
+            yield from getattr(self, "_" + action)(*args)
+
+    def _grind(self, level, tiles, heal_trip):
+        """Wild battles in the grass, pacing between two tiles, until a party Pokémon reaches
+        `level` (or GRIND_BATTLES are fought). Between battles, a party with any damage goes
+        on heal_trip: Kaizo's wild Pokémon beat a lone starter from three quarters of its HP."""
+        for _ in range(GRIND_BATTLES):
+            if max(m.level for m in gen4.read_party(self.nds)) >= level:
+                return
+            if needs_heal(self.nds, hp_share=1.0):
+                yield from self._trip(heal_trip)
+            for k in range(GRIND_PACES):
+                outcome = O.walk_to(self.nds, None, tiles[k % 2])
+                if (yield from self._battle_or_scene(outcome)):
+                    break
+                if outcome != "arrived":
+                    raise RouteError(f"grinding: {outcome} walking to {tiles[k % 2]} at {gen4.read_player_tile(self.nds)}")
+            else:
+                raise RouteError(f"no wild battle in {GRIND_PACES} paces between {tiles}")
 
     def _steps(self, dirs, first: int = 0):
         for self.sub in range(first, len(dirs)):
@@ -167,6 +221,7 @@ class Runner:
             scenario.deposit(self.nds, dead)
         yield from self._talk_from(*NURSE)
         yield from self._text("yes")
+        self.heals += 1
 
     def _call(self, fn):
         """fn(nds): a hook for checks and fixtures, such as writing a party."""

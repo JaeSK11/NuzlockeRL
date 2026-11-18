@@ -12,12 +12,113 @@ import gen4
 ROM = os.environ.get("NUZLOCKERL_ROM", os.path.join(ROOT, "roms/plat-kaizo-nightmare-update-final.nds"))
 CHOICE = os.path.join(ROOT, "states/milestones/01_starter_choice.state")
 FAINTED = os.path.join(ROOT, "states/fixtures/oreburgh_pokecenter_fainted.state")
+ENTRANCE = os.path.join(ROOT, "states/fixtures/route202_entrance.state")
 needs_choice = pytest.mark.skipif(not (os.path.exists(ROM) and os.path.exists(CHOICE)),
                                   reason="needs the ROM and milestone 01_starter_choice (scripts/make_milestones.py)")
+needs_entrance = pytest.mark.skipif(not (os.path.exists(ROM) and os.path.exists(ENTRANCE)),
+                                    reason="needs the Route 202 fixture (scripts/make_milestones.py)")
 
 
 def first_move(info):
     return next(a for a in range(len(info["action_mask"])) if info["action_mask"][a])
+
+
+def lone_turtwig(tmp_path, level=7, hp=None):
+    """The Route 202 fixture with a lone Turtwig, as a run brings it there, and the route's wild
+    encounters back on (the milestone script turns them off)."""
+    import random
+    import pynds
+    import romdata as R
+    import scenario
+    nds = pynds.PyNDS(ROM)
+    nds.load_state_from_file(ENTRANCE)
+    nds.tick(2)
+    mon = scenario.build_mon(387, level, R.default_moves(387, level), ivs=15,
+                             trainer=scenario.Trainer.from_mon(scenario.read_party_data(nds)[0]), rng=random.Random(0))
+    if hp is not None:
+        mon["hp"] = hp
+    scenario.write_party(nds, [mon])
+    nds.memory.write_u32(False, gen4.resolve(nds)["_version"] + scenario.ENCOUNTER_OFFSET, R.encounters_for_map(343).grass_rate)
+    path = str(tmp_path / "lone_turtwig.state")
+    nds.save_state_to_file(path)
+    return path
+
+
+def play_out(env, info):
+    done = False
+    while not done:
+        obs, reward, term, trunc, info = env.step(first_move(info))
+        done = term or trunc
+    return info
+
+
+@needs_choice
+def test_a_restart_saved_on_another_route_is_dropped(tmp_path):
+    """Route actions move when the route changes; a restart whose action is no longer at its
+    step would resume the wrong part of the route."""
+    import json
+    import shutil
+    import run_env as RE
+    meta = {"at": 3, "sub": 0, "action": repr(("walk", (0, 0))), "starter": 387, "trainers_beaten": [],
+            "run": {"routes": {}, "caught_lines": [], "dead": [], "beaten": []}}
+    (tmp_path / "003_old.json").write_text(json.dumps(meta))
+    shutil.copy(CHOICE, tmp_path / "003_old.state")
+    env = RE.RunEnv(restart_dir=str(tmp_path), restart_share=1.0)
+    obs, info = env.reset(seed=0)
+    assert not info["restart"] and info["decision"] == "starter"
+    assert not list(tmp_path.glob("003_old.*"))
+
+
+SCHOOL = os.path.join(ROOT, "states/milestones/08_jubilife_school_parcel.state")
+
+
+@pytest.mark.skipif(not (os.path.exists(ROM) and os.path.exists(SCHOOL)), reason="needs milestone 08 (scripts/make_milestones.py)")
+def test_a_hurt_party_heals_before_a_clown(tmp_path):
+    """Jubilife's Pokémon Center during the Pokétch campaign: a party with any damage goes to heal
+    before the next clown, and one with none goes straight on."""
+    import pynds
+    import route
+    import run_env as RE
+    import scenario
+    nds = pynds.PyNDS(ROM)
+    nds.load_state_from_file(SCHOOL)
+    nds.tick(2)
+    party = scenario.read_party_data(nds)
+    party[0]["hp"] = 1
+    scenario.write_party(nds, party)
+    path = str(tmp_path / "hurt.state")
+    nds.save_state_to_file(path)
+    campaign = [("exit", 3), ("walk", (174, 776)), ("text", "yes"), ("mend", route.JUBILIFE_HEAL), ("mend", route.JUBILIFE_HEAL)]
+    env = RE.RunEnv(start_state=path, route_actions=campaign)
+    env.reset(seed=0)
+    assert env.end == "no_badge" and env.runner.heals == 1           # the second mend found nothing to heal
+    assert gen4.read_location(env.nds).map_id == 3
+    assert all(m.hp == m.max_hp for m in gen4.read_party(env.nds))
+
+
+@needs_entrance
+def test_grinding_fights_wild_battles_until_the_level(tmp_path):
+    import route
+    import run_env as RE
+    env = RE.RunEnv(start_state=lone_turtwig(tmp_path), route_actions=[("grind", 8, route.ROUTE202_GRASS, route.SANDGEM_HEAL)])
+    obs, info = env.reset(seed=0)
+    assert info["decision"] == "battle" and env.trainer == 0          # a wild battle in the grass
+    info = play_out(env, info)
+    assert info["end"] == "no_badge"                                  # the route (one grind) played to its end
+    assert [m.level for m in gen4.read_party(env.nds)] == [8]
+    assert info["battles"] and all(b["trainer"] == 0 and b["outcome"] in ("WON", "CAUGHT", "FLED") for b in info["battles"])
+
+
+@needs_entrance
+def test_a_hurt_party_goes_to_the_pokemon_center_before_grinding(tmp_path):
+    import route
+    import run_env as RE
+    env = RE.RunEnv(start_state=lone_turtwig(tmp_path, hp=5), route_actions=[("grind", 8, route.ROUTE202_GRASS, route.SANDGEM_HEAL)])
+    obs, info = env.reset(seed=0)
+    assert info["decision"] == "battle" and env.trainer == 0
+    assert env.runner.heals == 1                                      # healed at Sandgem before the first wild battle
+    turtwig = env.battle.snap.player[0]
+    assert turtwig.hp == turtwig.max_hp
 
 
 @needs_choice
@@ -81,12 +182,17 @@ def test_a_run_leaves_restart_states_and_a_reset_resumes_one(tmp_path):
     assert len(saved) == len(info["battles"])                       # one per battle the run met
     barry = json.loads((tmp_path / saved[0]).read_text())
     assert barry["at"] == 0 and barry["starter"] == 387               # Barry's first battle, inside the starter's action
+    for path in tmp_path.glob(saved[0].removesuffix(".json") + ".*"):  # resume from a later step
+        path.unlink()
     env = RE.RunEnv(restart_dir=str(tmp_path), restart_share=1.0)
     obs, info = env.reset(seed=1)
     assert info["restart"] and info["decision"] == "battle"           # the run starts at the saved battle
-    assert len(list(tmp_path.glob("*.json"))) == len(saved)           # and doesn't save it again
+    assert len(list(tmp_path.glob("*.json"))) == len(saved) - 1       # and doesn't save it again
+    resumed_at = json.loads((tmp_path / (info["restart"] + ".json")).read_text())["at"]
+    assert resumed_at > 0 and env.runner.at == resumed_at            # the run counts as that far from its first battle
     done = False
     while not done:
         obs, reward, term, trunc, info = env.step(first_move(info))
         done = term or trunc
     assert info["end"] in ("wipe", "badge", "no_badge")
+    assert info["route_step"] >= resumed_at

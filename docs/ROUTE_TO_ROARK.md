@@ -46,6 +46,24 @@ Poké Balls, 5 Great Balls and 5 Heal Balls, and 10 Rare Candies.
 A door is entered by walking into it from the street. A building's exit mat is
 left by walking on toward the wall.
 
+## Training up and healing on the way
+
+A run reaches Route 202 with its starter alone at level 7, and a lone starter
+needs about level 11 to 16 to beat Route 202's three trainers back to back
+(PROGRESS.md §39). So the route (`src/route.py`) does what a player would:
+- **Trains up** in the grass at x 174 to 179, z 825 to 829 on Route 202:
+  south of the first ledge, out of every trainer's sight, and a short walk
+  from Sandgem's Pokémon Center. The route fights wild battles there until a
+  party Pokémon reaches level 11, healing after any damage.
+- **Heals between trainers.** The walk across Route 202 stops past each
+  trainer's sight, at (170,815) after Tristan and (183,820) after Natalie,
+  and goes back to Sandgem to heal if the party has any damage. Jubilife's
+  clowns each come after the same check at Jubilife's Pokémon Center.
+
+Roark's cap of 16 is the limit on training up: the trainers that can't be
+avoided give a lone Pokémon about 11 levels between Route 202 and the
+Oreburgh Gate.
+
 ## Trainers on the way
 
 Every sight trainer's script number is 2999 plus its trainer id. A trainer is

@@ -2060,3 +2060,91 @@ the overworld and run tests pass with running.
 | Roark turns down a party over his cap, and nothing in a run can bring it under | The agent has no PC decisions yet (3.6) | Open: a run ends "no_badge" with no reward |
 | An evolution's fifth move replaces the first slot | A on the forget screen picks the first move | Open: a stand-in, to become the agent's choice |
 | Milestone 00 has no input script from boot | The new game's intro and naming were played by hand | Open: every run starts from `01_starter_choice`, which is rebuilt from 00 |
+
+## 39. Runs stalled on Route 202: training up, and healing between trainers (2026-11-17)
+
+Goal: the first training run's runs never got past Route 202. Find out why,
+and fix it.
+
+**The stall.** After 19 updates, about 20,000 decisions and 1,000 runs, every
+run had wiped, at route step 10 at most: the walk across Route 202. All 20
+restart states kept for that step were the battle with Tristan, its first
+trainer. A run gets there with its starter alone at level 7, healed at
+Sandgem. The route then walked it into all three trainers, ten Pokémon at
+levels 5 to 7 with perfect IVs and held items, with no heal between them.
+
+**How strong the starter must be.** Greedy play from a step-10 restart lost
+to Tristan in 12 of 12 seeds. Then a lone starter was written into the Route
+202 fixture at a set level and played the three trainers back to back,
+greedy, 4 seeds each. Runs that beat all three:
+
+| Starter | Level 9 | 11 | 13 | 16 |
+|---|---|---|---|---|
+| Turtwig | 0 | 0 | 2 | 4 |
+| Chimchar | 0 | 4 | 4 | not run |
+| Piplup | 0 | 0 | 3 | 3 |
+
+A level-13 Turtwig that lost had beaten Tristan, then met Natalie at 29 of
+39 HP: her Sunkern has Protect, Toxic, Leech Seed and an Oran Berry. So the
+route needed two things a player does: training up before the trainers, and
+healing between them.
+
+**Training up (`grind`).** A new route action fights wild battles in Route
+202's grass south of the first ledge, out of every trainer's sight, pacing
+between two tiles until a party Pokémon reaches the level (11). The agent
+plays every one of those battles, and the first can be its Route 202 catch.
+Between battles, a party with any damage walks to Sandgem's Pokémon Center
+and back. The first version healed under half HP; a greedy Chimchar then
+lost to a level-5 Sentret from 20 of 26 HP. Kaizo's wild Pokémon beat a
+lone starter from three quarters of its HP.
+
+**Heal trips.** A heal trip is a list of route actions: walk to the town,
+enter the Pokémon Center, heal, leave. Two uses:
+- A walk can carry one. After a battle on the way, a party under half HP
+  takes the trip first, then the walk goes on. Under half, not any damage:
+  the walk north crosses grass that can't be avoided, and topping up after
+  every wild battle there could keep a run walking back and forth.
+- `mend` takes the trip if the party has any damage. The walk across Route
+  202 is now split at a tile past each trainer's sight, with a `mend` after
+  Tristan and Natalie. Each of the three clowns in Jubilife comes after a
+  `mend` at Jubilife's Pokémon Center.
+
+**Greedy full runs** on the route with training up (before the split): of 4
+seeds for each starter, Turtwig wiped 4 times by its first Route 202 battle,
+Piplup 3 times on Route 201 and once at Natalie. One Chimchar beat 14
+trainers, from Barry's first to Curtis in the Oreburgh Gate, and wiped
+against Diana there: 35 battles, 10 heals, return 224. Greedy isn't the
+agent; these runs show where the route stops a run, not how far a trained
+policy gets.
+
+**Roark's level cap.** That Chimchar reached the gate as a level-22 Monferno.
+The hack's bosses refuse to battle while any party Pokémon is over their cap,
+16 for Roark. The trainers that can't be avoided give a lone Pokémon about
+11 levels between Route 202 and the gate. A run that reaches Roark must have
+shared its EXP over several Pokémon and leave the ones over the cap in the
+PC. That is step 3.6's PC decisions, still open.
+
+**Restart states and route changes.** A restart state names its route step by
+index, so inserting route actions moved every later step under the saved
+states. Each restart now saves its route action too. A reset drops a restart
+whose action isn't at its step any more.
+
+**A resumed run's route step.** A run resumed from a restart that ended in
+that first battle reported route step 0, so the metrics undercounted how far
+restarted runs got. The runner now takes the restart's step before playing
+its battle.
+
+**Verified:** `test_grinding_fights_wild_battles_until_the_level`,
+`test_a_hurt_party_goes_to_the_pokemon_center_before_grinding`,
+`test_a_hurt_party_heals_before_a_clown`,
+`test_a_restart_saved_on_another_route_is_dropped`, and the restart test now
+checks the resumed step.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| Every training run wiped by Route 202 | A lone level-7 starter met Route 202's three trainers back to back | `grind` trains to level 11 first, and the walk heals between trainers |
+| A grind battle lost from three quarters of the starter's HP | Healing waited until under half | Grinding heals after any damage |
+| A run resumed from a restart reported route step 0 | The runner set its step only after the resumed battle | It takes the restart's step first |
+| Restart states pointed at the wrong route step after the route changed | They named the step only by its index | They save the route action, and a mismatch is dropped |
+| The test fixture's Turtwig won or lost by chance | `build_mon` draws a random personality, and so a nature, each call | The fixture passes a seeded `rng` |
+| A run can't get under Roark's cap | Unavoidable trainers' EXP; no PC decisions | Open: step 3.6 |

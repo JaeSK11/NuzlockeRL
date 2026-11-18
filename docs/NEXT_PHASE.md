@@ -321,6 +321,9 @@ each run to the decisions. In order:
       map and a tile). The script is position-aware, so a wild or trainer
       battle anywhere in a segment only pauses it. It includes visits to
       the Pokémon Centers in Sandgem Town, Jubilife City and Oreburgh City.
+      Since §39 it also trains up on Route 202 to level 11 and heals between
+      trainers, since a lone level-7 starter can't pass Route 202. These are
+      scripted like the walk, and step 5 makes them choices.
    5. **The rules in the run.** Done (§37), in `src/run_env.py`.
       - `nuzlocke.Run` gets the route's name from `gen4.read_location`, and
         the wild Pokémon's species and shininess (`scenario.is_shiny`).
