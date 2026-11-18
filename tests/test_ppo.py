@@ -146,8 +146,8 @@ def test_truncation_bootstraps_from_the_final_observation_and_termination_does_n
     adv = rollout.tensors(gamma=0.9, lam=0.95)["advantage"].tolist()
     assert adv[0] == pytest.approx(1.0 + 0.9 * v_final - truncated.value, abs=1e-5)
     assert adv[1] == pytest.approx(2.0 - terminated.value, abs=1e-5)
-    assert episodes == [{"state": "a.state", "outcome": "WON", "return": 1.0, "length": 1, "faints": 0, "tally": {}, "result_mask": None, "route_step": None},
-                        {"state": "a.state", "outcome": "WON", "return": 2.0, "length": 1, "faints": 0, "tally": {}, "result_mask": None, "route_step": None}]
+    assert episodes == [{"state": "a.state", "outcome": "WON", "return": 1.0, "length": 1, "faints": 0, "tally": {}, "result_mask": None, "route_step": None, "error": None},
+                        {"state": "a.state", "outcome": "WON", "return": 2.0, "length": 1, "faints": 0, "tally": {}, "result_mask": None, "route_step": None, "error": None}]
 
 
 def test_an_env_with_no_valid_action_is_an_error():
@@ -299,3 +299,12 @@ def test_training_logs_count_faints_and_clean_wins(tmp_path):
     assert row["win_rate"] == 1.0 and 0 < row["mean_faints"] < 3
     assert row["clean_win_rate"] < 1.0 and row["states"]["faint.state"]["clean_win_rate"] == row["clean_win_rate"]
     assert row["mean_ace_faints"] == row["mean_faints"] and set(row["picks"]) <= {"super", "switch"}
+
+
+def test_episode_stats_count_why_runs_ended_on_a_route_error():
+    run = {"state": "", "return": 0.0, "length": 3, "faints": 0, "tally": {}, "result_mask": None, "route_step": 12}
+    eps = [{**run, "outcome": "route_error", "error": "stuck walking to (1, 2)"},
+           {**run, "outcome": "route_error", "error": "stuck walking to (1, 2)"},
+           {**run, "outcome": "wipe", "error": None}]
+    assert episode_stats(eps)["errors"] == {"stuck walking to (1, 2)": 2}
+    assert "errors" not in episode_stats(eps[2:])

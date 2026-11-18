@@ -214,7 +214,7 @@ class Collector:
                                      "outcome": info.get("outcome"), "return": self.returns.pop(env),
                                      "length": self.lengths.pop(env), "faints": self.faints.pop(env),
                                      "tally": dict(self.tallies.pop(env)), "result_mask": info.get("result_mask"),
-                                     "route_step": info.get("route_step")})
+                                     "route_step": info.get("route_step"), "error": info.get("error")})
             self.pending[env] = (obs[row], mask[row], action[row].item(), logp[row].item(), value[row].item())
         return action.numpy()
 
@@ -275,7 +275,9 @@ def episode_stats(episodes: list) -> dict:
                 "pp_ran_dry": tally["pp_ran_dry"],
                 "result_mismatches": sum(_result_mismatch(e) for e in eps),
                 **({"mean_route_step": float(np.mean(steps)), "max_route_step": max(steps)}
-                   if (steps := [e["route_step"] for e in eps if e.get("route_step") is not None]) else {})}
+                   if (steps := [e["route_step"] for e in eps if e.get("route_step") is not None]) else {}),
+                **({"errors": dict(collections.Counter(errors))}      # why runs ended route_error
+                   if (errors := [e["error"] for e in eps if e.get("error")]) else {})}
     if not episodes:
         return {"episodes": 0, "states": {}}
     by_state = collections.defaultdict(list)

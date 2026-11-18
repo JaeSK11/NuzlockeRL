@@ -14,6 +14,7 @@ final_infos, and the new episode's first observation in obs. So one send() is ex
 one decision, and no reset step shows up as a transition.
 """
 import multiprocessing as mp
+import os
 import time
 import traceback
 from dataclasses import dataclass
@@ -51,9 +52,14 @@ class Batch:
         return np.stack([info["action_mask"] for info in self.infos])
 
 
-def _worker(env_fn: bytes, conn, seed):
+def _worker(env_fn: bytes, conn, seed, core=None):
     env = None
     try:
+        if core is not None:
+            # The emulator's threads hand every frame between them. Spread over busy cores, each
+            # handoff waits on the scheduler: 2 frames a second beside training, 119 on one core
+            # (PROGRESS.md §42). Threads started after this, the emulator's among them, keep to it.
+            os.sched_setaffinity(0, {core})
         env = cloudpickle.loads(env_fn)()
         obs, info = env.reset(seed=seed)
         conn.send((obs, info, 0.0, False, False, None, None))
@@ -85,10 +91,13 @@ class AsyncEnvPool:
         ctx = mp.get_context("spawn")
         self.num_envs, self.timeout = len(env_fns), timeout
         self._conns, self._procs = [], []
+        # One core per worker, the highest first, leaving the lowest to the trainer itself.
+        cores = sorted(os.sched_getaffinity(0)) if hasattr(os, "sched_setaffinity") else []
         for i, fn in enumerate(env_fns):
             parent, child = ctx.Pipe()
+            core = cores[(len(cores) - len(env_fns) + i) % len(cores)] if cores else None
             proc = ctx.Process(target=_worker, daemon=True,
-                               args=(cloudpickle.dumps(fn), child, None if seed is None else seed + i))
+                               args=(cloudpickle.dumps(fn), child, None if seed is None else seed + i, core))
             proc.start()
             child.close()
             self._conns.append(parent)
