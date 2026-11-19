@@ -62,8 +62,10 @@ needs about level 11 to 16 to beat Route 202's three trainers back to back
   do Route 203's trainers, the gate's two (split at (20,22), healed at
   Jubilife), the mine's Workers (checked at (13,16), above the ledge) and the gym's trainers
   and Roark (healed at Oreburgh).
-- **Leaves the Pokémon over Roark's cap in the PC** at Oreburgh's Pokémon
-  Center, on the trip before Roark, if one able to battle stays.
+- **Asks the agent at each Pokémon Center** which living Pokémon to take
+  along and which to leave in the PC (PROGRESS §46). On the trip before
+  Roark, taken whenever a party Pokémon is over his cap, the rules keep the
+  ones over it in the PC if any Pokémon at or under it can come.
 
 Roark's cap of 16 is the limit on training up: the trainers that can't be
 avoided give a lone Pokémon about 11 levels between Route 202 and the

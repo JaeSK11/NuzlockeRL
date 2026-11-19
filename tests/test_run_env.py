@@ -47,6 +47,13 @@ def lone_turtwig(tmp_path, level=7, hp=None, species=387, moves=None, exp=None):
     return path
 
 
+def take_all(env, info):
+    """Answer each PC choice with "take along", so the party stays as it is."""
+    while info["decision"] == "pc":
+        _, _, _, _, info = env.step(0)                                  # run_env.PC_TAKE
+    return info
+
+
 def play_out(env, info):
     done = False
     while not done:
@@ -93,7 +100,7 @@ def test_a_hurt_party_heals_before_a_clown(tmp_path):
     nds.save_state_to_file(path)
     campaign = [("exit", 3), ("walk", (174, 776)), ("text", "yes"), ("mend", route.JUBILIFE_HEAL), ("mend", route.JUBILIFE_HEAL)]
     env = RE.RunEnv(start_state=path, route_actions=campaign)
-    env.reset(seed=0)
+    take_all(env, env.reset(seed=0)[1])
     assert env.end == "no_badge" and env.runner.heals == 1           # the second mend found nothing to heal
     assert gen4.read_location(env.nds).map_id == 3
     assert all(m.hp == m.max_hp for m in gen4.read_party(env.nds))
@@ -158,12 +165,103 @@ def test_before_roark_the_party_heals_and_leaves_the_pokemon_over_his_cap(tmp_pa
     path = str(tmp_path / "over_cap.state")
     nds.save_state_to_file(path)
     env = RE.RunEnv(start_state=path, route_actions=[route.ROUTE[-3]])        # the mend before Roark
-    env.reset(seed=0)
-    assert env.end == "no_badge" and env.runner.heals == 1
+    _, info = env.reset(seed=0)
+    asked = 0
+    while info["decision"] == "pc":                                         # the five under the cap
+        asked += 1
+        _, _, _, _, info = env.step(RE.PC_TAKE)
+    assert asked == 5 and env.end == "no_badge" and env.runner.heals == 1
     assert gen4.read_location(env.nds).map_id == 47 and gen4.read_player_tile(env.nds)[:2] == (5, 4)
     left = gen4.read_party(env.nds)
     assert len(left) == 5 and all(m.level <= 16 and m.hp == m.max_hp for m in left)
     assert party[0].pid in [m.pid for m in gen4.read_box(env.nds, 0) if m]
+
+
+def test_the_pc_rules():
+    """pc_options: (may take along, may leave in the PC) for the k-th living Pokémon."""
+    import run_env as RE
+    assert RE.pc_options([10], 0, [], None) == (True, False)                # a party never runs empty
+    assert RE.pc_options([10, 12], 0, [], None) == (True, True)
+    assert RE.pc_options([10, 12], 1, [False], None) == (True, False)
+    assert RE.pc_options([10] * 7, 6, [True] * 6, None) == (False, True)    # six at most
+    assert RE.pc_options([24, 10], 0, [], 16) == (False, True)              # over the cap: to the PC
+    assert RE.pc_options([10, 24], 0, [], 16) == (True, False)              # the one under it comes along
+    assert RE.pc_options([10, 24], 1, [True], 16) == (False, True)
+    assert RE.pc_options([24], 0, [], 16) == (True, False)                  # none meets the cap: Roark turns it down
+
+
+@pytest.mark.skipif(not (os.path.exists(ROM) and os.path.exists(BEFORE_ROARK)), reason="needs milestone 15 (scripts/make_milestones.py)")
+def test_a_pokemon_taken_out_of_the_pc_is_the_one_put_in():
+    """pc_swap's withdraw rebuilds the party struct from the box's 136 bytes: the level from EXP,
+    the stats from the hack's tables. It must match what the game had computed."""
+    import pynds
+    import scenario
+    nds = pynds.PyNDS(ROM)
+    nds.load_state_from_file(BEFORE_ROARK)
+    nds.tick(2)
+    party = gen4.read_party(nds)
+    assert scenario.pc_swap(nds, [0, 2]) == [(0, 0), (0, 1)]
+    assert sorted(scenario.read_box_data(nds)) == [(0, 0), (0, 1)]
+    assert scenario.pc_swap(nds, [], [(0, 1)]) == []
+    after = gen4.read_party(nds)
+    assert [m.pid for m in after] == [party[k].pid for k in (1, 3, 4, 5, 2)]
+    back, before = after[-1], party[2]
+    assert back.checksum_ok and (back.level, back.max_hp, back.stats, back.moves) == (
+        before.level, before.max_hp, before.stats, before.moves)
+    assert back.hp == back.max_hp and sorted(scenario.read_box_data(nds)) == [(0, 0)]
+
+
+@pytest.mark.skipif(not (os.path.exists(ROM) and os.path.exists(BEFORE_ROARK)), reason="needs milestone 15 (scripts/make_milestones.py)")
+def test_before_roark_a_lone_pokemon_over_his_cap_stays_and_the_agent_picks_from_the_pc(tmp_path):
+    """The cap is a hard rule: the Pokémon over it can't come along while one under it can. The
+    agent picks which of the PC's Pokémon come out; it sees them and the cap."""
+    import pynds
+    import battle_env as BE
+    import romdata as R
+    import route
+    import run_env as RE
+    import scenario
+    nds = pynds.PyNDS(ROM)
+    nds.load_state_from_file(BEFORE_ROARK)
+    nds.tick(2)
+    party = scenario.read_party_data(nds)
+    party[0]["level"], party[0]["exp"] = 17, R.exp_for_level(party[0]["species"], 17)
+    scenario.write_party(nds, party)
+    scenario.deposit(nds, [1, 2, 3, 4, 5])
+    path = str(tmp_path / "lone_over_cap.state")
+    nds.save_state_to_file(path)
+    env = RE.RunEnv(start_state=path, route_actions=[route.ROUTE[-3]])
+    obs, info = env.reset(seed=0)
+    assert info["decision"] == "pc"
+    assert obs[BE.OBS_SLICES["pc_asked"]].tolist() == [0] * 6 + [1] + [0] * 5      # the PC's first
+    assert obs[BE.OBS_SLICES["level_cap"]][0] == pytest.approx(0.16)
+    assert [obs[BE.OBS_SLICES[f"box{i}.alive"]][0] for i in range(6)] == [1] * 5 + [0]
+    asked = 0
+    for action in (RE.PC_LEAVE,) + (RE.PC_TAKE,) * 4:
+        asked += 1
+        _, _, _, _, info = env.step(action)
+        if info["decision"] != "pc":
+            break
+    assert asked == 5 and env.end == "no_badge"
+    team = gen4.read_party(env.nds)
+    assert [m.pid for m in team] == [party[k].pid for k in (2, 3, 4, 5)]
+    assert all(m.level <= 16 and m.hp == m.max_hp and m.checksum_ok for m in team)
+    assert {party[0].pid, party[1].pid} <= {m.pid for m in gen4.read_box(env.nds, 0) if m}
+
+
+@pytest.mark.skipif(not (os.path.exists(ROM) and os.path.exists(FAINTED)), reason="needs the fainted fixture (scripts/make_milestones.py)")
+def test_a_fainted_pokemon_stays_in_the_pc_and_is_never_offered():
+    import run_env as RE
+    env = RE.RunEnv(start_state=FAINTED, route_actions=[("heal",), ("heal",)])
+    _, info = env.reset(seed=0)
+    asked = 0
+    while info["decision"] == "pc":
+        asked += 1
+        _, _, _, _, info = env.step(RE.PC_TAKE)
+    assert asked == 10 and env.runner.heals == 2                        # five living, twice
+    box = [m for m in gen4.read_box(env.nds, 0) if m]
+    assert len(box) == 1 and box[0].pid in env.run.dead
+    assert len(gen4.read_party(env.nds)) == 5
 
 
 @needs_entrance
@@ -322,7 +420,7 @@ def test_a_battle_inside_a_heal_trip_leaves_no_restart_state(tmp_path):
     start = hurt_state(tmp_path, os.path.join(ROOT, "states/walk/start/199_oreburgh_mine_b2f.state"))
     restarts = tmp_path / "restarts"
     env = RE.RunEnv(start_state=start, route_actions=[("mend", route.MINE_HEAL)], restart_dir=str(restarts))
-    obs, info = env.reset(seed=0)
+    info = take_all(env, env.reset(seed=0)[1])
     assert not env.end and info["decision"] == "battle"               # the mine's wild battle on the trip
     play_out(env, info)
     assert env.end == "no_badge" and env.battles

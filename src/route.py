@@ -94,13 +94,6 @@ ROUTE = [
 ]
 
 
-def _over_cap(party, cap) -> list[int]:
-    """The party slots over cap, if some Pokémon able to battle would stay; else none, as the
-    PC can't take the whole party."""
-    over = [k for k, m in enumerate(party) if m.level > cap]
-    return over if any(m.hp and m.level <= cap for m in party) else []
-
-
 class RouteError(Exception):
     """The script couldn't go on: a walk or a talk failed where the route expects it to work."""
 
@@ -111,8 +104,10 @@ class RunOver(Exception):
 
 class Runner:
     """Plays ROUTE on nds. `play()` is a generator: it yields ("starter",) and takes back the
-    choice (0 Turtwig, 1 Chimchar, 2 Piplup), and yields ("battle",) whenever a battle is up and
-    takes back its outcome (WON, LOST, CAUGHT, FLED, ...). A LOST raises RunOver("wipe")."""
+    choice (0 Turtwig, 1 Chimchar, 2 Piplup), yields ("battle",) whenever a battle is up and
+    takes back its outcome (WON, LOST, CAUGHT, FLED, ...), and yields ("pc", cap) at each
+    Pokémon Center and takes back (party slots to leave, box slots to take). A LOST raises
+    RunOver("wipe")."""
 
     def __init__(self, nds, route=ROUTE):
         self.nds, self.route = nds, route
@@ -214,8 +209,8 @@ class Runner:
 
     def _mend(self, heal_trip, cap=None):
         """Before the next trainer: a heal trip if the party has any damage, or, with cap, a
-        Pokémon over the boss's level cap."""
-        if needs_heal(self.nds, hp_share=1.0) or (cap and _over_cap(gen4.read_party(self.nds), cap)):
+        Pokémon over the boss's level cap, for the PC."""
+        if needs_heal(self.nds, hp_share=1.0) or (cap and any(m.level > cap for m in gen4.read_party(self.nds))):
             yield from self._trip(heal_trip)
 
     def _trip(self, actions):
@@ -270,15 +265,13 @@ class Runner:
         yield from ()
 
     def _heal(self, cap=None):
-        """The rule first: a fainted Pokémon goes to the PC for good. With cap, the Pokémon over
-        it go to the PC too, since the boss refuses a party with one; a stand-in for the agent's
-        PC decisions (NEXT_PHASE step 3.6)."""
-        party = gen4.read_party(self.nds)
-        leave = [k for k, m in enumerate(party) if m.hp == 0]
-        if cap:
-            leave = sorted(set(leave) | set(_over_cap(party, cap)))
-        if leave:
-            scenario.deposit(self.nds, leave)
+        """The PC, then the nurse. The caller answers ("pc", cap) with the party slots to leave in
+        the PC and the (box, slot)s to take out of it: run_env applies the rules (a fainted
+        Pokémon stays in the PC for good; with cap, the boss's level cap) and asks the agent the
+        rest."""
+        leave, take = yield ("pc", cap)
+        if leave or take:
+            scenario.pc_swap(self.nds, leave, take)
         yield from self._talk_from(*NURSE)
         yield from self._text("yes")
         self.heals += 1

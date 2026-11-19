@@ -2494,3 +2494,58 @@ off in the restart state so none comes between.
 | Reaching Roark over the cap cost nothing | `no_badge` had no reward | It pays a lost battle's −10 |
 | Route errors at the gate and in the mine kept coming | Restart states saved inside a mend's trip fail in the action after the mend, which §42's rule missed, and nothing replaces them | A restart is also dropped when the run ends in a route error before its next battle |
 | The new test's run wiped before the broken action | More wild battles on Route 201 after the resumed one | Wild encounters switched off in the test's restart state |
+
+## 46. The PC choice is the agent's, within the rules (2026-11-19)
+
+Goal: at each Pokémon Center, the agent decides which living Pokémon come
+along and which stay in the PC. The rules are hard limits, Roark's level
+cap among them.
+
+**Why.** Until now the runner decided. It left every fainted Pokémon in the
+PC, and, before Roark, the ones over his cap if one under it stayed (§39).
+Nothing ever came back out of the PC, so the agent had no say in its team.
+Now a Pokémon caught on the way can wait in the PC, at its level, for Roark.
+
+**How it works.**
+- At each heal the route asks `("pc", cap)` before the nurse, and the run
+  env answers.
+- A fainted Pokémon is dead. It goes to the PC, and the run's dead list
+  keeps it out of every later choice.
+- The agent is asked about each living Pokémon in turn: the party's
+  first, then up to six in the PC, in box order. Action 0 takes it along;
+  action 1 leaves it in the PC.
+- The rules are masks (`run_env.pc_options`). The party holds 1 to 6.
+  On the trip before Roark, a Pokémon over 16 can't come along while one
+  at or under it can.
+- When the rules leave only one option, the agent isn't asked. A lone
+  starter is never asked.
+- The mend before Roark now goes to the center whenever a party Pokémon is
+  over the cap. So a lone starter over it can be swapped for a Pokémon
+  waiting in the PC. If no Pokémon meets the cap, nothing changes, and
+  Roark turns the party down as before.
+- The observation gains 878 values at its end (934 to 1812): a PC flag,
+  six PC slots with the same features as a party slot, the Pokémon asked
+  about, the ones taken so far, and the next boss's cap. They are zero in
+  battle, so a widened checkpoint plays the same (§44).
+- The move itself still writes the party and the box in RAM
+  (`scenario.pc_swap`), as the deposit did (§37). A Pokémon taken out gets
+  its party data as the game's withdraw makes it: the level from its EXP,
+  its stats from the hack's tables, and full HP.
+- The party's order isn't learned yet. The Pokémon kept stay in order, and
+  those taken out come after them.
+
+**Verified:**
+- `test_the_pc_rules` checks the masks.
+- `test_a_pokemon_taken_out_of_the_pc_is_the_one_put_in` checks that a
+  Pokémon taken out has the level, stats and moves it went in with.
+- `test_before_roark_a_lone_pokemon_over_his_cap_stays_and_the_agent_picks_from_the_pc`
+  plays the trip before Roark: the starter over the cap stays in the PC,
+  and the agent's choices pick who comes out.
+- `test_a_fainted_pokemon_stays_in_the_pc_and_is_never_offered` plays two
+  visits.
+- `test_observation_of_a_pc_choice` checks the new observation values.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| The agent had no say in its team | The runner left fainted and over-cap Pokémon in the PC itself, and never took one out | A PC choice at each center, with the rules as masks |
+| A lone starter over the cap couldn't be swapped for a Pokémon in the PC | The mend before Roark went to the center only if a Pokémon under the cap was in the party | It goes whenever a party Pokémon is over the cap |

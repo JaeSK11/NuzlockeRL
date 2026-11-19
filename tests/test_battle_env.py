@@ -720,6 +720,21 @@ def test_observation_of_battle_effects_for_a_made_up_snapshot():
     assert field(obs, "volatile_enemy").tolist() == [0, 0, 0, 1]
 
 
+def test_observation_of_a_pc_choice():
+    """The party, the PC's living Pokémon, the one asked about, those taken so far, and the cap."""
+    mon = lambda pid, level: gen4.Mon(pid=pid, checksum_ok=True, species=TURTWIG, level=level, hp=40, max_hp=40,
+                                      moves=[0] * 4, pp=[0] * 4, stats={"atk": 10})
+    taken = np.zeros(6 + battle_env.PC_OFFER, dtype=np.float32)
+    taken[0] = 1
+    obs = battle_env.pc_observation([mon(1, 24), mon(2, 12)], [mon(3, 10)], 6, taken, 16)
+    assert field(obs, "pc")[0] == 1 and field(obs, "level_cap")[0] == pytest.approx(0.16)
+    assert field(obs, "pc_asked").tolist() == [0] * 6 + [1] + [0] * 5
+    assert field(obs, "pc_taken").tolist() == [1] + [0] * 11
+    assert field(obs, "party1.level")[0] == pytest.approx(0.12) and field(obs, "box0.level")[0] == pytest.approx(0.1)
+    assert field(obs, "box0.alive")[0] == 1 and field(obs, "box1.alive")[0] == 0
+    assert not field(observation(Snapshot((mon(1, 24),), (), None, None, (6,) * 8, (6,) * 8), 0, 1), "pc").any()
+
+
 @needs_rom
 def test_observation_of_status_hp_and_pp_for_a_made_up_snapshot():
     mon = lambda **kw: gen4.Mon(pid=kw.pop("pid"), checksum_ok=True, **kw)

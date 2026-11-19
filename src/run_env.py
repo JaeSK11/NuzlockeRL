@@ -2,8 +2,10 @@
 decisions, under the Nuzlocke rules (NEXT_PHASE step 3).
 
 The agent makes every decision the run brings: the starter first, then each battle's moves and
-switches, and the ball where the rules allow a catch. The walk between them is scripted
-(route.py). Observations and actions are the battle env's, so one policy plays both.
+switches, the ball where the rules allow a catch, and at each Pokémon Center which living
+Pokémon to take along and which to leave in the PC, within the rules (pc_options). The walk
+between them is scripted (route.py). Observations and actions are the battle env's, so one
+policy plays both.
 """
 from __future__ import annotations
 import glob
@@ -33,6 +35,20 @@ BOSS_REWARD = 20.0
 NO_BADGE_REWARD = BE.REWARDS[BE.Event.LOST]
 MAX_DECISIONS = 3000
 RESTARTS_PER_STEP = 20      # restart states kept for each route step; the oldest go first
+
+
+PC_TAKE, PC_LEAVE = 0, 1     # a PC choice's actions: take this Pokémon along, or leave it in the PC
+
+
+def pc_options(levels: list[int], k: int, taken: list[bool], cap: int | None) -> tuple[bool, bool]:
+    """Whether the k-th living Pokémon of a PC choice (the party's first, then the PC's) may be
+    taken along, and whether it may be left in the PC, given the choices before it. The rules:
+    a party of 1 to 6, and, with cap, no Pokémon over it while any is at or under it (else the
+    cap can't be met, and the boss turns the party down). A fainted Pokémon is no choice: it
+    stays in the PC."""
+    capped = cap is not None and any(level <= cap for level in levels)
+    allowed = [not (capped and level > cap) for level in levels]
+    return allowed[k] and sum(taken) < scenario.PARTY_SLOTS, sum(taken) > 0 or any(allowed[k + 1:])
 
 
 def starter_snapshot() -> BE.Snapshot:
@@ -170,6 +186,13 @@ class RunEnv(gym.Env):
                 mask = np.zeros(BE.N_ACTIONS, dtype=bool)
                 mask[:len(STARTERS)] = True
                 return BE.observation(starter_snapshot(), 0, 1), {"action_mask": mask, "decision": "starter"}
+            if event[0] == "pc":
+                self.kind = "pc"
+                self._pc_start(event[1])
+                if (asked := self._pc_next()) is not None:
+                    return asked
+                value = self._pc_answer()
+                continue
             # Not again for the battle a restart resumes, and not inside a heal trip: a restart
             # replays its route action from the start, and a trip half done can't be.
             if self.restart_dir and not (self.restart and self.kind is None) and not self.runner.in_trip:
@@ -184,6 +207,46 @@ class RunEnv(gym.Env):
                 continue
             info["decision"] = "battle"
             return obs, info
+
+    def _pc_start(self, cap):
+        """A Pokémon Center's PC choice. A fainted Pokémon counts as dead (Nuzlocke) and is no
+        choice; the living ones are asked in turn, the party's first, then up to BE.PC_OFFER in
+        the PC, in box order."""
+        party = gen4.read_party(self.nds)
+        for m in party:
+            if m.hp == 0:
+                self.run.fainted(m.pid)
+        box = [(slot, gen4.decode_mon(scenario.encode_mon(m))) for slot, m in scenario.read_box_data(self.nds).items()
+               if m.pid not in self.run.dead][:BE.PC_OFFER]
+        living = [k for k, m in enumerate(party) if m.pid not in self.run.dead]
+        self.pc = {"party": party, "box": box, "cap": cap,
+                   "positions": living + [6 + i for i in range(len(box))],
+                   "levels": [party[k].level for k in living] + [m.level for _, m in box], "taken": []}
+
+    def _pc_next(self):
+        """The next PC choice that is the agent's, as (obs, info); the rules settle the rest.
+        None once all are made."""
+        pc = self.pc
+        while (k := len(pc["taken"])) < len(pc["positions"]):
+            can_take, can_leave = pc_options(pc["levels"], k, pc["taken"], pc["cap"])
+            if not (can_take and can_leave):
+                pc["taken"].append(can_take)
+                continue
+            taken = np.zeros(6 + BE.PC_OFFER, dtype=np.float32)
+            taken[[p for p, t in zip(pc["positions"], pc["taken"]) if t]] = 1.0
+            mask = np.zeros(BE.N_ACTIONS, dtype=bool)
+            mask[[PC_TAKE, PC_LEAVE]] = True
+            obs = BE.pc_observation(pc["party"], [m for _, m in pc["box"]], pc["positions"][k], taken,
+                                    self.run.level_cap())
+            return obs, {"action_mask": mask, "decision": "pc"}
+        return None
+
+    def _pc_answer(self):
+        """The runner's answer: the party slots to leave in the PC, and the box slots to take."""
+        pc = self.pc
+        taken = {p for p, t in zip(pc["positions"], pc["taken"]) if t}
+        leave = [k for k in range(len(pc["party"])) if k not in taken]
+        return leave, [slot for i, (slot, _) in enumerate(pc["box"]) if 6 + i in taken]
 
     def _encounter(self) -> bool:
         """The rules' answer for a wild battle that just started: may the agent throw a ball?"""
@@ -205,6 +268,11 @@ class RunEnv(gym.Env):
         if self.kind == "starter":
             self.starter = STARTERS[int(action)]
             obs, info = self._advance(int(action))
+        elif self.kind == "pc":
+            self.pc["taken"].append(int(action) == PC_TAKE)
+            asked = self._pc_next()
+            obs, info = asked if asked is not None else self._advance(self._pc_answer())
+            info["pick"] = "pc_take" if int(action) == PC_TAKE else "pc_leave"
         else:
             obs, reward, term, trunc, info = self.battle.step(action)
             if term or trunc:

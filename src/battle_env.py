@@ -384,6 +384,7 @@ SIDE_FIELDS = (("reflect", 5), ("light_screen", 5), ("safeguard", 5), ("mist", 5
                ("spikes", 3), ("toxic_spikes", 2), ("stealth_rock", 1))
 VOLATILE_FIELDS = (("bound", VOLATILE_BIND, 5), ("cursed", VOLATILE_CURSE, 1),
                    ("confused", VOLATILE_CONFUSION, 5), ("substitute", VOLATILE_SUBSTITUTE, 1))
+PC_OFFER = 6                    # living Pokémon in the PC a PC choice shows and offers, in box order
 OBS_FIELDS = (
     tuple((f"party{i}.{n}", s) for i in range(6) for n, s in PARTY_FIELDS)
     + tuple((f"enemy.{n}", s) for n, s in MON_FIELDS)
@@ -393,7 +394,10 @@ OBS_FIELDS = (
     # (scripts/widen_checkpoint.py).
     + (("weather", len(gen4.WEATHER_BITS)), ("weather_turns", 1), ("trick_room", 1), ("gravity", 1),
        ("side_player", len(SIDE_FIELDS)), ("side_enemy", len(SIDE_FIELDS)),
-       ("volatile_player", len(VOLATILE_FIELDS)), ("volatile_enemy", len(VOLATILE_FIELDS))))
+       ("volatile_player", len(VOLATILE_FIELDS)), ("volatile_enemy", len(VOLATILE_FIELDS)))
+    # The PC choice at a Pokémon Center (pc_observation), last for the same reason.
+    + (("pc", 1),) + tuple((f"box{i}.{n}", s) for i in range(PC_OFFER) for n, s in PARTY_FIELDS)
+    + (("pc_asked", 6 + PC_OFFER), ("pc_taken", 6 + PC_OFFER), ("level_cap", 1)))
 OBS_SLICES: dict[str, slice] = {}
 OBS_SIZE = 0
 for _name, _size in OBS_FIELDS:
@@ -477,6 +481,20 @@ def observation(snap: Snapshot, turn: int, turn_cap: int, forced: bool = False) 
     for key, v in zip(("volatile_player", "volatile_enemy"), snap.volatile):
         values[key] = [min((v & bits) // (bits & -bits) / most, 1.0) for _, bits, most in VOLATILE_FIELDS]
     obs = np.zeros(OBS_SIZE, dtype=np.float32)
+    for name, value in values.items():
+        obs[OBS_SLICES[name]] = value
+    return obs
+
+
+def pc_observation(party, box, asked: int, taken, cap: int | None) -> np.ndarray:
+    """A PC choice at a Pokémon Center (run_env): the party in RAM order and up to PC_OFFER living
+    Pokémon in the PC, which one is asked about now and which were taken along so far (positions
+    0-5 the party's slots, then the PC's), and the next boss's level cap. No enemy."""
+    obs = observation(Snapshot(tuple(party), (), None, None, (6,) * 8, (6,) * 8), 0, 1)
+    strength = strengths(list(party) + list(box))
+    values = {"pc": 1.0, "pc_asked": np.eye(6 + PC_OFFER)[asked], "pc_taken": taken, "level_cap": (cap or 0) / 100}
+    for i, m in enumerate(box):
+        values.update(_party_values(f"box{i}", m, False, strength[len(party) + i]))
     for name, value in values.items():
         obs[OBS_SLICES[name]] = value
     return obs

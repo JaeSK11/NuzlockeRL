@@ -186,25 +186,62 @@ def write_party(nds, mons: list[MonData]) -> None:
     nds.memory.write_u32(False, base - 4, len(mons))
 
 
-def deposit(nds, slots: list[int]) -> list[tuple[int, int]]:
-    """Move the party Pokémon in `slots` into the first empty PC box slots, as the PC's deposit
-    does, and close up the party. A box slot holds the party struct's first 136 bytes, encrypted
-    the same way. Returns the (box, slot) each went to. Not the PC's screens: the runner's
-    stand-in until they are mapped (NEXT_PHASE step 3.6)."""
-    party = read_party_data(nds)
-    if not slots or len(slots) >= len(party):
-        raise ValueError(f"deposit {slots} would leave no Pokémon in a party of {len(party)}")
-    base = gen4.resolve(nds)["pcBoxes"] + 4
-    empty = [(b, i) for b in range(gen4.PC_BOXES) for i, m in enumerate(gen4.read_box(nds, b)) if m is None]
+def _box_addr(nds, slot: tuple[int, int]) -> int:
+    return gen4.resolve(nds)["pcBoxes"] + 4 + (slot[0] * gen4.BOX_SLOTS + slot[1]) * gen4.BOX_MON_SIZE
+
+
+def from_box(raw: bytes) -> MonData:
+    """A box slot's 136 bytes as a party Pokémon, as the PC's withdraw makes it: the level from
+    its EXP, the stats from the hack's tables, full HP and no status."""
+    m = parse_mon(bytes(raw[:gen4.BOX_MON_SIZE]).ljust(gen4.PARTY_MON_SIZE, b"\0"))
+    m.data[128:] = bytes(PLAIN_SIZE - 128)
+    level = R.level_for_exp(m["species"], m["exp"])
+    stats = R.calc_stats(m["species"], level, m.ivs, m["evs"], m.pid % 25)
+    m["level"], m["hp"], m["max_hp"], m["stats"] = level, stats[0], stats[0], stats[1:]
+    return m
+
+
+def read_box_data(nds) -> dict[tuple[int, int], MonData]:
+    """Every Pokémon in the PC by (box, slot), in box order, as from_box makes it."""
+    size = gen4.BOX_MON_SIZE
+    raw = gen4.read_bytes(nds, _box_addr(nds, (0, 0)), gen4.PC_BOXES * gen4.BOX_SLOTS * size)
+    mons = {}
+    for n in range(gen4.PC_BOXES * gen4.BOX_SLOTS):
+        chunk = raw[n * size:(n + 1) * size]
+        if struct.unpack_from("<I", chunk)[0] or struct.unpack_from("<H", chunk, 6)[0]:   # gen4.read_box's empty test
+            mons[divmod(n, gen4.BOX_SLOTS)] = from_box(chunk)
+    return mons
+
+
+def pc_swap(nds, leave: list[int], take=()) -> list[tuple[int, int]]:
+    """Deposit the party Pokémon in slots `leave` into the first empty PC box slots, and withdraw
+    the box Pokémon at the (box, slot)s `take` into the party after the ones that stay, as the
+    PC's deposit and withdraw do. Both at once, so the party never runs empty. A box slot holds
+    the party struct's first 136 bytes, encrypted the same way. Returns the (box, slot) each
+    deposit went to. Not the PC's screens: the runner's stand-in until they are mapped."""
+    party, boxed = read_party_data(nds), read_box_data(nds)
+    team = [m for k, m in enumerate(party) if k not in leave] + [boxed[s] for s in take]
+    if not 1 <= len(team) <= PARTY_SLOTS:
+        raise ValueError(f"leaving {leave} and taking {list(take)} would make a party of {len(team)}")
+    for s in take:
+        for i in range(0, gen4.BOX_MON_SIZE, 4):
+            nds.memory.write_u32(False, _box_addr(nds, s) + i, 0)
+    empty = [s for s in ((b, i) for b in range(gen4.PC_BOXES) for i in range(gen4.BOX_SLOTS)) if s not in boxed]
     placed = []
-    for k, slot in zip(slots, empty):
+    for k, slot in zip(sorted(leave), empty):
         box_mon = encode_mon(party[k])[:gen4.BOX_MON_SIZE]
-        addr = base + (slot[0] * gen4.BOX_SLOTS + slot[1]) * gen4.BOX_MON_SIZE
         for i in range(0, len(box_mon), 4):
-            nds.memory.write_u32(False, addr + i, int.from_bytes(box_mon[i:i + 4], "little"))
+            nds.memory.write_u32(False, _box_addr(nds, slot) + i, int.from_bytes(box_mon[i:i + 4], "little"))
         placed.append(slot)
-    write_party(nds, [m for k, m in enumerate(party) if k not in slots])
+    write_party(nds, team)
     return placed
+
+
+def deposit(nds, slots: list[int]) -> list[tuple[int, int]]:
+    """Move the party Pokémon in `slots` into the first empty PC box slots (pc_swap)."""
+    if not slots:
+        raise ValueError("no Pokémon to deposit")
+    return pc_swap(nds, slots)
 
 
 def read_party_data(nds) -> list[MonData]:

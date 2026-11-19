@@ -334,19 +334,22 @@ each run to the decisions. In order:
         but out of battle: no switch to its PID.
       - A wipe, or a whiteout, ends the run.
    6. **The party and the PC at each Pokémon Center.** Two kinds of change:
-      - **Enforced by the rules:** the runner deposits every fainted
-        Pokémon in the PC, where it stays for good. Done (§37), by writing
-        the box and the party in RAM until the PC's screens are mapped. It isn't left to the
-        agent, which would otherwise break the rule while it learned.
-      - **Learned by the agent:** which caught Pokémon to withdraw from the
-        PC into the open slots, and the party's order, which sets the lead.
-        Both are new decisions, besides the battle actions: a choice among
-        the boxed Pokémon for each open slot, one slot at a time, then the
-        order. The observation for them shows the party and the box
-        (`gen4.read_box`), the same features as in battle.
-      - This needs the PC's deposit and withdraw screens and the overworld
-        party menu mapped, as the battle bag was. It is the first part of the
-        roadmap's team-building policy (step 5).
+      - **Enforced by the rules:** every fainted Pokémon goes to the PC,
+        where it stays for good. Done (§37; since §46 a rule of the PC
+        choice). It isn't left to the agent, which would otherwise break the
+        rule while it learned.
+      - **Learned by the agent:** which living Pokémon to take along and
+        which to leave in the PC. Done (§46): at each Pokémon Center the
+        agent is asked about each living Pokémon in turn, the party's first,
+        then up to six in the PC, take along or leave. The rules are masks:
+        a party of 1 to 6, and before Roark no Pokémon over his cap while one
+        at or under it can come. The observation shows the party, the PC's
+        living Pokémon, the one asked about and the cap. Still to do: the
+        party's order, which sets the lead.
+      - The moves are written in RAM (`scenario.pc_swap`) until the PC's
+        deposit and withdraw screens and the overworld party menu are mapped,
+        as the battle bag was. It is the first part of the roadmap's
+        team-building policy (step 5).
    7. **After battles.** Move learning is handled in battle (§26). An
       evolution scene after a battle is let run: the Pokémon evolves. Done
       (§38): the text after a battle takes A. A fifth move offered on
