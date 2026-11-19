@@ -28,6 +28,9 @@ START_STATE = os.path.join(ROOT, "states/milestones/01_starter_choice.state")
 STARTERS = (387, 390, 393)          # the briefcase's balls, left to right: Turtwig, Chimchar, Piplup
 BOSSES = {route.ROARK: "Roark"}     # trainer id -> the capped boss it is (nuzlocke.Rules.level_caps)
 BOSS_REWARD = 20.0
+# A run whose route ends without the badge is paid as a loss: Roark turned the party down, so it
+# never got to fight him. Without it, a lone starter far over his cap ends its run at no cost.
+NO_BADGE_REWARD = BE.REWARDS[BE.Event.LOST]
 MAX_DECISIONS = 3000
 RESTARTS_PER_STEP = 20      # restart states kept for each route step; the oldest go first
 
@@ -50,7 +53,8 @@ class RunEnv(gym.Env):
     over his level cap); truncated on the decision budget ("budget"), a battle the env couldn't
     play ("stuck") or a script that couldn't go on ("route_error").
 
-    Rewards: the battle env's in every battle, plus BOSS_REWARD for each capped boss beaten.
+    Rewards: the battle env's in every battle, plus BOSS_REWARD for each capped boss beaten, and
+    NO_BADGE_REWARD when the route ends without the badge.
 
     Restart states, for training only (NEXT_PHASE step 3.10): with restart_dir set, every battle
     a run reaches leaves a state saved as it starts, with the run's bookkeeping beside it. A reset
@@ -220,10 +224,15 @@ class RunEnv(gym.Env):
                     obs, info = self._advance(outcome)
             else:
                 info["decision"] = "battle"
+        if self.end == "no_badge":
+            reward += NO_BADGE_REWARD
         if not self.end and self.decisions >= self.max_decisions:
             obs, info = self._finish("budget")
-        if self.end == "route_error" and self.restart and self.runner.at == self.restart_at:
-            self._drop_restart(os.path.join(self.restart_dir, self.restart + ".json"))  # it can't resume
+        # A restart that fails in the action it resumed, or before the run's next battle, can't
+        # resume: one saved inside a mend's heal trip fails in the action after the mend.
+        if (self.end == "route_error" and self.restart
+                and (self.runner.at == self.restart_at or len(self.battles) <= 1)):
+            self._drop_restart(os.path.join(self.restart_dir, self.restart + ".json"))
         self.ret += reward
         terminated = self.end in ("badge", "wipe", "no_badge")
         truncated = self.end in ("budget", "stuck", "route_error")

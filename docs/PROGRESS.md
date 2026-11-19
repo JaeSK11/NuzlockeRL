@@ -2057,7 +2057,7 @@ the overworld and run tests pass with running.
 | Walking cost 56 frames a tile | `step` waits 40 frames after every tile | `walk` holds the key along straight stretches, and runs: 9.7 frames a tile |
 | Random runs never pass Route 202 | Kaizo's early wild Pokémon | Expected; restart states give later battles practice once runs reach them |
 | The trainer's episode records had no outcome for a run | A run's final info had `end`, not `outcome` | `outcome` is the run's end, and the route step is recorded |
-| Roark turns down a party over his cap, and nothing in a run can bring it under | The agent has no PC decisions yet (3.6) | Open: a run ends "no_badge" with no reward |
+| Roark turns down a party over his cap, and nothing in a run can bring it under | The agent has no PC decisions yet (3.6) | Open: a run ends "no_badge", paid as a loss since §45 |
 | An evolution's fifth move replaces the first slot | A on the forget screen picks the first move | `move_to_forget` answers it, as in battle (§40) |
 | Milestone 00 has no input script from boot | The new game's intro and naming were played by hand | `boot` in `make_milestones.py` plays it from power-on (§41) |
 
@@ -2447,3 +2447,50 @@ now also checks the battle snapshot.
 |---|---|---|
 | The agent fought blind to screens, hazards, weather and traps | The observation had no values for them | 32 values from the battle context and each active Pokémon's volatile status |
 | A wider observation meant training from scratch | Resuming refuses a checkpoint with another observation size | The new values go last, and `widen_checkpoint` pads the first layers with zero weights |
+
+## 45. Roark refused every run that reached him, and restart states inside a mend (2026-11-19)
+
+Goal: two things runs3 showed overnight, fixed before the switch to the
+wider observation (§44), since that restarts training anyway.
+
+**Runs reached Roark, and he turned every one down.** From about update
+80, 1 to 5 runs an update reached Roark's talk (route step 70) and ended
+`no_badge`. The restart states at the gym show why: 19 of 20 are a lone
+Monferno at level 24 or 25, with nothing caught. The agent picked the ball
+about once in 600 decisions. Roark's cap is 16, and the mend before him
+leaves over-cap Pokémon in the PC only if one able to battle at or under
+the cap stays (§39). A lone starter can't be left, so Roark refuses it and
+the route ends.
+
+**A refusal is now paid as a loss.** It cost nothing before. A wipe costs
+the loss (−10) and each faint, so to the agent, reaching Roark this way
+was the best ending a run could have. Now the route ending without the
+badge pays `NO_BADGE_REWARD`, a lost battle's −10. Catching stays the
+agent's choice, as the plan has it: it has to find that a team caught on
+the way, under the cap, is what gets the badge.
+
+**Restart states inside a mend never went away.** Route errors kept
+coming, 1 or 2 every few updates: "stuck walking to (27, 22)" from
+Route 203, and "stuck walking to (17, 28)" or "no way into map 198" in the
+mine. All came from restart states at steps 45 and 56, the mends before
+the gate's and the mine's trainers. Every battle in a mend happens inside
+its heal trip, so these states were all saved before §42 ruled that out.
+For the same reason no new state there ever replaced them. Resumed with a
+healthy party, the mend skips its trip, and the next action fails, from
+Route 203 or the mine's first floor. §42 drops only a restart that fails
+in its own action, so these stayed. Now a restart is also dropped when the
+run ends in a route error before its next battle. Step 12, Route 202's
+mend, has old states too, but its trip starts with a walk on the same
+map, so they resume.
+
+**Verified:** `test_a_run_that_ends_without_the_badge_is_paid_as_a_loss`,
+and `test_a_restart_that_ends_in_a_route_error_is_dropped`, now also for a
+failure in the action after the resumed one, with wild battles switched
+off in the restart state so none comes between.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| Every run that reached Roark ended `no_badge` | A lone starter at level 24-25, far over his cap of 16, with nothing caught | Expected for a policy that never catches |
+| Reaching Roark over the cap cost nothing | `no_badge` had no reward | It pays a lost battle's −10 |
+| Route errors at the gate and in the mine kept coming | Restart states saved inside a mend's trip fail in the action after the mend, which §42's rule missed, and nothing replaces them | A restart is also dropped when the run ends in a route error before its next battle |
+| The new test's run wiped before the broken action | More wild battles on Route 201 after the resumed one | Wild encounters switched off in the test's restart state |

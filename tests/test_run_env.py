@@ -179,6 +179,22 @@ def test_grinding_fights_wild_battles_until_the_level(tmp_path):
     assert info["battles"] and all(b["trainer"] == 0 and b["outcome"] in ("WON", "CAUGHT", "FLED") for b in info["battles"])
 
 
+@needs_entrance
+def test_a_run_that_ends_without_the_badge_is_paid_as_a_loss(tmp_path, monkeypatch):
+    import route
+    import run_env as RE
+    monkeypatch.setattr(RE, "NO_BADGE_REWARD", -1000.0)               # far below any battle's reward
+    env = RE.RunEnv(start_state=lone_turtwig(tmp_path), route_actions=[("grind", 8, route.ROUTE202_GRASS, route.SANDGEM_HEAL)])
+    obs, info = env.reset(seed=0)
+    rewards, done = [], False
+    while not done:
+        obs, reward, term, trunc, info = env.step(first_move(info))
+        rewards.append(reward)
+        done = term or trunc
+    assert info["end"] == "no_badge" and rewards[-1] < -900 and all(r > -900 for r in rewards[:-1])
+    assert info["run_return"] == pytest.approx(sum(rewards))
+
+
 def evolve_kricketot(tmp_path, moves):
     """A Kricketot one EXP short of level 10 with these four moves, played through a wild battle
     that evolves it into a Kricketune, whose level-10 move is False Swipe."""
@@ -314,12 +330,16 @@ def test_a_battle_inside_a_heal_trip_leaves_no_restart_state(tmp_path):
 
 
 @needs_choice
-def test_a_restart_that_ends_in_a_route_error_is_dropped(tmp_path):
+@pytest.mark.parametrize("fails", [3, 4])
+def test_a_restart_that_ends_in_a_route_error_is_dropped(tmp_path, fails):
     """Restarts saved inside a heal trip before that was ruled out resume into a route error.
-    One that fails in the very route action it resumed is dropped, so bad states heal away."""
+    One that fails in the very route action it resumed (3), or in a later one before the next
+    battle (4, as after a mend that found nothing to heal), is dropped, so bad states heal away."""
     import json
+    import pynds
     import route
     import run_env as RE
+    import scenario
     env = RE.RunEnv(restart_dir=str(tmp_path))
     play_out(env, env.reset(seed=0)[1])
     at3 = [p for p in tmp_path.glob("003_*.json")]                    # Route 201's wild battles
@@ -328,10 +348,14 @@ def test_a_restart_that_ends_in_a_route_error_is_dropped(tmp_path):
         if p not in at3[:1]:
             p.unlink()
     broken = list(route.ROUTE)
-    broken[3] = ("exit", 9999)                                         # no way there: the action fails
+    broken[fails] = ("exit", 9999)                                     # no way there: the action fails
     meta = json.loads(at3[0].read_text())
     meta["action"] = repr(broken[3])
     at3[0].write_text(json.dumps(meta))
+    nds = pynds.PyNDS(ROM)                                             # no wild battle after the resumed one
+    nds.load_state_from_file(str(at3[0].with_suffix(".state")))
+    nds.memory.write_u32(False, gen4.resolve(nds)["_version"] + scenario.ENCOUNTER_OFFSET, 0)
+    nds.save_state_to_file(str(at3[0].with_suffix(".state")))
     env = RE.RunEnv(restart_dir=str(tmp_path), restart_share=1.0, route_actions=broken)
     obs, info = env.reset(seed=1)
     assert info["restart"] == at3[0].stem
