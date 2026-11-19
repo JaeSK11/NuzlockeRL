@@ -184,6 +184,8 @@ class Snapshot:
     locks: tuple = (False,) * 4  # moves the game refuses besides those out of PP (move_locks)
     encored: bool = False        # FIGHT uses the encored move at once, with no move menu
     trapped: bool = False        # the active Pokémon can't switch out (is_trapped)
+    field: gen4.FieldEffects = gen4.FieldEffects()   # weather, screens and hazards
+    volatile: tuple = (0, 0)     # statusVolatile of the player's and the enemy's active Pokémon
 
     def slots(self) -> list[int]:
         """RAM indices of the player's Pokémon in party-menu order, existing ones only."""
@@ -277,7 +279,9 @@ def read_snapshot(nds, addrs: dict) -> Snapshot | None:
         order,
         locks=move_locks(mine) if mine else (False,) * 4,
         encored=bool(mine and mine.encored_move),
-        trapped=bool(mine) and is_trapped(mine, foe_ability))
+        trapped=bool(mine) and is_trapped(mine, foe_ability),
+        field=gen4.read_field_effects(nds, addrs) or gen4.FieldEffects(),
+        volatile=(mine.volatile if mine else 0, foe.volatile if foe else 0))
 
 
 # What the game refuses at a prompt besides an empty slot or a move out of PP: the decomp's
@@ -285,6 +289,7 @@ def read_snapshot(nds, addrs: dict) -> Snapshot | None:
 # (their move ids were reused), but the checks cost nothing and other Gen 4 games need them.
 # Imprison, Gravity and Heal Block aren't modeled; no enemy before Roark uses them.
 VOLATILE_BIND, VOLATILE_MEAN_LOOK, VOLATILE_TORMENT = 7 << 13, 1 << 26, 1 << 31
+VOLATILE_CONFUSION, VOLATILE_SUBSTITUTE, VOLATILE_CURSE = 7, 1 << 24, 1 << 28
 EFFECT_INGRAIN = 1 << 10
 SHED_SHELL, CHOICE_ITEMS = 295, (220, 287, 297)            # Choice Band, Scarf, Specs
 SHADOW_TAG, LEVITATE, MAGNET_PULL, ARENA_TRAP = 23, 26, 42, 71
@@ -373,11 +378,22 @@ MON_FIELDS = (("types", N_TYPES), ("level", 1), ("hp", 1), ("status", len(STATUS
 MATCHUP_FIELDS = (("effect", 1), ("immune", 1), ("stab", 1))
 PARTY_FIELDS = (MON_FIELDS + (("active", 1), ("alive", 1), ("strength", 1), ("hit_by_enemy_types", 2))
                 + tuple((f"move{k}.{n}", s) for k in range(4) for n, s in MOVE_FIELDS + MATCHUP_FIELDS))
+# Battle effects (PROGRESS §43). A side's turns and layers, and the active Pokémon's volatile
+# bits, each over the most it usually reaches: (name, most) and (name, bits, most).
+SIDE_FIELDS = (("reflect", 5), ("light_screen", 5), ("safeguard", 5), ("mist", 5), ("tailwind", 3),
+               ("spikes", 3), ("toxic_spikes", 2), ("stealth_rock", 1))
+VOLATILE_FIELDS = (("bound", VOLATILE_BIND, 5), ("cursed", VOLATILE_CURSE, 1),
+                   ("confused", VOLATILE_CONFUSION, 5), ("substitute", VOLATILE_SUBSTITUTE, 1))
 OBS_FIELDS = (
     tuple((f"party{i}.{n}", s) for i in range(6) for n, s in PARTY_FIELDS)
     + tuple((f"enemy.{n}", s) for n, s in MON_FIELDS)
     + (("enemy_fainted", 6), ("enemy_remaining", 1), ("stages_player", 8), ("stages_enemy", 8),
-       ("turn", 1), ("forced_switch", 1)))
+       ("turn", 1), ("forced_switch", 1))
+    # The effects come last, so a checkpoint from before them can be widened for them
+    # (scripts/widen_checkpoint.py).
+    + (("weather", len(gen4.WEATHER_BITS)), ("weather_turns", 1), ("trick_room", 1), ("gravity", 1),
+       ("side_player", len(SIDE_FIELDS)), ("side_enemy", len(SIDE_FIELDS)),
+       ("volatile_player", len(VOLATILE_FIELDS)), ("volatile_enemy", len(VOLATILE_FIELDS))))
 OBS_SLICES: dict[str, slice] = {}
 OBS_SIZE = 0
 for _name, _size in OBS_FIELDS:
@@ -437,8 +453,8 @@ def _party_values(prefix: str, m, active: bool, strength: float, enemy=None) -> 
 
 
 def observation(snap: Snapshot, turn: int, turn_cap: int, forced: bool = False) -> np.ndarray:
-    """What a human player sees: own party in full, the enemy's active Pokémon and which
-    enemy slots are down. No enemy moves."""
+    """What a human player sees: own party in full, the enemy's active Pokémon, which
+    enemy slots are down, and the weather, screens, hazards and traps. No enemy moves."""
     values = {}
     enemy = snap.enemy[snap.enemy_active] if snap.enemy_active is not None else None
     strength = strengths(snap.player)
@@ -452,6 +468,14 @@ def observation(snap: Snapshot, turn: int, turn_cap: int, forced: bool = False) 
     values["stages_player"] = (np.array(snap.stages_player) - 6) / 6
     values["stages_enemy"] = (np.array(snap.stages_enemy) - 6) / 6
     values["turn"], values["forced_switch"] = min(turn / turn_cap, 1.0), forced
+    f = snap.field
+    values["weather"] = [f.weather == name for name, _ in gen4.WEATHER_BITS]
+    values["weather_turns"], values["trick_room"], values["gravity"] = (
+        min(t / 5, 1.0) for t in (f.weather_turns, f.trick_room, f.gravity))
+    for key, side in zip(("side_player", "side_enemy"), f.sides):
+        values[key] = [min(getattr(side, name) / most, 1.0) for name, most in SIDE_FIELDS]
+    for key, v in zip(("volatile_player", "volatile_enemy"), snap.volatile):
+        values[key] = [min((v & bits) // (bits & -bits) / most, 1.0) for _, bits, most in VOLATILE_FIELDS]
     obs = np.zeros(OBS_SIZE, dtype=np.float32)
     for name, value in values.items():
         obs[OBS_SLICES[name]] = value

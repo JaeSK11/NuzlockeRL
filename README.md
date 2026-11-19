@@ -102,6 +102,7 @@ verified against it.
 src/d - mystate "w900 a*10 w120"                   # boot, press A, save state + screenshot
 ~/venvs/nuzlockerl/bin/python scripts/rollout.py --episodes 200   # random policy, one env per hardware thread minus 2
 ~/venvs/nuzlockerl/bin/python scripts/train_ppo.py --states states/generated/solo_turtwig10.state --run-dir runs/pilot   # rerun to resume
+~/venvs/nuzlockerl/bin/python scripts/widen_checkpoint.py runs/old runs/new   # carry a run's newest checkpoint over to a wider observation
 ~/venvs/nuzlockerl/bin/python scripts/make_scenario.py --mon 387:10:33,72,44,75 --enemy 225:8 --out states/generated/turtwig10.state
 ~/venvs/nuzlockerl/bin/python scripts/make_battle_set.py scripts/pilot_battles.json   # the PPO pilot's battles, each checked
 ~/venvs/nuzlockerl/bin/python scripts/eval_ppo.py --run-dir runs/pilot --states states/generated/pilot/heldout/*.state   # --mode random: the random-play baseline

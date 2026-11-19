@@ -30,7 +30,7 @@ TACKLE, SELFDESTRUCT, GROWL, MEGA_DRAIN, BITE, ROCK_THROW, RAZOR_LEAF, EMBER, SC
 WITHDRAW, ABSORB, WRAP, MEAN_LOOK, DISABLE, TORMENT, ENCORE, CHOICE_BAND = 110, 71, 35, 212, 50, 259, 227, 220
 STEALTH_ROCK, BRICK_BREAK, ACCELEROCK = 446, 280, 205      # with Selfdestruct, Roark's Bonsly; 205 is Rollout in vanilla
 ROAR, WHIRLWIND = 46, 18
-LIGHT_SCREEN, SPIKES, SANDSTORM = 113, 191, 201
+LIGHT_SCREEN, SPIKES, SANDSTORM, SAND_TOMB, CURSE, GASTLY = 113, 191, 201, 328, 174, 92
 MASTER_BALL, POKE_BALL = 1, 4
 TEAM3 = [{"species": CHIMCHAR, "level": 12, "moves": [52, 10, 43, 183]},
          {"species": PIPLUP, "level": 11, "moves": [55, 1, 145, 64]},
@@ -84,6 +84,11 @@ EFFECT_CASES = {"light_screen": (LIGHT_SCREEN, gen4.FieldEffects(sides=(NO_EFFEC
                 "sandstorm": (SANDSTORM, gen4.FieldEffects(weather="sand", weather_turns=4))}
 for _name, (_move, _) in EFFECT_CASES.items():
     SCENARIOS["effect_" + _name] = ([{"species": TURTWIG, "level": 14, "moves": [TACKLE, WITHDRAW]}], (SHUCKLE, 25), 3, [_move])
+# The same for an effect on Turtwig itself: (enemy, its one move, the volatile field it sets). Gastly's Curse is a
+# Ghost's; Shuckle's only changes its stat stages.
+VOLATILE_CASES = {"sand_tomb": ((SHUCKLE, 25), SAND_TOMB, "bound"), "curse": ((GASTLY, 20), CURSE, "cursed")}
+for _name, (_enemy, _move, _) in VOLATILE_CASES.items():
+    SCENARIOS["volatile_" + _name] = ([{"species": TURTWIG, "level": 14, "moves": [TACKLE, WITHDRAW]}], _enemy, 3, [_move])
 
 
 def scenario_state(name):
@@ -273,9 +278,22 @@ def test_field_and_side_effects_are_read_from_ram(name):
     e.reset(seed=0)
     before = gen4.read_field_effects(e.nds, e.addrs)
     e.step(1)
-    after = gen4.read_field_effects(e.nds, e.addrs)
+    after, seen = gen4.read_field_effects(e.nds, e.addrs), e.snap.field
     e.close()
-    assert (before, after) == (gen4.FieldEffects(), EFFECT_CASES[name][1])
+    assert (before, after, seen) == (gen4.FieldEffects(), EFFECT_CASES[name][1], EFFECT_CASES[name][1])
+
+
+@needs_rom
+@pytest.mark.parametrize("name", list(VOLATILE_CASES))
+def test_a_trap_or_a_curse_on_the_player_shows_in_the_observation(name):
+    e = BattleEnv([scenario_state("volatile_" + name)], ROM)
+    e.reset(seed=0)
+    obs, *_ = e.step(1)
+    e.close()
+    shown = dict(zip([n for n, *_ in battle_env.VOLATILE_FIELDS], field(obs, "volatile_player")))
+    expected = VOLATILE_CASES[name][2]
+    assert shown[expected] > 0 and not any(v for n, v in shown.items() if n != expected)
+    assert not field(obs, "volatile_enemy").any()
 
 
 def test_trap_rules_the_game_cant_show_here():
@@ -668,6 +686,7 @@ def test_observation_carries_types_and_move_features_from_the_rom(team_env):
     assert field(obs, "party3.alive")[0] == 0 and not field(obs, "party3.types").any()
     assert not field(obs, "stages_player").any() and not field(obs, "stages_enemy").any()
     assert field(obs, "turn")[0] == 0 and field(obs, "forced_switch")[0] == 0
+    assert not obs[OBS_SLICES["weather"].start:].any(), "no effects at the start"
 
 
 @needs_rom
@@ -680,6 +699,25 @@ def test_observation_follows_the_party_menu_order_after_a_switch(team_env):
     assert [field(obs, f"party{i}.active")[0] for i in range(3)] == [1, 0, 0]
     assert [types[i] for i in np.flatnonzero(field(obs, "party1.types"))] == ["Fire"]
     assert field(obs, "turn")[0] == pytest.approx(1 / env.turn_cap)
+
+
+@needs_rom
+def test_observation_of_battle_effects_for_a_made_up_snapshot():
+    mon = lambda pid: gen4.Mon(pid=pid, checksum_ok=True, species=TURTWIG, level=14, hp=20, max_hp=40,
+                               moves=[0] * 4, pp=[0] * 4)
+    effects = gen4.FieldEffects(weather="sand", weather_turns=3, trick_room=5, sides=(
+        gen4.SideEffects(stealth_rock=True, spikes=2, toxic_spikes=1), gen4.SideEffects(light_screen=4, tailwind=2)))
+    bound_3_cursed_confused_2 = (3 << 13) | battle_env.VOLATILE_CURSE | 2
+    snap = Snapshot((mon(1),), (mon(2),), 0, 0, (6,) * 8, (6,) * 8, field=effects,
+                    volatile=(bound_3_cursed_confused_2, battle_env.VOLATILE_SUBSTITUTE))
+    obs = observation(snap, 1, 10)
+    assert field(obs, "weather").tolist() == [0, 1, 0, 0, 0]
+    assert field(obs, "weather_turns")[0] == pytest.approx(0.6)
+    assert (field(obs, "trick_room")[0], field(obs, "gravity")[0]) == (1, 0)
+    assert field(obs, "side_player").tolist() == pytest.approx([0, 0, 0, 0, 0, 2 / 3, 0.5, 1])
+    assert field(obs, "side_enemy").tolist() == pytest.approx([0, 0.8, 0, 0, 2 / 3, 0, 0, 0])
+    assert field(obs, "volatile_player").tolist() == pytest.approx([0.6, 1, 0.4, 0])
+    assert field(obs, "volatile_enemy").tolist() == [0, 0, 0, 1]
 
 
 @needs_rom

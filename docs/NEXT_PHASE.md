@@ -198,7 +198,7 @@ These are proposals. Set the final numbers once the baseline is known.
   way to start one from RAM (roadmap step 3).
 - **Effects aren't in the observation.** Stealth Rock, Light Screen,
   Sand Tomb's trapping, and Curse need roadmap step 1's RAM first. The RAM
-  is now found (PROGRESS §43); the observation doesn't use it yet.
+  is now found (PROGRESS §43), and the observation has them (§44).
 - **No double battles.** 55 trainers in the hack fight doubles.
 
 ## After the pilot

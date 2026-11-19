@@ -2402,3 +2402,48 @@ Stealth Rock, Spikes, Sandstorm).
 | The observation can't see screens, hazards, weather or traps | Nothing read them from RAM | Found in the battle context; `read_field_effects` reads them |
 | Light Screen and Reflect seemed to last 4 turns | The read comes after the turn the move was used, which counts as one of its 5 | Expected |
 | Leech Seed set nothing | Turtwig is a Grass type, which Leech Seed can't seed | Left unchecked |
+
+## 44. Battle effects in the observation (2026-11-18)
+
+Goal: the rest of NEXT_PHASE step 4. The effects found in §43 go into the
+observation, and a run's checkpoint carries over to the wider observation,
+so a new run doesn't start from scratch.
+
+**What the observation gains.** 32 values, after all the old ones:
+
+- The weather, one of rain, sand, sun, hail or fog, and its turns left.
+- The turns left of Trick Room and Gravity.
+- For each side: the turns left of Reflect, Light Screen, Safeguard, Mist
+  and Tailwind; the layers of Spikes and Toxic Spikes; and Stealth Rock.
+- For each side's active Pokémon: the turns left of a trap such as Sand
+  Tomb, a Ghost's Curse, confusion's turns left, and a Substitute.
+
+Each count is divided by the most it usually reaches (5 turns, 3 layers of
+Spikes), and capped at 1. The observation grows from 902 values to 934.
+
+**Why they go last.** The old observation is then the first 902 values of
+the new one. `ppo.widen_checkpoint` gives the new inputs zero weights in
+the first layer of the policy and of the value, so the widened net plays
+exactly as the old one did, then learns what the new values mean. Their
+running mean starts at 0 and variance at 1; Adam's moments for the new
+weights start at 0. `scripts/widen_checkpoint.py` writes a run's newest
+checkpoint, widened, into a new run directory, which `train_ppo.py` then
+resumes from.
+
+**Checked on runs3.** Its checkpoint 120, widened, gives the same action
+probabilities as the original (largest difference 0.0).
+
+**The switch to it isn't made yet.** runs3 trains on the old observation.
+To switch: widen runs3's newest checkpoint into a new run directory, copy
+its restart states, and start training there on this code.
+
+**Verified:** `test_a_widened_checkpoint_plays_as_before_and_trains_on`,
+`test_observation_of_battle_effects_for_a_made_up_snapshot`,
+`test_a_trap_or_a_curse_on_the_player_shows_in_the_observation` (Sand Tomb,
+Gastly's Curse), and `test_field_and_side_effects_are_read_from_ram`, which
+now also checks the battle snapshot.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| The agent fought blind to screens, hazards, weather and traps | The observation had no values for them | 32 values from the battle context and each active Pokémon's volatile status |
+| A wider observation meant training from scratch | Resuming refuses a checkpoint with another observation size | The new values go last, and `widen_checkpoint` pads the first layers with zero weights |

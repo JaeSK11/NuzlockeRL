@@ -406,6 +406,30 @@ def train(env_fns, run_dir: str, total_decisions: int, seed: int = 0, cfg: Confi
     return decisions
 
 
+def widen_checkpoint(ckpt: dict, obs_dim: int) -> dict:
+    """The checkpoint for an observation with new values appended at its end. The new inputs
+    get zero weights, so the policy and the value start exactly as before, and learn from
+    there. Their running mean starts at 0 and variance at 1, and adapt at the rate the old
+    count allows."""
+    old = ckpt["obs_dim"]
+    if obs_dim < old:
+        raise ValueError(f"the checkpoint has {old} observation values, more than {obs_dim}")
+    extra, out = obs_dim - old, dict(ckpt, obs_dim=obs_dim)
+
+    def widen(t, fill=0.0):     # a first layer's weights (or its Adam moments), or a norm buffer
+        pad = t.new_full((*t.shape[:-1], extra), fill)
+        return torch.cat([t, pad], -1)
+    first = ("actor.0.weight", "critic.0.weight")
+    out["agent"] = {k: widen(v) if k in first else v for k, v in ckpt["agent"].items()}
+    norm = ckpt["obs_norm"]
+    out["obs_norm"] = dict(norm, mean=widen(norm["mean"]), var=widen(norm["var"], 1.0))
+    names = list(ckpt["agent"])     # Agent has no buffers: its parameters, in the optimizer's order
+    out["optimizer"] = dict(ckpt["optimizer"], state={
+        i: {k: widen(v) if names[i] in first and k != "step" else v for k, v in st.items()}
+        for i, st in ckpt["optimizer"]["state"].items()})
+    return out
+
+
 def load_policy(ckpt_path: str) -> tuple[Agent, ObsNorm]:
     """The agent and observation normalization saved in a checkpoint."""
     ckpt = torch.load(ckpt_path, weights_only=True)

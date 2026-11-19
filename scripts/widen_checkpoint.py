@@ -1,0 +1,36 @@
+"""Carry a run's newest checkpoint over to the current battle observation, which has new values
+at its end (src/battle_env.py OBS_FIELDS). Starts a new run directory from it:
+
+  python scripts/widen_checkpoint.py runs/old runs/new
+  python scripts/train_ppo.py --runs --run-dir runs/new ...   # resumes from the widened checkpoint
+
+The policy starts exactly as the old one played (ppo.widen_checkpoint). Restart states don't
+depend on the observation: copy runs/old/restarts to runs/new/restarts to keep them."""
+import argparse, os, sys
+
+import torch
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "src"))
+import battle_env
+import ppo
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("old_run_dir")
+    ap.add_argument("new_run_dir")
+    args = ap.parse_args()
+    src = ppo.latest_checkpoint(args.old_run_dir)
+    if src is None:
+        sys.exit(f"no checkpoint in {args.old_run_dir}")
+    if ppo.latest_checkpoint(args.new_run_dir):
+        sys.exit(f"{args.new_run_dir} already has a checkpoint")
+    os.makedirs(args.new_run_dir, exist_ok=True)
+    ckpt = ppo.widen_checkpoint(torch.load(src, weights_only=True), battle_env.OBS_SIZE)
+    print(f"{src}: {ckpt['update']} updates, {ckpt['decisions']} decisions -> {battle_env.OBS_SIZE} "
+          f"observation values; wrote {ppo.save_checkpoint(args.new_run_dir, ckpt)}")
+
+
+if __name__ == "__main__":
+    main()
