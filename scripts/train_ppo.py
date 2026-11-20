@@ -39,6 +39,8 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--rollout", type=int, default=ppo.Config.rollout, help="decisions per update")
     ap.add_argument("--lr", type=float, default=ppo.Config.lr)
+    ap.add_argument("--ent-coef", type=float, default=ppo.Config.ent_coef,
+                    help="entropy bonus: higher keeps the policy trying moves it rarely picks")
     ap.add_argument("--checkpoint-every", type=int, default=ppo.Config.checkpoint_every, help="updates")
     ap.add_argument("--max-temp", type=float, default=99.0)
     ap.add_argument("--hot-seconds", type=float, default=30.0)
@@ -61,7 +63,8 @@ def main():
         states = [os.path.abspath(s) for s in args.states]
         env_fns = [functools.partial(BattleEnv, states) for _ in range(args.envs)]
     gamma = args.gamma or (0.999 if args.runs else ppo.Config.gamma)
-    cfg = ppo.Config(rollout=args.rollout, lr=args.lr, checkpoint_every=args.checkpoint_every, gamma=gamma)
+    cfg = ppo.Config(rollout=args.rollout, lr=args.lr, ent_coef=args.ent_coef, checkpoint_every=args.checkpoint_every,
+                     gamma=gamma)
     decisions = ppo.train(env_fns, args.run_dir, args.total_decisions, args.seed, cfg, guard)
     print(f"{decisions} decisions trained  peak CPU {guard.peak:.0f} C  run dir {args.run_dir}")
     if guard.tripped.is_set():

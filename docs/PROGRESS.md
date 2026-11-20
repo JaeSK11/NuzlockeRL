@@ -2549,3 +2549,27 @@ Now a Pokémon caught on the way can wait in the PC, at its level, for Roark.
 |---|---|---|
 | The agent had no say in its team | The runner left fainted and over-cap Pokémon in the PC itself, and never took one out | A PC choice at each center, with the rules as masks |
 | A lone starter over the cap couldn't be swapped for a Pokémon in the PC | The mend before Roark went to the center only if a Pokémon under the cap was in the party | It goes whenever a party Pokémon is over the cap |
+
+## 47. A higher entropy bonus, so the agent keeps trying the ball (2026-11-20)
+
+Goal: get the agent to find catching by its own play. It is what Roark's
+badge needs (§45, §46).
+
+**What runs5 showed.** Over its first 96 updates (about 98,000 decisions)
+no run got the badge. Roark turned down 16 to 17% of runs, almost all a
+lone starter over his cap. The agent threw a ball 32 times, fewer per
+update as training went on: 0.36 overnight, then 0.26. The policy's
+entropy had fallen to about 0.3, from about 0.8 early in runs3. The policy
+was settling on habits, and a ball it rarely throws is a choice it
+rarely learns from. The −10 for a refusal (§45) wasn't enough on its own.
+
+**The change.** `train_ppo.py --ent-coef` sets PPO's entropy bonus, which
+was fixed at `ppo.Config`'s 0.01. Runs train on from runs5's checkpoint
+with 0.03. A higher bonus keeps more weight on the moves the agent
+rarely picks, so it keeps trying them. It changes how the agent learns,
+not the game or the rewards. The checkpoint doesn't carry the bonus: a
+resumed run uses the one it is given.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| Catching got rarer as runs5 trained, and no run got the badge | The policy's entropy fell to about 0.3, so it stopped trying the ball | `--ent-coef`, and the next run trains with 0.03 instead of 0.01 |
