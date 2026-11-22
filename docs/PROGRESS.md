@@ -2573,3 +2573,38 @@ resumed run uses the one it is given.
 | Issue | Cause | Resolution |
 |---|---|---|
 | Catching got rarer as runs5 trained, and no run got the badge | The policy's entropy fell to about 0.3, so it stopped trying the ball | `--ent-coef`, and the next run trains with 0.03 instead of 0.01 |
+
+## 48. runs6: the higher entropy bonus didn't teach catching (2026-11-22)
+
+Goal: see whether §47's bonus of 0.03 gets the agent catching, and the
+badge.
+
+**The run.** runs6 trained from runs5's checkpoint 340 to update 489,
+with 500,736 decisions in all, over 2,367 runs. runs5 was stopped at
+update 346, so the 6 updates after its last checkpoint were lost.
+
+**What it showed.** No run got the badge.
+
+| Updates | Wipes | Roark refused | Balls per update | PC take / leave | Entropy |
+|---|---|---|---|---|---|
+| 341–424 | 85.1% | 14.8% | 0.15 | 7 / 4 | 0.44 |
+| 425–449 | 90.1% | 9.7% | 0.32 | 11 / 10 | 0.50 |
+| 450–489 | 83.6% | 16.0% | 0.07 | 0 / 0 | 0.49 |
+
+Entropy rose from 0.27 to about 0.5, as intended, and training stayed
+steady (KL about 0.003). Catching didn't follow. There was a rise in
+updates 425 to 449, and then it faded: 24 balls in 149 updates, fewer
+per update than runs5 (0.26 to 0.36). Mean return stayed at about 117.
+The bonus is averaged over every decision, and almost all decisions are
+move choices (in updates 425 to 449: about 17,700 moves, 8 balls). So
+the extra entropy mostly went to the moves.
+
+Four runs ended in a route error, none of them seen more than once:
+"no way into map 198" from (199, 15, 3) and from (199, 28, 21), "nobody
+to talk to from (17, 28) facing right", and "text stuck at (199, 3, 24)".
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| Catching stayed rare, and no run got the badge | Likely: the bonus is spread over every decision, and nearly all of them are move choices | Open: the next approach is the user's choice |
+| 6 updates lost when runs5 was stopped | Checkpoints come every 10 updates, and a stopped run saves none | runs6 started from checkpoint 340 |
+| 4 route errors in 2,367 runs | Not looked into yet; each appeared once | Open |
