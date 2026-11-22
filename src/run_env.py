@@ -33,6 +33,9 @@ BOSS_REWARD = 20.0
 # A run whose route ends without the badge is paid as a loss: Roark turned the party down, so it
 # never got to fight him. Without it, a lone starter far over his cap ends its run at no cost.
 NO_BADGE_REWARD = BE.REWARDS[BE.Event.LOST]
+# A catch ends a wild battle without the knockout and win that would pay 6, and its worth shows
+# only battles later. Paid at once, it is never the worse choice.
+CATCH_REWARD = 10.0
 MAX_DECISIONS = 3000
 RESTARTS_PER_STEP = 20      # restart states kept for each route step; the oldest go first
 
@@ -69,8 +72,8 @@ class RunEnv(gym.Env):
     over his level cap); truncated on the decision budget ("budget"), a battle the env couldn't
     play ("stuck") or a script that couldn't go on ("route_error").
 
-    Rewards: the battle env's in every battle, plus BOSS_REWARD for each capped boss beaten, and
-    NO_BADGE_REWARD when the route ends without the badge.
+    Rewards: the battle env's in every battle, plus CATCH_REWARD for each catch, BOSS_REWARD for
+    each capped boss beaten, and NO_BADGE_REWARD when the route ends without the badge.
 
     Restart states, for training only (NEXT_PHASE step 3.10): with restart_dir set, every battle
     a run reaches leaves a state saved as it starts, with the run's bookkeeping beside it. A reset
@@ -282,6 +285,7 @@ class RunEnv(gym.Env):
                         self.run.fainted(m.pid)
                 if outcome == "CAUGHT":
                     self.run.caught(self.battle.snap.enemy[self.battle.snap.enemy_active or 0].species)
+                    reward += CATCH_REWARD
                 if outcome == "WON" and self.trainer in BOSSES:
                     self.run.boss_beaten(BOSSES[self.trainer])
                     reward += BOSS_REWARD

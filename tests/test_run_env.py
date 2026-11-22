@@ -293,6 +293,30 @@ def test_a_run_that_ends_without_the_badge_is_paid_as_a_loss(tmp_path, monkeypat
     assert info["run_return"] == pytest.approx(sum(rewards))
 
 
+@needs_entrance
+def test_a_catch_is_paid_and_the_rules_mask_a_second_one_on_the_route(tmp_path, monkeypatch):
+    """The rules, not the agent, keep catches to one per route: after Route 202's first wild
+    Pokémon is caught, the ball is masked in the route's next wild battle, balls or not."""
+    import battle_env as BE
+    import route
+    import run_env as RE
+    monkeypatch.setattr(RE, "CATCH_REWARD", 1000.0)                  # far above any battle's reward
+    env = RE.RunEnv(start_state=lone_turtwig(tmp_path), route_actions=[("grind", 8, route.ROUTE202_GRASS, route.SANDGEM_HEAL)])
+    obs, info = env.reset(seed=0)
+    assert info["decision"] == "battle" and env.trainer == 0 and env.battle.catch_allowed
+    off = 4 * sum(n for _, n in gen4.BAG_POCKETS[:6])                 # the Poké Balls pocket
+    for bag in ("bag", "bagBattle"):                                  # five Master Balls (item 1), first in it
+        env.nds.memory.write_u16(False, env.battle.addrs[bag] + off, 1)
+        env.nds.memory.write_u16(False, env.battle.addrs[bag] + off + 2, 5)
+    obs, reward, term, trunc, info = env.step(BE.BALL_ACTION)
+    assert env.battles[-1]["outcome"] == "CAUGHT" and reward == pytest.approx(1000.0)
+    assert len(env.run.caught_lines) == 1 and "Route 202" in env.run.routes
+    info = take_all(env, info)
+    assert info["decision"] == "battle" and env.trainer == 0
+    assert gen4.read_bag(env.nds, env.battle.addrs, from_battle=True)["balls"], "balls are left"
+    assert not env.battle.catch_allowed and not info["action_mask"][BE.BALL_ACTION]
+
+
 def evolve_kricketot(tmp_path, moves):
     """A Kricketot one EXP short of level 10 with these four moves, played through a wild battle
     that evolves it into a Kricketune, whose level-10 move is False Swipe."""

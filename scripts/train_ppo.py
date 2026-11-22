@@ -18,7 +18,7 @@ import argparse, functools, os, signal, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
-from battle_env import BattleEnv
+from battle_env import BALL_ACTION, BattleEnv
 from run_env import RunEnv
 from thermal import ThermalGuard
 
@@ -41,6 +41,8 @@ def main():
     ap.add_argument("--lr", type=float, default=ppo.Config.lr)
     ap.add_argument("--ent-coef", type=float, default=ppo.Config.ent_coef,
                     help="entropy bonus: higher keeps the policy trying moves it rarely picks")
+    ap.add_argument("--ball-ent-coef", type=float, default=ppo.Config.ball_ent_coef,
+                    help="extra entropy bonus at decisions where a ball can be thrown")
     ap.add_argument("--checkpoint-every", type=int, default=ppo.Config.checkpoint_every, help="updates")
     ap.add_argument("--max-temp", type=float, default=99.0)
     ap.add_argument("--hot-seconds", type=float, default=30.0)
@@ -63,8 +65,8 @@ def main():
         states = [os.path.abspath(s) for s in args.states]
         env_fns = [functools.partial(BattleEnv, states) for _ in range(args.envs)]
     gamma = args.gamma or (0.999 if args.runs else ppo.Config.gamma)
-    cfg = ppo.Config(rollout=args.rollout, lr=args.lr, ent_coef=args.ent_coef, checkpoint_every=args.checkpoint_every,
-                     gamma=gamma)
+    cfg = ppo.Config(rollout=args.rollout, lr=args.lr, ent_coef=args.ent_coef, ball_ent_coef=args.ball_ent_coef,
+                     ball_action=BALL_ACTION, checkpoint_every=args.checkpoint_every, gamma=gamma)
     decisions = ppo.train(env_fns, args.run_dir, args.total_decisions, args.seed, cfg, guard)
     print(f"{decisions} decisions trained  peak CPU {guard.peak:.0f} C  run dir {args.run_dir}")
     if guard.tripped.is_set():

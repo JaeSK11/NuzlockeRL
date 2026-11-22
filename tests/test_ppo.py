@@ -9,7 +9,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
 from pool import Batch
 from ppo import (Agent, Collector, Config, ObsNorm, Rollout, Transition, episode_stats, evaluate, gae,
-                 latest_checkpoint, load_policy, save_checkpoint, train, widen_checkpoint)
+                 latest_checkpoint, load_policy, ppo_update, save_checkpoint, train, widen_checkpoint)
 
 
 class BanditEnv(gym.Env):
@@ -82,6 +82,36 @@ def test_the_loss_gives_invalid_actions_no_probability_and_no_gradient():
     assert all(torch.isfinite(g).all() for g in grads)
     bias_grad = agent.actor[-1].bias.grad
     assert (bias_grad[5:] == 0).all() and (bias_grad[:5] != 0).all()
+
+
+def test_the_ball_bonus_raises_the_balls_odds_only_where_it_can_be_thrown():
+    """With no advantage and no plain entropy bonus, the ball bonus is the actor's only gradient:
+    it raises the ball's odds where the ball is legal, and leaves the actor alone where it isn't."""
+    def update(ball_legal):
+        torch.manual_seed(2)
+        agent = Agent(5, 10)
+        with torch.no_grad():
+            agent.actor[-1].bias[9] = -5.0                          # a policy that rarely throws
+        obs, mask = torch.randn(256, 5), torch.ones(256, 10, dtype=torch.bool)
+        mask[:, 9] = ball_legal
+        with torch.no_grad():
+            logp = agent.log_probs(obs, mask)
+        zeros = torch.zeros(256)
+        data = {"obs": obs, "mask": mask, "action": torch.zeros(256, dtype=torch.long), "logp": logp[:, 0],
+                "value": zeros, "advantage": zeros, "return": zeros}
+        actor = [p.clone() for p in agent.actor.parameters()]
+        cfg = Config(ent_coef=0.0, ball_ent_coef=0.5, ball_action=9)
+        out = ppo_update(agent, torch.optim.Adam(agent.parameters(), lr=1e-2), data, cfg)
+        with torch.no_grad():
+            after = agent.log_probs(obs, mask)[ball_legal, 9].exp().mean().item() if ball_legal.any() else None
+        return out, actor, agent, after
+
+    half = torch.arange(256) < 128
+    out, _, _, after = update(half)
+    assert out["ball_chances"] == 128 and 0 < out["ball_prob"] < 0.01 and after > 2 * out["ball_prob"]
+    out, actor, agent, _ = update(torch.zeros(256, dtype=torch.bool))
+    assert out["ball_chances"] == 0 and out["ball_prob"] is None
+    assert all(torch.equal(a, b) for a, b in zip(actor, agent.actor.parameters()))
 
 
 def test_gae_matches_a_hand_computed_example():

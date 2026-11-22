@@ -2608,3 +2608,40 @@ to talk to from (17, 28) facing right", and "text stuck at (199, 3, 24)".
 | Catching stayed rare, and no run got the badge | Likely: the bonus is spread over every decision, and nearly all of them are move choices | Open: the next approach is the user's choice |
 | 6 updates lost when runs5 was stopped | Checkpoints come every 10 updates, and a stopped run saves none | runs6 started from checkpoint 340 |
 | 4 route errors in 2,367 runs | Not looked into yet; each appeared once | Open |
+
+## 49. A ball-only entropy bonus, and a reward for catching (2026-11-22)
+
+Goal: get the agent catching, after §48 showed the plain entropy bonus
+went to the moves. The user asked for both changes below.
+
+**Why catching was the worse choice.** A wild battle won by a knockout
+pays 6: 1 for the faint and 5 for the win. A catch ends the battle with
+neither, and paid 0. Its worth (a second Pokémon, a way past Roark's
+cap) only shows battles later. So, in the short run, every catch cost
+the agent 6.
+
+**The catch reward.** `run_env.CATCH_REWARD` pays 10 for each catch,
+more than a knockout would. The agent doesn't need to learn the Nuzlocke
+rules to earn it within them. At the start of each wild battle,
+`nuzlocke.Run.encounter` says whether the rules allow a catch: only a
+route's first encounter, no Pokémon from a line already caught, and a
+shiny always. When they don't, the ball is masked out, so it can't be
+thrown. The reward can only be paid about once per route. The first
+encounter uses the route up whether or not it is caught.
+
+**The ball's own entropy bonus.** `train_ppo.py --ball-ent-coef` adds
+an entropy bonus only at decisions where the ball is legal. At those
+decisions the bonus counts `ent_coef + ball_ent_coef`; elsewhere it
+counts `ent_coef`. So the push to explore lands where the ball can be
+tried, not on all the move choices. It changes how the agent learns,
+not the game. Each update logs `ball_chances` (decisions in the rollout
+where a ball was legal) and `ball_prob` (the policy's mean chance of
+the ball there), to show whether it works.
+
+runs7 trains on from runs6's checkpoint 489, with `--ent-coef 0.03`
+and `--ball-ent-coef 0.1`.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| A catch paid 0, while a knockout of the same Pokémon paid 6 | The catch's worth only shows battles later | `CATCH_REWARD` of 10 for each catch; the rules' mask keeps it to the encounters the rules allow |
+| The plain entropy bonus went to the move choices (§48) | It is averaged over every decision, and nearly all are moves | `--ball-ent-coef`: an extra bonus only where a ball can be thrown, with `ball_prob` logged |

@@ -30,6 +30,8 @@ class Config:
     lam: float = 0.95
     clip: float = 0.2
     ent_coef: float = 0.01
+    ball_ent_coef: float = 0.0      # extra entropy bonus at decisions where ball_action is legal
+    ball_action: int | None = None  # the env's throw-a-ball action (battle_env.BALL_ACTION), if any
     vf_coef: float = 0.5
     max_grad_norm: float = 0.5
     hidden: int = 64
@@ -222,6 +224,12 @@ class Collector:
 def ppo_update(agent: Agent, optimizer, data: dict, cfg: Config, generator=None) -> dict:
     n = len(data["action"])
     size = -(-n // cfg.minibatches)
+    ball = {}
+    if cfg.ball_action is not None:     # the ball's chances in this rollout, and the policy's odds of taking them
+        chances = data["mask"][:, cfg.ball_action]
+        with torch.no_grad():
+            p = agent.log_probs(data["obs"][chances], data["mask"][chances])[:, cfg.ball_action].exp()
+        ball = {"ball_chances": int(chances.sum()), "ball_prob": p.mean().item() if len(p) else None}
     for _ in range(cfg.epochs):
         stats = collections.defaultdict(list)
         order = torch.randperm(n, generator=generator)
@@ -235,7 +243,10 @@ def ppo_update(agent: Agent, optimizer, data: dict, cfg: Config, generator=None)
                 adv = (adv - adv.mean()) / (adv.std() + 1e-8)
             policy_loss = torch.max(-adv * ratio, -adv * ratio.clamp(1 - cfg.clip, 1 + cfg.clip)).mean()
             value_loss = 0.5 * (value - data["return"][i]).pow(2).mean()
-            loss = policy_loss + cfg.vf_coef * value_loss - cfg.ent_coef * entropy.mean()
+            bonus = cfg.ent_coef
+            if cfg.ball_action is not None:
+                bonus = bonus + cfg.ball_ent_coef * data["mask"][i][:, cfg.ball_action].float()
+            loss = policy_loss + cfg.vf_coef * value_loss - (bonus * entropy).mean()
             optimizer.zero_grad()
             loss.backward()
             # Clipped apart: returns reach about ±13, and under one shared norm the value
@@ -248,7 +259,7 @@ def ppo_update(agent: Agent, optimizer, data: dict, cfg: Config, generator=None)
             stats["entropy"].append(entropy.mean().item())
             stats["approx_kl"].append(((ratio - 1) - log_ratio).mean().item())
             stats["clip_frac"].append(((ratio - 1).abs() > cfg.clip).float().mean().item())
-    out = {k: float(np.mean(v)) for k, v in stats.items()}
+    out = {k: float(np.mean(v)) for k, v in stats.items()} | ball
     var = data["return"].var().item()
     out["explained_variance"] = 1 - (data["return"] - data["value"]).var().item() / var if var > 0 else 0.0
     return out
