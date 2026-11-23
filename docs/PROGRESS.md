@@ -2620,7 +2620,7 @@ neither, and paid 0. Its worth (a second Pokémon, a way past Roark's
 cap) only shows battles later. So, in the short run, every catch cost
 the agent 6.
 
-**The catch reward.** `run_env.CATCH_REWARD` pays 10 for each catch,
+**The catch reward.** `run_env.CATCH_REWARD` pays 10 for each catch (20 from §50),
 more than a knockout would. The agent doesn't need to learn the Nuzlocke
 rules to earn it within them. At the start of each wild battle,
 `nuzlocke.Run.encounter` says whether the rules allow a catch: only a
@@ -2645,3 +2645,53 @@ and `--ball-ent-coef 0.1`.
 |---|---|---|
 | A catch paid 0, while a knockout of the same Pokémon paid 6 | The catch's worth only shows battles later | `CATCH_REWARD` of 10 for each catch; the rules' mask keeps it to the encounters the rules allow |
 | The plain entropy bonus went to the move choices (§48) | It is averaged over every decision, and nearly all are moves | `--ball-ent-coef`: an extra bonus only where a ball can be thrown, with `ball_prob` logged |
+
+## 50. Why the agent stopped throwing: a throw-or-fight test (2026-11-23)
+
+Goal: find out why runs7 learned to throw less, although a catch now
+pays 10 and the ball has its own entropy bonus (§49). In runs7 the
+policy's chance of the ball, where it was legal, went from 0.16% to 0.70%
+in 18 updates, then fell to about 0.10%.
+
+**The test.** A one-off script, run beside training, took the 51
+restart states (of 436) at a wild battle the rules let the agent catch.
+For 50 of them it played the battle twice with the same seed, using
+runs7's checkpoint 590. In one, the agent threw at every chance. In the
+other it only fought.
+
+| | Throw at every chance | Only fight |
+|---|---|---|
+| Caught | 44 (88%), 3.1 throws each | — |
+| Won | — | 50 (100%) |
+| Lost (the run is over) | 3 (6%) | 0 |
+| Ended as fled (each an Onix) | 3 | 0 |
+| Mean reward in the battle | 7.7 | 6.0 |
+| Party HP left | 87% | 93% |
+
+A throw usually works, and pays more in the battle. But the lone
+starter takes hits while it throws, and 3 runs in 50 ended there: a
+Zigzagoon on Route 201 (after 12 throws), a Psyduck in Oreburgh Gate,
+and a Rhyhorn in the mine.
+The policy's value at these battles is about 64. So a wipe costs about
+74 (the −10 and the run's future). Over 50 tries that is about 3.8 per
+try, more than the 1.7 a throw gains. Throwing at every chance loses
+about 2 per battle. The policy learned to stop. By this count a catch
+reward above about 12 would make it pay.
+
+**The change.** `CATCH_REWARD` goes from 10 to 20, so trying to catch
+gains about 7 a battle by the same count, even throwing at every chance.
+runs8 trains on from runs7's newest checkpoint, with the same entropy
+bonuses (0.03, and 0.1 at ball chances).
+
+**A bigger gap.** No run in runs5, runs6 or runs7 has started Roark's
+battle. The furthest restart state is at step 66, the gym's last trainer.
+The starter is level 21 by Route 203 (step 40), far over Roark's cap of
+16. A caught Pokémon is level 4 to 10 and gets no experience unless it
+is sent into battle. The agent switches about once in 25 updates. So
+even with catches, the badge needs the caught Pokémon raised to at most
+16 and strong enough to beat Roark.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| runs7 learned to throw less, despite §49 | A throw risks a wipe (6% when throwing every turn), which costs more than the catch reward of 10 gains | `CATCH_REWARD` from 10 to 20 (the user's call); a reward above about 12 makes throwing pay |
+| No run has ever fought Roark | The starter is over his cap by Route 203, and caught Pokémon stay at their catch level unless they fight | Open: the badge needs a caught team raised to his cap |

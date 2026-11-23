@@ -34,8 +34,9 @@ BOSS_REWARD = 20.0
 # never got to fight him. Without it, a lone starter far over his cap ends its run at no cost.
 NO_BADGE_REWARD = BE.REWARDS[BE.Event.LOST]
 # A catch ends a wild battle without the knockout and win that would pay 6, and its worth shows
-# only battles later. Paid at once, it is never the worse choice.
-CATCH_REWARD = 10.0
+# only battles later. A lone starter also risks a wipe while it throws: at 10, trying to catch
+# still lost about 2 a battle (PROGRESS §50). At 20 it gains.
+CATCH_REWARD = 20.0
 MAX_DECISIONS = 3000
 RESTARTS_PER_STEP = 20      # restart states kept for each route step; the oldest go first
 
