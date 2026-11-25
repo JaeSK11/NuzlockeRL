@@ -344,8 +344,9 @@ each run to the decisions. In order:
         then up to six in the PC, take along or leave. The rules are masks:
         a party of 1 to 6, and before Roark no Pokémon over his cap while one
         at or under it can come. The observation shows the party, the PC's
-        living Pokémon, the one asked about and the cap. Still to do: the
-        party's order, which sets the lead.
+        living Pokémon, the one asked about and the cap. The lead: done
+        (§51). After those choices the agent picks which Pokémon of the new
+        party leads, so a caught one can start battles and gain experience.
       - The moves are written in RAM (`scenario.pc_swap`) until the PC's
         deposit and withdraw screens and the overworld party menu are mapped,
         as the battle bag was. It is the first part of the roadmap's

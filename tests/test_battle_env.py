@@ -733,6 +733,18 @@ def test_observation_of_a_pc_choice():
     assert field(obs, "party1.level")[0] == pytest.approx(0.12) and field(obs, "box0.level")[0] == pytest.approx(0.1)
     assert field(obs, "box0.alive")[0] == 1 and field(obs, "box1.alive")[0] == 0
     assert not field(observation(Snapshot((mon(1, 24),), (), None, None, (6,) * 8, (6,) * 8), 0, 1), "pc").any()
+    assert not field(obs, "lead").any()
+
+
+def test_observation_of_a_lead_choice():
+    """The party the PC choice made, in its order, flagged as the lead choice, and the cap."""
+    mon = lambda pid, level: gen4.Mon(pid=pid, checksum_ok=True, species=TURTWIG, level=level, hp=40, max_hp=40,
+                                      moves=[0] * 4, pp=[0] * 4, stats={"atk": 10})
+    obs = battle_env.lead_observation([mon(1, 15), mon(2, 8)], 16)
+    assert (field(obs, "pc")[0], field(obs, "lead")[0]) == (1, 1) and field(obs, "level_cap")[0] == pytest.approx(0.16)
+    assert not field(obs, "pc_asked").any() and not field(obs, "box0.alive").any()
+    assert field(obs, "party0.level")[0] == pytest.approx(0.15) and field(obs, "party1.level")[0] == pytest.approx(0.08)
+    assert field(obs, "party1.alive")[0] == 1 and field(obs, "party2.alive")[0] == 0
 
 
 @needs_rom

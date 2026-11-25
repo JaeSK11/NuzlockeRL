@@ -213,16 +213,21 @@ def read_box_data(nds) -> dict[tuple[int, int], MonData]:
     return mons
 
 
-def pc_swap(nds, leave: list[int], take=()) -> list[tuple[int, int]]:
+def pc_swap(nds, leave: list[int], take=(), lead: int = 0) -> list[tuple[int, int]]:
     """Deposit the party Pokémon in slots `leave` into the first empty PC box slots, and withdraw
     the box Pokémon at the (box, slot)s `take` into the party after the ones that stay, as the
-    PC's deposit and withdraw do. Both at once, so the party never runs empty. A box slot holds
-    the party struct's first 136 bytes, encrypted the same way. Returns the (box, slot) each
-    deposit went to. Not the PC's screens: the runner's stand-in until they are mapped."""
+    PC's deposit and withdraw do. Both at once, so the party never runs empty. Then the new
+    party's `lead`-th Pokémon moves to the front, as the party menu's switch would put it. A box
+    slot holds the party struct's first 136 bytes, encrypted the same way. Returns the (box, slot)
+    each deposit went to. Not the PC's or the menu's screens: the runner's stand-in until they
+    are mapped."""
     party, boxed = read_party_data(nds), read_box_data(nds)
     team = [m for k, m in enumerate(party) if k not in leave] + [boxed[s] for s in take]
     if not 1 <= len(team) <= PARTY_SLOTS:
         raise ValueError(f"leaving {leave} and taking {list(take)} would make a party of {len(team)}")
+    if not 0 <= lead < len(team):
+        raise ValueError(f"no Pokémon {lead} to lead a party of {len(team)}")
+    team.insert(0, team.pop(lead))
     for s in take:
         for i in range(0, gen4.BOX_MON_SIZE, 4):
             nds.memory.write_u32(False, _box_addr(nds, s) + i, 0)

@@ -2695,3 +2695,31 @@ even with catches, the badge needs the caught Pokémon raised to at most
 |---|---|---|
 | runs7 learned to throw less, despite §49 | A throw risks a wipe (6% when throwing every turn), which costs more than the catch reward of 10 gains | `CATCH_REWARD` from 10 to 20 (the user's call); a reward above about 12 makes throwing pay |
 | No run has ever fought Roark | The starter is over his cap by Route 203, and caught Pokémon stay at their catch level unless they fight | Open: the badge needs a caught team raised to his cap |
+
+## 51. The agent picks the lead at each Pokémon Center (2026-11-24)
+
+Goal: give caught Pokémon battles. The party's first Pokémon starts every
+battle, and the agent rarely switches (8 switches in runs8's 138
+updates). So a caught Pokémon stays at the level it was caught at, 4 to
+10, while the starter passes Roark's cap of 16 by Route 203 (§50). A
+Pokémon only gains experience from a battle it takes part in. Leading
+with a caught Pokémon is the simplest way to raise one to the cap.
+
+**The choice.** After the take-along choices at each Pokémon Center
+(§46), if the new party has more than one Pokémon, the agent picks which
+one leads. Action k puts the k-th Pokémon first; the others keep their
+order. A party of one is not asked. `scenario.pc_swap` makes the move in
+RAM, as the party menu's switch would. It is a stand-in, like the PC's
+deposit and withdraw, until those screens are mapped.
+
+**The observation.** `battle_env.lead_observation` shows the new party in
+its order, the next boss's level cap, and two flags: `pc` and `lead`.
+`lead` is one new value at the end of the observation (1812 to 1813), so
+runs8's checkpoint can be widened for it (`scripts/widen_checkpoint.py`).
+Each choice is logged as `pick.lead_kept` (the first stays first) or
+`pick.lead_changed`.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| Caught Pokémon never fought, so they never neared Roark's cap | The party's first Pokémon starts every battle, and the agent rarely switches | The lead choice after each PC choice |
+| Four tests stopped at the new question | They answered only the take-along choices | They answer the lead too (`take_all` and the PC tests) |

@@ -397,7 +397,9 @@ OBS_FIELDS = (
        ("volatile_player", len(VOLATILE_FIELDS)), ("volatile_enemy", len(VOLATILE_FIELDS)))
     # The PC choice at a Pokémon Center (pc_observation), last for the same reason.
     + (("pc", 1),) + tuple((f"box{i}.{n}", s) for i in range(PC_OFFER) for n, s in PARTY_FIELDS)
-    + (("pc_asked", 6 + PC_OFFER), ("pc_taken", 6 + PC_OFFER), ("level_cap", 1)))
+    + (("pc_asked", 6 + PC_OFFER), ("pc_taken", 6 + PC_OFFER), ("level_cap", 1))
+    # The lead choice after it (lead_observation), last for the same reason.
+    + (("lead", 1),))
 OBS_SLICES: dict[str, slice] = {}
 OBS_SIZE = 0
 for _name, _size in OBS_FIELDS:
@@ -496,6 +498,15 @@ def pc_observation(party, box, asked: int, taken, cap: int | None) -> np.ndarray
     for i, m in enumerate(box):
         values.update(_party_values(f"box{i}", m, False, strength[len(party) + i]))
     for name, value in values.items():
+        obs[OBS_SLICES[name]] = value
+    return obs
+
+
+def lead_observation(team, cap: int | None) -> np.ndarray:
+    """The lead choice after a PC choice (run_env): the party the choice made, in its order, and
+    the next boss's level cap. Action k puts the k-th Pokémon first, so it starts each battle."""
+    obs = observation(Snapshot(tuple(team), (), None, None, (6,) * 8, (6,) * 8), 0, 1)
+    for name, value in {"pc": 1.0, "lead": 1.0, "level_cap": (cap or 0) / 100}.items():
         obs[OBS_SLICES[name]] = value
     return obs
 

@@ -3,7 +3,8 @@ decisions, under the Nuzlocke rules (NEXT_PHASE step 3).
 
 The agent makes every decision the run brings: the starter first, then each battle's moves and
 switches, the ball where the rules allow a catch, and at each Pokémon Center which living
-Pokémon to take along and which to leave in the PC, within the rules (pc_options). The walk
+Pokémon to take along and which to leave in the PC, within the rules (pc_options), and which
+of them leads. The walk
 between them is scripted (route.py). Observations and actions are the battle env's, so one
 policy plays both.
 """
@@ -243,14 +244,27 @@ class RunEnv(gym.Env):
             obs = BE.pc_observation(pc["party"], [m for _, m in pc["box"]], pc["positions"][k], taken,
                                     self.run.level_cap())
             return obs, {"action_mask": mask, "decision": "pc"}
+        team = self._pc_team()
+        if "lead" not in pc and len(team) > 1:          # then which of the new party leads
+            mask = np.zeros(BE.N_ACTIONS, dtype=bool)
+            mask[:len(team)] = True
+            return BE.lead_observation(team, self.run.level_cap()), {"action_mask": mask, "decision": "lead"}
         return None
 
+    def _pc_team(self):
+        """The party the PC choices make, in its order: the party's Pokémon taken along, then the PC's."""
+        pc = self.pc
+        taken = {p for p, t in zip(pc["positions"], pc["taken"]) if t}
+        return ([m for k, m in enumerate(pc["party"]) if k in taken]
+                + [m for i, (_, m) in enumerate(pc["box"]) if 6 + i in taken])
+
     def _pc_answer(self):
-        """The runner's answer: the party slots to leave in the PC, and the box slots to take."""
+        """The runner's answer: the party slots to leave in the PC, the box slots to take, and which
+        Pokémon of the new party leads."""
         pc = self.pc
         taken = {p for p, t in zip(pc["positions"], pc["taken"]) if t}
         leave = [k for k in range(len(pc["party"])) if k not in taken]
-        return leave, [slot for i, (slot, _) in enumerate(pc["box"]) if 6 + i in taken]
+        return leave, [slot for i, (slot, _) in enumerate(pc["box"]) if 6 + i in taken], pc.get("lead", 0)
 
     def _encounter(self) -> bool:
         """The rules' answer for a wild battle that just started: may the agent throw a ball?"""
@@ -273,10 +287,15 @@ class RunEnv(gym.Env):
             self.starter = STARTERS[int(action)]
             obs, info = self._advance(int(action))
         elif self.kind == "pc":
-            self.pc["taken"].append(int(action) == PC_TAKE)
+            if len(self.pc["taken"]) < len(self.pc["positions"]):
+                self.pc["taken"].append(int(action) == PC_TAKE)
+                pick = "pc_take" if int(action) == PC_TAKE else "pc_leave"
+            else:                                       # the lead
+                self.pc["lead"] = int(action)
+                pick = "lead_kept" if int(action) == 0 else "lead_changed"
             asked = self._pc_next()
             obs, info = asked if asked is not None else self._advance(self._pc_answer())
-            info["pick"] = "pc_take" if int(action) == PC_TAKE else "pc_leave"
+            info["pick"] = pick
         else:
             obs, reward, term, trunc, info = self.battle.step(action)
             if term or trunc:

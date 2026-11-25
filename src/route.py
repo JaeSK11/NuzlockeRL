@@ -266,12 +266,12 @@ class Runner:
 
     def _heal(self, cap=None):
         """The PC, then the nurse. The caller answers ("pc", cap) with the party slots to leave in
-        the PC and the (box, slot)s to take out of it: run_env applies the rules (a fainted
-        Pokémon stays in the PC for good; with cap, the boss's level cap) and asks the agent the
-        rest."""
-        leave, take = yield ("pc", cap)
-        if leave or take:
-            scenario.pc_swap(self.nds, leave, take)
+        the PC, the (box, slot)s to take out of it, and which Pokémon of the new party leads:
+        run_env applies the rules (a fainted Pokémon stays in the PC for good; with cap, the
+        boss's level cap) and asks the agent the rest."""
+        leave, take, lead = yield ("pc", cap)
+        if leave or take or lead:
+            scenario.pc_swap(self.nds, leave, take, lead)
         yield from self._talk_from(*NURSE)
         yield from self._text("yes")
         self.heals += 1

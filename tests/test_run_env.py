@@ -48,9 +48,10 @@ def lone_turtwig(tmp_path, level=7, hp=None, species=387, moves=None, exp=None):
 
 
 def take_all(env, info):
-    """Answer each PC choice with "take along", so the party stays as it is."""
-    while info["decision"] == "pc":
-        _, _, _, _, info = env.step(0)                                  # run_env.PC_TAKE
+    """Answer each PC choice with "take along", and the lead with the party's first, so the party
+    stays as it is."""
+    while info["decision"] in ("pc", "lead"):
+        _, _, _, _, info = env.step(0)                                  # run_env.PC_TAKE, or the first leads
     return info
 
 
@@ -170,6 +171,8 @@ def test_before_roark_the_party_heals_and_leaves_the_pokemon_over_his_cap(tmp_pa
     while info["decision"] == "pc":                                         # the five under the cap
         asked += 1
         _, _, _, _, info = env.step(RE.PC_TAKE)
+    assert info["decision"] == "lead"
+    _, _, _, _, info = env.step(0)
     assert asked == 5 and env.end == "no_badge" and env.runner.heals == 1
     assert gen4.read_location(env.nds).map_id == 47 and gen4.read_player_tile(env.nds)[:2] == (5, 4)
     left = gen4.read_party(env.nds)
@@ -242,7 +245,9 @@ def test_before_roark_a_lone_pokemon_over_his_cap_stays_and_the_agent_picks_from
         _, _, _, _, info = env.step(action)
         if info["decision"] != "pc":
             break
-    assert asked == 5 and env.end == "no_badge"
+    assert asked == 5 and info["decision"] == "lead"
+    _, _, _, _, info = env.step(0)                                          # the first of the four leads
+    assert env.end == "no_badge"
     team = gen4.read_party(env.nds)
     assert [m.pid for m in team] == [party[k].pid for k in (2, 3, 4, 5)]
     assert all(m.level <= 16 and m.hp == m.max_hp and m.checksum_ok for m in team)
@@ -254,14 +259,36 @@ def test_a_fainted_pokemon_stays_in_the_pc_and_is_never_offered():
     import run_env as RE
     env = RE.RunEnv(start_state=FAINTED, route_actions=[("heal",), ("heal",)])
     _, info = env.reset(seed=0)
-    asked = 0
-    while info["decision"] == "pc":
-        asked += 1
-        _, _, _, _, info = env.step(RE.PC_TAKE)
-    assert asked == 10 and env.runner.heals == 2                        # five living, twice
+    asked = leads = 0
+    while info["decision"] in ("pc", "lead"):
+        asked += info["decision"] == "pc"
+        leads += info["decision"] == "lead"
+        _, _, _, _, info = env.step(0)                                  # take along; the first leads
+    assert (asked, leads) == (10, 2) and env.runner.heals == 2          # five living, twice
     box = [m for m in gen4.read_box(env.nds, 0) if m]
     assert len(box) == 1 and box[0].pid in env.run.dead
     assert len(gen4.read_party(env.nds)) == 5
+
+
+@pytest.mark.skipif(not (os.path.exists(ROM) and os.path.exists(FAINTED)), reason="needs the fainted fixture (scripts/make_milestones.py)")
+def test_after_the_pc_choice_the_agent_picks_the_lead():
+    """After the take-along choices, the agent picks which of the new party leads: it moves to
+    the front, and the others keep their order."""
+    import battle_env as BE
+    import run_env as RE
+    env = RE.RunEnv(start_state=FAINTED, route_actions=[("heal",)])
+    _, info = env.reset(seed=0)
+    living = [m for m in gen4.read_party(env.nds) if m.hp > 0]
+    while info["decision"] == "pc":
+        obs, _, _, _, info = env.step(RE.PC_TAKE)
+    assert info["decision"] == "lead" and info["action_mask"].tolist() == [True] * 5 + [False] * 5
+    assert obs[BE.OBS_SLICES["lead"]][0] == 1
+    assert obs[BE.OBS_SLICES["party3.level"]][0] == pytest.approx(living[3].level / 100)
+    _, _, _, _, info = env.step(3)
+    assert info["pick"] == "lead_changed" and env.end == "no_badge"
+    order = [m.pid for m in gen4.read_party(env.nds)]
+    assert order == [living[k].pid for k in (3, 0, 1, 2, 4)]
+    assert all(m.hp == m.max_hp for m in gen4.read_party(env.nds))
 
 
 @needs_entrance
