@@ -2723,3 +2723,41 @@ Each choice is logged as `pick.lead_kept` (the first stays first) or
 |---|---|---|
 | Caught Pokémon never fought, so they never neared Roark's cap | The party's first Pokémon starts every battle, and the agent rarely switches | The lead choice after each PC choice |
 | Four tests stopped at the new question | They answered only the take-along choices | They answer the lead too (`take_all` and the PC tests) |
+
+## 52. runs8: a catch reward of 20 didn't stick either (2026-11-25)
+
+Goal: see whether §50's catch reward of 20 gets the agent catching.
+
+**The run.** runs8 trained from runs7's checkpoint 640 to update 873,
+with 893,952 decisions in all, over 3,365 runs. It was stopped about
+7,000 decisions short of its budget, since catching had faded. The 3
+updates after checkpoint 870 were lost.
+
+**What it showed.** No run got the badge.
+
+| Updates | Wipes | Roark refused | Balls | Throw odds at a chance | PC take / leave | Entropy |
+|---|---|---|---|---|---|---|
+| 641–717 | 85.2% | 14.8% | 1 | 0.26% | 60 / 0 | 0.56 |
+| 718–794 | 82.1% | 17.6% | 20 | 0.76% | 65 / 11 | 0.62 |
+| 795–873 | 82.6% | 17.4% | 19 | 0.55% | 33 / 8 | 0.66 |
+
+Mean return rose from 122 to 134, and training stayed steady (KL about
+0.003). Throwing came in short bursts that the next update undid. At
+update 857 the agent threw at 13% of its chances (10 balls), and at
+update 858 at 0.08%. In the last 10 updates it threw at 0.09% of them.
+Only 2 of the 440 restart states hold a caught Pokémon.
+
+**The change.** The user: "catching should be a priority thing to learn
+you need multiple pokemons to even try to win the first battle".
+`CATCH_REWARD` goes from 20 to 50, the user's choice over a training
+bonus for trying throws. A catch is then worth more than beating Roark
+(`BOSS_REWARD` 20), as for a player who always tries for each route's
+catch. The rules still allow one catch per route. runs9 trains on from
+runs8's checkpoint 870, widened for §51's lead choice, with the same
+entropy bonuses.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| Catching stayed rare, and no run got the badge | Likely: throws are so rare that each burst was undone by the next update | `CATCH_REWARD` from 20 to 50 (the user's call), in runs9 |
+| 3 updates lost when runs8 was stopped | Checkpoints come every 10 updates, and a stopped run saves none | runs9 starts from checkpoint 870 |
+| 4 route errors, all "text stuck": 3 at (199, 10, 29), 1 at (258, 24, 22) | Not looked into yet | Open: (199, 10, 29) came up 3 times in one run |
