@@ -399,6 +399,53 @@ each run to the decisions. In order:
       98% per battle still brings only about 60% of runs to him. This is
       for training only: a run that counts plays from the start, with no
       restarts.
+   11. **Get catching learned, then Roark** (the review in §53; papers in
+      [REFERENCES.md](REFERENCES.md)). None of this changes the game, and
+      only the reset in c touches what was learned.
+      - **a. Catchable battles in the restart mix.** Mark each restart
+        state with whether its battle allows a catch, and start a share of
+        restart episodes from those. The restarts already "return, then
+        explore" (Go-Explore); this picks where to return to. Later, weight
+        each state by how much is left to learn there (Prioritized Level
+        Replay).
+      - **b. The run in the battle observation.** Append whether a catch
+        is allowed, the route progress and the level cap, which the critic
+        can't see in battle now. Widen the checkpoint for them, as Dota's
+        "surgery" did. Fix the comment at `src/ppo.py:252`: returns now
+        reach about 130, not 13.
+      - **The switch point.** runs9 tests the catch reward of 50 alone. If
+        its throw odds at a chance stay under 1% at about update 950
+        (2026-11-26, midday), widen runs9's newest checkpoint for b, and
+        train on with a.
+      - **c. Reset the ball's output row** at the switch, the user's call.
+        It still holds what it learned when a catch paid 0 (bias −0.32,
+        the largest weights of any action). Primacy Bias resets the last
+        layers on a schedule and leans on a replay buffer to recover; PPO
+        has none, so only this row is reset, once.
+      - **d. A steadier critic.** It explains about two thirds of the
+        return's variance. PopArt normalizes the value targets and keeps
+        the critic's outputs as they are, so it suits a resumed checkpoint.
+        Check `ppo.Config` against Andrychowicz et al. as well, for example
+        the critic's 64 hidden units for 1,813 inputs. Do this if b doesn't
+        lift the explained variance.
+      - **e. A backward curriculum toward Roark,** once runs bring caught
+        teams to him. No run has fought him, so the agent has never seen
+        the boss reward. Salimans and Chen start episodes near the goal and
+        move the start back as the agent succeeds; Florensa et al. keep the
+        starts it wins from only sometimes. Here the starts would be the
+        agent's own late restart states with a caught team under the cap.
+      - **f. Experience for caught Pokémon,** the blocker for the badge.
+        The lead choice (§51) is the first lever. If caught Pokémon still
+        stay far under the cap, let the agent choose who fights the
+        scripted grind on Route 202 (`route.py`).
+      - **Later: one encoder for all party slots** (Deep Sets). The switch
+        outputs to party slots 4 to 6 have never been trained; a shared
+        encoder trains them from every slot, and suits step 7. It changes
+        the network, so it fits a fresh run.
+      - **Not planned now:** a novelty reward (Random Network
+        Distillation), since the gap is one action at known states and it
+        adds a reward; and RUDDER, since the catch reward already pays at
+        the catch. The masks stay as they are, as Huang and Ontañón back.
 4. **Roark's real fight.** Effects in the observation (roadmap step 1):
    Stealth Rock, Light Screen, Sand Tomb's trapping, and Curse. Runs reach
    Roark without them, but the agent then fights him blind to those effects.

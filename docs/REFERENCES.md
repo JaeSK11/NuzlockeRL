@@ -13,6 +13,25 @@ into `papers/`. Neither directory is committed.
 | *PokeRL*, Texas A&M, [arXiv 2604.10812](https://arxiv.org/abs/2604.10812) | A modular deep-RL system for early-game Red tasks. More env and reward design ideas. |
 | *Optimal Battle Strategy in Pokémon using Reinforcement Learning*, [Stanford AA228 2018](https://web.stanford.edu/class/aa228/reports/2018/final151.pdf) | Small-scale battle Q-learning; softmax exploration did best. A simple baseline for battles. |
 
+For the training problems found in [PROGRESS.md §53](PROGRESS.md), and the
+plan in [NEXT_PHASE.md](NEXT_PHASE.md) step 3.11:
+
+| Paper | Why it matters here |
+|---|---|
+| Ecoffet et al., *Go-Explore: a New Approach for Hard-Exploration Problems*, [arXiv 1901.10995](https://arxiv.org/abs/1901.10995) (2019), and its Nature version, *First return, then explore*, [arXiv 2004.12919](https://arxiv.org/abs/2004.12919) (Nature 590, 2021) | Return to a saved state, then explore from it. The restart states already return; the paper also chooses which states to return to. |
+| Salimans and Chen, *Learning Montezuma's Revenge from a Single Demonstration*, [arXiv 1812.03381](https://arxiv.org/abs/1812.03381) (Deep RL Workshop, NeurIPS 2018) | Episodes start near the goal on one demonstration, and the start moves back as the agent succeeds. A way to reach Roark once runs bring caught teams to him. |
+| Florensa et al., *Reverse Curriculum Generation for Reinforcement Learning*, [arXiv 1707.05300](https://arxiv.org/abs/1707.05300) (CoRL 2017) | The same backward idea with no demonstration. It keeps the start states the agent wins from sometimes, but not always. |
+| Jiang et al., *Prioritized Level Replay*, [arXiv 2010.03934](https://arxiv.org/abs/2010.03934) (2020) | Picks start states by how much is left to learn there, measured by the size of their advantages. A principled weight for the restart pool. |
+| Burda et al., *Exploration by Random Network Distillation*, [arXiv 1810.12894](https://arxiv.org/abs/1810.12894) (2018) | The standard novelty bonus. Not planned: it adds a reward, and the gap here is one action at known states, not unseen states. |
+| Arjona-Medina et al., *RUDDER: Return Decomposition for Delayed Rewards*, [arXiv 1806.07857](https://arxiv.org/abs/1806.07857) (2018) | Moves a delayed reward back to the action that caused it, as a catch's worth shows only at Roark. Not planned: the catch reward already pays at the catch. |
+| van Hasselt et al., *Learning values across many orders of magnitude* (PopArt), [arXiv 1602.07714](https://arxiv.org/abs/1602.07714) (NIPS 2016) | Normalizes the value targets and corrects the critic's last layer so its outputs stay the same. Fits a resumed checkpoint whose returns reach about 130. |
+| Hafner et al., *Mastering Diverse Domains through World Models* (DreamerV3), [arXiv 2301.04104](https://arxiv.org/abs/2301.04104) (2023) | Its symlog transform and return scaling, a simpler option than PopArt. Not for the world model. |
+| Andrychowicz et al., *What Matters In On-Policy Reinforcement Learning? A Large-Scale Empirical Study*, [arXiv 2006.05990](https://arxiv.org/abs/2006.05990) (2020) | A large study of PPO's settings. A checklist for `ppo.Config`, such as the critic's width. |
+| Nikishin et al., *The Primacy Bias in Deep Reinforcement Learning*, [arXiv 2205.07802](https://arxiv.org/abs/2205.07802) (ICML 2022) | Networks overfit to early experience, and resetting the last layers undoes it. Backs resetting the ball's output row, which kept what it learned when a catch paid 0. |
+| OpenAI et al., *Dota 2 with Large Scale Deep Reinforcement Learning*, [arXiv 1912.06680](https://arxiv.org/abs/1912.06680) (2019) | Its "surgery" carried one policy through months of changing observations and rewards. `scripts/widen_checkpoint.py` is the same idea. |
+| Huang and Ontañón, *A Closer Look at Invalid Action Masking in Policy Gradient Algorithms*, [arXiv 2006.14171](https://arxiv.org/abs/2006.14171) (FLAIRS 2022) | The theory for the masks in `src/ppo.py`, with evidence that masks beat penalties. Backs keeping the rules as masks. |
+| Zaheer et al., *Deep Sets*, [arXiv 1703.06114](https://arxiv.org/abs/1703.06114) (NIPS 2017) | One encoder shared across party slots. It would train the switch outputs no party has used yet, and suits the move to Emerald Kaizo. |
+
 ## Repositories
 
 | Repository | Commit | Used for |

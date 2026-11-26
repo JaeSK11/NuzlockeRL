@@ -2761,3 +2761,46 @@ entropy bonuses.
 | Catching stayed rare, and no run got the badge | Likely: throws are so rare that each burst was undone by the next update | `CATCH_REWARD` from 20 to 50 (the user's call), in runs9 |
 | 3 updates lost when runs8 was stopped | Checkpoints come every 10 updates, and a stopped run saves none | runs9 starts from checkpoint 870 |
 | 4 route errors, all "text stuck": 3 at (199, 10, 29), 1 at (258, 24, 22) | Not looked into yet | Open: (199, 10, 29) came up 3 times in one run |
+
+## 53. A review of the method, and papers for the next steps (2026-11-26)
+
+Goal: check whether the method is sound and the rules are learnable, and
+find well-known papers for what holds the agent back.
+
+**What holds.** The PPO core is correct. The rules are hard masks
+(permadeath, first encounter, duplicates and shiny clauses, the level cap
+at the PC), so the agent can't break one while it learns. Huang and
+Ontañón's study backs masks over penalties.
+
+**What holds it back.** Each was checked against the code, runs8's
+metrics and its checkpoint 870:
+
+- Catching is an exploration problem as much as a price problem. runs8
+  threw 40 balls in 12,995 chances, about one in 300.
+- The ball's output row still holds what it learned when a catch paid 0.
+  The same network was carried from runs5 through three reward changes
+  (0, 10, 20, 50). Its bias is −0.32 and its weights are the largest of
+  any action.
+- The battle observation has no catch-allowed flag, route progress or
+  level cap. The critic can't tell a catchable battle from another.
+- The critic explains about two thirds of the return's variance (0.67 on
+  average; value loss about 457). Returns reach about 130 and aren't
+  scaled. Advantages are normalized per minibatch, so this slows the
+  critic, not the policy directly.
+- The agent switched 14 times in about 165,000 move choices, and the
+  switch outputs to party slots 4 to 6 are untrained. Caught Pokémon get
+  little experience; §51's lead choice is the first fix.
+
+**Papers.** Fourteen papers, picked by problem, each checked on arXiv
+for its title, authors and year, are now in
+[REFERENCES.md](REFERENCES.md), and `scripts/fetch_references.sh`
+downloads them. The plan built on them is NEXT_PHASE step 3.11.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| The ball's output row is still pushed down | One network carried through three reward changes, from a catch reward of 0 | Planned: reset that row at the switch (NEXT_PHASE 3.11 c, the user's call) |
+| Throws are tried about once in 300 chances | Few catchable battles in the restart mix, and the row above | Planned: start more restart episodes at catchable battles (3.11 a) |
+| The critic can't see a catch chance, the route progress or the cap in battle | They aren't in the battle observation | Planned: append them (3.11 b) |
+| The critic explains about two thirds of the variance | Unscaled returns of about 130, and a small critic | Planned: PopArt, if 3.11 b doesn't help (3.11 d) |
+| Switch outputs to slots 4 to 6 never trained | Parties have stayed small | Later: one encoder for all party slots (Deep Sets) |
+| A comment says returns reach about 13 | Written for battle-only training | Fixed with 3.11 b |
