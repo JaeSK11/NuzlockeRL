@@ -23,10 +23,10 @@ def first_move(info):
     return next(a for a in range(len(info["action_mask"])) if info["action_mask"][a])
 
 
-def lone_turtwig(tmp_path, level=7, hp=None, species=387, moves=None, exp=None):
+def lone_turtwig(tmp_path, level=7, hp=None, species=387, moves=None, exp=None, balls=0):
     """The Route 202 fixture with a lone Turtwig, as a run brings it there, and the route's wild
     encounters back on (the milestone script turns them off). `species`, `moves` and `exp` set
-    another Pokémon in its place."""
+    another Pokémon in its place; `balls` puts that many Poké Balls first in the bag."""
     import random
     import pynds
     import romdata as R
@@ -42,6 +42,10 @@ def lone_turtwig(tmp_path, level=7, hp=None, species=387, moves=None, exp=None):
         mon["exp"] = exp
     scenario.write_party(nds, [mon])
     nds.memory.write_u32(False, gen4.resolve(nds)["_version"] + scenario.ENCOUNTER_OFFSET, R.encounters_for_map(343).grass_rate)
+    if balls:
+        pocket = gen4.resolve(nds)["bag"] + 4 * sum(n for _, n in gen4.BAG_POCKETS[:6])
+        nds.memory.write_u16(False, pocket, 4)                          # item 4, the Poké Ball
+        nds.memory.write_u16(False, pocket + 2, balls)
     path = str(tmp_path / "lone_turtwig.state")
     nds.save_state_to_file(path)
     return path
@@ -342,6 +346,34 @@ def test_a_catch_is_paid_and_the_rules_mask_a_second_one_on_the_route(tmp_path, 
     assert info["decision"] == "battle" and env.trainer == 0
     assert gen4.read_bag(env.nds, env.battle.addrs, from_battle=True)["balls"], "balls are left"
     assert not env.battle.catch_allowed and not info["action_mask"][BE.BALL_ACTION]
+
+
+@needs_entrance
+def test_a_battle_that_allows_a_catch_shows_it_and_leaves_a_tagged_restart(tmp_path):
+    """The observation shows the run's state, and a battle that allows a catch leaves a restart
+    state tagged for it, which catch_restart_share starts runs from."""
+    import battle_env as BE
+    import route
+    import run_env as RE
+    start, restarts = lone_turtwig(tmp_path, balls=5), tmp_path / "restarts"
+    grind = [("grind", 12, route.ROUTE202_GRASS, route.SANDGEM_HEAL)]
+    env = RE.RunEnv(start_state=start, route_actions=grind, restart_dir=str(restarts))
+    obs, info = env.reset(seed=0)
+    assert info["decision"] == "battle" and env.battle.catch_allowed       # Route 202's first encounter
+    assert obs[BE.OBS_SLICES["catch_allowed"]] == 1 and obs[BE.OBS_SLICES["route_progress"]] == 0
+    assert obs[BE.OBS_SLICES["run_level_cap"]] == pytest.approx(0.16)    # Roark's cap
+    while not (len(env.battles) == 1 and info["decision"] == "battle"):  # fight it, on to the next
+        obs, _, term, trunc, info = env.step(first_move(info) if info["decision"] == "battle" else 0)
+        assert not (term or trunc)
+    assert not env.battle.catch_allowed and obs[BE.OBS_SLICES["catch_allowed"]] == 0
+    tagged = sorted(p.name.endswith(RE.CATCH_TAG + ".json") for p in restarts.glob("*.json"))
+    assert tagged == [False, True]
+
+    env = RE.RunEnv(start_state=start, route_actions=grind, restart_dir=str(restarts), restart_share=1.0,
+                    catch_restart_share=1.0)
+    obs, info = env.reset(seed=1)
+    assert info["restart"].endswith(RE.CATCH_TAG) and env.battle.catch_allowed   # the route is open again
+    assert obs[BE.OBS_SLICES["catch_allowed"]] == 1
 
 
 def evolve_kricketot(tmp_path, moves):

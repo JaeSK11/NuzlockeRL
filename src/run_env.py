@@ -41,6 +41,7 @@ NO_BADGE_REWARD = BE.REWARDS[BE.Event.LOST]
 CATCH_REWARD = 50.0
 MAX_DECISIONS = 3000
 RESTARTS_PER_STEP = 20      # restart states kept for each route step; the oldest go first
+CATCH_TAG = "_catch"        # ends the name of a restart state whose battle allows a catch
 
 
 PC_TAKE, PC_LEAVE = 0, 1     # a PC choice's actions: take this Pokémon along, or leave it in the PC
@@ -82,14 +83,20 @@ class RunEnv(gym.Env):
     a run reaches leaves a state saved as it starts, with the run's bookkeeping beside it. A reset
     then starts from one of them with probability restart_share: it picks a route step at random
     among those with restarts, so later battles get practice while most runs still die early,
-    then a state of that step. A run that counts plays from the starter choice."""
+    then a state of that step. With catch_restart_share, that share of restarts instead picks
+    among the states whose battle allows a catch, which are otherwise rare (PROGRESS §54). A
+    run that counts plays from the starter choice.
+
+    Each observation also shows the run's state: whether this battle allows a catch, how far
+    along the route the run is, and the next boss's level cap."""
     metadata = {"render_modes": []}
 
     def __init__(self, start_state: str = START_STATE, rom: str = BE.DEFAULT_ROM, rules: nuzlocke.Rules | None = None,
                  max_decisions: int = MAX_DECISIONS, log_path: str | None = None, route_actions=route.ROUTE,
-                 restart_dir: str | None = None, restart_share: float = 0.0):
+                 restart_dir: str | None = None, restart_share: float = 0.0, catch_restart_share: float = 0.0):
         self.start_state, self.rules, self.max_decisions = start_state, rules or nuzlocke.Rules(), max_decisions
         self.route_actions, self.restart_dir, self.restart_share = route_actions, restart_dir, restart_share
+        self.catch_restart_share = catch_restart_share
         if restart_dir:
             os.makedirs(restart_dir, exist_ok=True)
         self.battle = BE.BattleEnv([], rom=rom, log_path=log_path)
@@ -111,7 +118,15 @@ class RunEnv(gym.Env):
         self.script = self.runner.play(resume)
         obs, info = self._advance(None)
         info["restart"] = self.restart
+        self._show_run(obs, info)
         return obs, info
+
+    def _show_run(self, obs, info):
+        if info.get("decision") is None:                    # the run is over
+            return
+        obs[BE.OBS_SLICES["catch_allowed"]] = info["decision"] == "battle" and self.battle.catch_allowed
+        obs[BE.OBS_SLICES["route_progress"]] = self.runner.at / len(self.runner.route)
+        obs[BE.OBS_SLICES["run_level_cap"]] = (self.run.level_cap() or 0) / 100
 
     def _restart_files(self) -> dict[int, list[str]]:
         by_step = {}
@@ -125,9 +140,13 @@ class RunEnv(gym.Env):
         by_step = self._restart_files()
         if not by_step:
             return None
-        steps = sorted(by_step)
-        meta_path = by_step[steps[int(self.np_random.integers(len(steps)))]]
-        meta_path = meta_path[int(self.np_random.integers(len(meta_path)))]
+        catchable = sorted(p for paths in by_step.values() for p in paths if p.endswith(CATCH_TAG + ".json"))
+        if self.catch_restart_share and catchable and self.np_random.random() < self.catch_restart_share:
+            meta_path = catchable[int(self.np_random.integers(len(catchable)))]
+        else:
+            steps = sorted(by_step)
+            meta_path = by_step[steps[int(self.np_random.integers(len(steps)))]]
+            meta_path = meta_path[int(self.np_random.integers(len(meta_path)))]
         try:
             with open(meta_path) as f:
                 meta = json.load(f)
@@ -145,15 +164,19 @@ class RunEnv(gym.Env):
         self.restart, self.restart_at = os.path.basename(meta_path).removesuffix(".json"), meta["at"]
         return meta["at"], meta["sub"]
 
-    def _save_restart(self):
-        """Save the battle that just started, and the run's bookkeeping, as a restart state."""
-        name = f"{self.runner.at:03d}_{uuid.uuid4().hex[:12]}"
-        base = os.path.join(self.restart_dir, name)
-        meta = {"at": self.runner.at, "sub": self.runner.sub, "action": repr(self.runner.route[self.runner.at]),
+    def _restart_meta(self) -> dict:
+        """The run's bookkeeping as the battle starts, before its encounter uses up the route."""
+        return {"at": self.runner.at, "sub": self.runner.sub, "action": repr(self.runner.route[self.runner.at]),
                 "starter": self.starter,
-                "trainers_beaten": self.runner.trainers_beaten,
-                "run": {"routes": self.run.routes, "caught_lines": sorted(self.run.caught_lines),
+                "trainers_beaten": list(self.runner.trainers_beaten),
+                "run": {"routes": dict(self.run.routes), "caught_lines": sorted(self.run.caught_lines),
                         "dead": sorted(self.run.dead), "beaten": sorted(self.run.beaten)}}
+
+    def _save_restart(self, meta: dict, catch: bool):
+        """Save the battle that just started, with the bookkeeping from before it, as a restart
+        state. catch: the battle allows a catch and the bag has a ball."""
+        name = f"{self.runner.at:03d}_{uuid.uuid4().hex[:12]}" + (CATCH_TAG if catch else "")
+        base = os.path.join(self.restart_dir, name)
         self.nds.save_state_to_file(base + ".state.tmp")
         with open(base + ".json.tmp", "w") as f:
             json.dump(meta, f)
@@ -201,11 +224,14 @@ class RunEnv(gym.Env):
                 continue
             # Not again for the battle a restart resumes, and not inside a heal trip: a restart
             # replays its route action from the start, and a trip half done can't be.
-            if self.restart_dir and not (self.restart and self.kind is None) and not self.runner.in_trip:
-                self._save_restart()
+            save = self.restart_dir and not (self.restart and self.kind is None) and not self.runner.in_trip
+            meta = self._restart_meta() if save else None
             self.kind = "battle"
             self.trainer = self.nds.memory.read_u16(False, gen4.resolve(self.nds)["enemyTrainerID"])
             catch = self._encounter() if not self.trainer else False
+            if save:        # the encounter only reads the game, so the state is still the battle's start
+                a = gen4.resolve(self.nds)
+                self._save_restart(meta, catch and bool(gen4.read_bag(self.nds, a)["balls"]))
             try:
                 obs, info = self.battle.reset(options={"attach": True, "catch": catch})
             except RuntimeError:                            # over before any decision
@@ -334,4 +360,5 @@ class RunEnv(gym.Env):
                         route_step=self.runner.at, route_steps=len(self.runner.route), heals=self.runner.heals,
                         caught=len(self.run.caught_lines), dead=len(self.run.dead), routes=dict(self.run.routes),
                         location=tuple(gen4.read_location(self.nds)[:3]))
+        self._show_run(obs, info)
         return obs, reward, terminated, truncated, info

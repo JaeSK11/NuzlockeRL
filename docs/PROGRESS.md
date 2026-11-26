@@ -2804,3 +2804,44 @@ downloads them. The plan built on them is NEXT_PHASE step 3.11.
 | The critic explains about two thirds of the variance | Unscaled returns of about 130, and a small critic | Planned: PopArt, if 3.11 b doesn't help (3.11 d) |
 | Switch outputs to slots 4 to 6 never trained | Parties have stayed small | Later: one encoder for all party slots (Deep Sets) |
 | A comment says returns reach about 13 | Written for battle-only training | Fixed with 3.11 b |
+
+## 54. Catchable restarts, the run in the observation, and a ball reset (2026-11-26)
+
+Goal: build NEXT_PHASE 3.11 a to c, so the agent tries throws often
+enough to learn what a catch is worth (§53). The user: "yes lets do them
+all".
+
+**Catchable restarts.** A restart state is saved as its battle starts.
+When the rules allow a catch there and the bag has a ball, its name ends
+in `_catch` (`run_env.CATCH_TAG`). `--catch-restart-share` sends that
+share of restarted runs to those states, instead of to a random route
+step. The bookkeeping saved with a state is from before the battle's
+encounter, so the route's catch is open again when a run resumes there.
+States saved before this have no tag; new ones replace them as runs go.
+
+**The run in the observation.** Three values at the end (1813 to 1816):
+whether this battle allows a catch, how far along the route the run is,
+and the next boss's level cap. `RunEnv` sets them at every decision; the
+battle env alone leaves them at 0. The critic can now tell a catchable
+battle from another. A widened checkpoint gives them zero weights, so the
+policy starts as it was.
+
+**The ball reset.** `widen_checkpoint.py --reset-ball`
+(`ppo.reset_action`) draws the ball's row of the policy's output layer
+again as when training began, with its bias at 0 and its Adam moments
+cleared. The other actions' outputs don't change. On 25 catchable
+battles from §50's throw test, runs9's checkpoint 890 threw with a mean
+chance of 0.12%. After the reset it was 14.1% (11% to 17%), close to an
+even pick among the legal actions.
+
+**The switch.** If runs9 still throws at under 1% of its chances at
+about update 950, its newest checkpoint is widened with `--reset-ball`
+into runs10, which trains with `--catch-restart-share 0.5`.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| Few runs start at a battle that allows a catch | A restart picks a route step at random, and catchable battles are a small part of each | Tagged restart states, and `--catch-restart-share` |
+| Tagging a state needs the encounter's answer, but the saved bookkeeping must come from before it | The encounter uses up the route | The bookkeeping is copied before the encounter and saved with the state after it; the encounter only reads the game |
+| The critic couldn't see a catch chance, the route progress or the cap in battle | They weren't in the battle observation | Three values appended (1813 to 1816) |
+| The throw odds stayed near 0.1% at catchable battles | The ball's output row kept what it learned when a catch paid 0 | `--reset-ball`: about 14% after it |
+| A comment said returns reach about 13 | Written for battle-only training | It now says about 130 |

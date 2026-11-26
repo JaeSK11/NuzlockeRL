@@ -407,21 +407,23 @@ each run to the decisions. In order:
         restart episodes from those. The restarts already "return, then
         explore" (Go-Explore); this picks where to return to. Later, weight
         each state by how much is left to learn there (Prioritized Level
-        Replay).
+        Replay). Built (§54): `--catch-restart-share`.
       - **b. The run in the battle observation.** Append whether a catch
         is allowed, the route progress and the level cap, which the critic
         can't see in battle now. Widen the checkpoint for them, as Dota's
         "surgery" did. Fix the comment at `src/ppo.py:252`: returns now
-        reach about 130, not 13.
+        reach about 130, not 13. Built (§54).
       - **The switch point.** runs9 tests the catch reward of 50 alone. If
         its throw odds at a chance stay under 1% at about update 950
         (2026-11-26, midday), widen runs9's newest checkpoint for b, and
-        train on with a.
+        train on with a and c: `widen_checkpoint.py --reset-ball`, then
+        `--catch-restart-share 0.5`.
       - **c. Reset the ball's output row** at the switch, the user's call.
         It still holds what it learned when a catch paid 0 (bias −0.32,
         the largest weights of any action). Primacy Bias resets the last
         layers on a schedule and leans on a replay buffer to recover; PPO
-        has none, so only this row is reset, once.
+        has none, so only this row is reset, once. The user agreed. Built
+        (§54): the throw odds at catchable battles go from about 0.1% to 14%.
       - **d. A steadier critic.** It explains about two thirds of the
         return's variance. PopArt normalizes the value targets and keeps
         the critic's outputs as they are, so it suits a resumed checkpoint.

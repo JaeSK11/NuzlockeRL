@@ -49,12 +49,15 @@ def _layer(n_in: int, n_out: int, std: float) -> nn.Linear:
     return layer
 
 
+POLICY_OUT_STD = 0.01   # the policy's output layer starts this small, so every action starts about equally likely
+
+
 class Agent(nn.Module):
     def __init__(self, obs_dim: int, n_actions: int, hidden: int = 64):
         super().__init__()
         self.actor = nn.Sequential(_layer(obs_dim, hidden, 2 ** 0.5), nn.Tanh(),
                                    _layer(hidden, hidden, 2 ** 0.5), nn.Tanh(),
-                                   _layer(hidden, n_actions, 0.01))
+                                   _layer(hidden, n_actions, POLICY_OUT_STD))
         self.critic = nn.Sequential(_layer(obs_dim, hidden, 2 ** 0.5), nn.Tanh(),
                                     _layer(hidden, hidden, 2 ** 0.5), nn.Tanh(),
                                     _layer(hidden, 1, 1.0))
@@ -249,8 +252,8 @@ def ppo_update(agent: Agent, optimizer, data: dict, cfg: Config, generator=None)
             loss = policy_loss + cfg.vf_coef * value_loss - (bonus * entropy).mean()
             optimizer.zero_grad()
             loss.backward()
-            # Clipped apart: returns reach about ±13, and under one shared norm the value
-            # gradient would scale the policy gradient down with it.
+            # Clipped apart: returns reach about ±130 in runs, and under one shared norm the
+            # value gradient would scale the policy gradient down with it.
             nn.utils.clip_grad_norm_(agent.actor.parameters(), cfg.max_grad_norm)
             nn.utils.clip_grad_norm_(agent.critic.parameters(), cfg.max_grad_norm)
             optimizer.step()
@@ -439,6 +442,28 @@ def widen_checkpoint(ckpt: dict, obs_dim: int) -> dict:
         i: {k: widen(v) if names[i] in first and k != "step" else v for k, v in st.items()}
         for i, st in ckpt["optimizer"]["state"].items()})
     return out
+
+
+def reset_action(ckpt: dict, action: int, seed: int = 0) -> dict:
+    """The checkpoint with one action's row of the policy's output layer drawn again as when
+    training began, its bias 0 and its Adam moments cleared. The action's logit is then near 0
+    at every state; the other actions' logits don't change. The Primacy Bias paper (Nikishin
+    et al. 2022) resets last layers for the same reason: what they learned early stays."""
+    weight, bias = "actor.4.weight", "actor.4.bias"
+    agent = dict(ckpt["agent"])
+    row = torch.randn(agent[weight].shape[1], generator=torch.Generator().manual_seed(seed), dtype=agent[weight].dtype)
+    agent[weight], agent[bias] = agent[weight].clone(), agent[bias].clone()
+    agent[weight][action] = POLICY_OUT_STD * row / row.norm()     # one row of an orthogonal init
+    agent[bias][action] = 0.0
+    names, state = list(ckpt["agent"]), {}
+    for i, st in ckpt["optimizer"]["state"].items():
+        st = dict(st)
+        if names[i] in (weight, bias):
+            for k in ("exp_avg", "exp_avg_sq"):
+                st[k] = st[k].clone()
+                st[k][action] = 0.0
+        state[i] = st
+    return dict(ckpt, agent=agent, optimizer=dict(ckpt["optimizer"], state=state))
 
 
 def load_policy(ckpt_path: str) -> tuple[Agent, ObsNorm]:

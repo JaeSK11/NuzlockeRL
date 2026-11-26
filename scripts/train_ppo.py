@@ -6,7 +6,8 @@
 
 With --runs, every episode is a run under the Nuzlocke rules, the discount defaults to 0.999,
 and --restart-share of the episodes start from a restart state, a battle saved by an earlier
-run, kept in RUN_DIR/restarts (NEXT_PHASE step 3.10).
+run, kept in RUN_DIR/restarts (NEXT_PHASE step 3.10). --catch-restart-share of those start at
+a battle that allows a catch.
 
 Run the same command again to resume: training continues from the newest checkpoint
 in --run-dir, up to --total-decisions. Each update appends one JSON line to
@@ -32,6 +33,8 @@ def main():
     ap.add_argument("--states", nargs="+", help="battle save states; each reset picks one at random")
     ap.add_argument("--runs", action="store_true", help="train on whole runs instead of battle states")
     ap.add_argument("--restart-share", type=float, default=0.5, help="with --runs: episodes started from a restart state")
+    ap.add_argument("--catch-restart-share", type=float, default=0.0,
+                    help="with --runs: restarts started at a battle that allows a catch")
     ap.add_argument("--gamma", type=float, help="discount: 0.999 with --runs, else ppo.Config's")
     ap.add_argument("--envs", type=int, default=max(1, (os.cpu_count() or 1) - 2))
     ap.add_argument("--total-decisions", type=int, default=1_000_000)
@@ -59,7 +62,8 @@ def main():
     guard.start()
     if args.runs:
         restarts = os.path.abspath(os.path.join(args.run_dir, "restarts"))
-        env_fns = [functools.partial(RunEnv, restart_dir=restarts, restart_share=args.restart_share)
+        env_fns = [functools.partial(RunEnv, restart_dir=restarts, restart_share=args.restart_share,
+                                     catch_restart_share=args.catch_restart_share)
                    for _ in range(args.envs)]
     else:
         states = [os.path.abspath(s) for s in args.states]

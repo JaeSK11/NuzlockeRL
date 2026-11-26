@@ -399,7 +399,9 @@ OBS_FIELDS = (
     + (("pc", 1),) + tuple((f"box{i}.{n}", s) for i in range(PC_OFFER) for n, s in PARTY_FIELDS)
     + (("pc_asked", 6 + PC_OFFER), ("pc_taken", 6 + PC_OFFER), ("level_cap", 1))
     # The lead choice after it (lead_observation), last for the same reason.
-    + (("lead", 1),))
+    + (("lead", 1),)
+    # The run's state, which a battle alone doesn't show; set by run_env.RunEnv, 0 here.
+    + (("catch_allowed", 1), ("route_progress", 1), ("run_level_cap", 1)))
 OBS_SLICES: dict[str, slice] = {}
 OBS_SIZE = 0
 for _name, _size in OBS_FIELDS:

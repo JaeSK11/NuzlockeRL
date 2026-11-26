@@ -9,7 +9,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
 from pool import Batch
 from ppo import (Agent, Collector, Config, ObsNorm, Rollout, Transition, episode_stats, evaluate, gae,
-                 latest_checkpoint, load_policy, ppo_update, save_checkpoint, train, widen_checkpoint)
+                 latest_checkpoint, load_policy, ppo_update, reset_action, save_checkpoint, train, widen_checkpoint)
 
 
 class BanditEnv(gym.Env):
@@ -279,6 +279,30 @@ def test_a_widened_checkpoint_plays_as_before_and_trains_on(tmp_path):
     train([WideBanditEnv] * 4, new_run, old["decisions"] + 64, seed=0, cfg=Config(rollout=64, checkpoint_every=1),
           log=lambda *_: None)
     assert torch.load(latest_checkpoint(new_run), weights_only=True)["update"] == old["update"] + 1
+
+
+def test_a_reset_action_starts_over_and_the_others_stay(tmp_path):
+    run = str(tmp_path / "run")
+    train(BANDITS, run, 64 * 2, seed=0, cfg=Config(rollout=64, checkpoint_every=1), log=lambda *_: None)
+    old = torch.load(latest_checkpoint(run), weights_only=True)
+    new = reset_action(old, 2)
+    before, after = Agent(3, 4), Agent(3, 4)
+    before.load_state_dict(old["agent"])
+    after.load_state_dict(new["agent"])
+    x = torch.rand(16, 3)
+    with torch.no_grad():
+        a, b = before.actor(x), after.actor(x)
+    assert torch.equal(a[:, [0, 1, 3]], b[:, [0, 1, 3]])
+    row, bias = new["agent"]["actor.4.weight"][2], new["agent"]["actor.4.bias"][2]
+    assert row.norm().item() == pytest.approx(0.01) and bias == 0 and b[:, 2].abs().max() < 0.1   # as at the start
+    assert not torch.equal(row, old["agent"]["actor.4.weight"][2])
+    i = list(new["agent"]).index("actor.4.weight")
+    assert not new["optimizer"]["state"][i]["exp_avg"][2].any() and old["optimizer"]["state"][i]["exp_avg"][2].any()
+
+    os.remove(latest_checkpoint(run))       # training resumes from it
+    save_checkpoint(run, new)
+    train(BANDITS, run, new["decisions"] + 64, seed=0, cfg=Config(rollout=64, checkpoint_every=1), log=lambda *_: None)
+    assert torch.load(latest_checkpoint(run), weights_only=True)["update"] == new["update"] + 1
 
 
 def test_evaluation_plays_the_requested_episodes_in_every_env():
