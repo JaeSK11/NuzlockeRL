@@ -321,6 +321,7 @@ def test_a_run_that_ends_without_the_badge_is_paid_as_a_loss(tmp_path, monkeypat
         rewards.append(reward)
         done = term or trunc
     assert info["end"] == "no_badge" and rewards[-1] < -900 and all(r > -900 for r in rewards[:-1])
+    assert (info["state"], info["boss_fights"], info["caught_alive"], info["caught_level"]) == ("fresh", 0, 0, 0)
     assert info["run_return"] == pytest.approx(sum(rewards))
 
 
@@ -332,7 +333,7 @@ def test_a_catch_is_paid_and_the_rules_mask_a_second_one_on_the_route(tmp_path, 
     import route
     import run_env as RE
     monkeypatch.setattr(RE, "CATCH_REWARD", 1000.0)                  # far above any battle's reward
-    env = RE.RunEnv(start_state=lone_turtwig(tmp_path), route_actions=[("grind", 8, route.ROUTE202_GRASS, route.SANDGEM_HEAL)])
+    env = RE.RunEnv(start_state=lone_turtwig(tmp_path, balls=5), route_actions=[("grind", 8, route.ROUTE202_GRASS, route.SANDGEM_HEAL)])
     obs, info = env.reset(seed=0)
     assert info["decision"] == "battle" and env.trainer == 0 and env.battle.catch_allowed
     off = 4 * sum(n for _, n in gen4.BAG_POCKETS[:6])                 # the Poké Balls pocket
@@ -341,11 +342,15 @@ def test_a_catch_is_paid_and_the_rules_mask_a_second_one_on_the_route(tmp_path, 
         env.nds.memory.write_u16(False, env.battle.addrs[bag] + off + 2, 5)
     obs, reward, term, trunc, info = env.step(BE.BALL_ACTION)
     assert env.battles[-1]["outcome"] == "CAUGHT" and reward == pytest.approx(1000.0)
+    assert (info["pick"], info["battle_outcome"], info["catch_chance"]) == ("ball", "CAUGHT", True)  # the last throw is logged
     assert len(env.run.caught_lines) == 1 and "Route 202" in env.run.routes
     info = take_all(env, info)
     assert info["decision"] == "battle" and env.trainer == 0
     assert gen4.read_bag(env.nds, env.battle.addrs, from_battle=True)["balls"], "balls are left"
     assert not env.battle.catch_allowed and not info["action_mask"][BE.BALL_ACTION]
+    caught = gen4.read_party(env.nds)[1]                                # second in the party
+    info = play_out(env, info)
+    assert info["caught_level"] >= caught.level and info["caught_alive"] == (caught.pid not in env.run.dead)
 
 
 @needs_entrance
@@ -359,12 +364,16 @@ def test_a_battle_that_allows_a_catch_shows_it_and_leaves_a_tagged_restart(tmp_p
     grind = [("grind", 12, route.ROUTE202_GRASS, route.SANDGEM_HEAL)]
     env = RE.RunEnv(start_state=start, route_actions=grind, restart_dir=str(restarts))
     obs, info = env.reset(seed=0)
-    assert info["decision"] == "battle" and env.battle.catch_allowed       # Route 202's first encounter
+    assert info["decision"] == "battle" and env.battle.catch_allowed and env.start == "fresh"   # Route 202's first
     assert obs[BE.OBS_SLICES["catch_allowed"]] == 1 and obs[BE.OBS_SLICES["route_progress"]] == 0
     assert obs[BE.OBS_SLICES["run_level_cap"]] == pytest.approx(0.16)    # Roark's cap
+    chances = []
     while not (len(env.battles) == 1 and info["decision"] == "battle"):  # fight it, on to the next
         obs, _, term, trunc, info = env.step(first_move(info) if info["decision"] == "battle" else 0)
         assert not (term or trunc)
+        if "battle_outcome" in info:
+            chances.append(info["catch_chance"])
+    assert chances == [True]
     assert not env.battle.catch_allowed and obs[BE.OBS_SLICES["catch_allowed"]] == 0
     tagged = sorted(p.name.endswith(RE.CATCH_TAG + ".json") for p in restarts.glob("*.json"))
     assert tagged == [False, True]
@@ -373,6 +382,7 @@ def test_a_battle_that_allows_a_catch_shows_it_and_leaves_a_tagged_restart(tmp_p
                     catch_restart_share=1.0)
     obs, info = env.reset(seed=1)
     assert info["restart"].endswith(RE.CATCH_TAG) and env.battle.catch_allowed   # the route is open again
+    assert env.start == "catch_restart"
     assert obs[BE.OBS_SLICES["catch_allowed"]] == 1
 
 

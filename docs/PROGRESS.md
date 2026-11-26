@@ -2845,3 +2845,177 @@ into runs10, which trains with `--catch-restart-share 0.5`.
 | The critic couldn't see a catch chance, the route progress or the cap in battle | They weren't in the battle observation | Three values appended (1813 to 1816) |
 | The throw odds stayed near 0.1% at catchable battles | The ball's output row kept what it learned when a catch paid 0 | `--reset-ball`: about 14% after it |
 | A comment said returns reach about 13 | Written for battle-only training | It now says about 130 |
+
+## 55. Every battle's last decision in the logs, and metrics for catching (2026-11-26)
+
+Goal: count catches, and log what the next run needs to show whether
+catching takes hold. The user: "yes add that to the branch before the
+switch", then "can we also add the extra logging we mentioned above".
+
+**A gap in the logs.** When a battle ended, `RunEnv.step` returned the
+info of the next decision, from `_advance`, and the battle's last decision
+was never tallied. So the logs missed the throw that made each catch, the
+move that won each battle, and the last faint in each lost battle. runs9
+had 745 wipes in 910 runs, and its logged faints came to 0.001 a run.
+`picks.ball` in runs5 to runs9 counts only throws that didn't end the
+battle. Training and rewards weren't affected, since the rollout keeps
+every decision. `ball_chances` and `ball_prob` come from the rollout, so
+they were always right. Now the battle's last decision goes with the next
+decision's info, with how the battle ended. From the next run on, ball
+picks and faint counts read higher, and don't compare with earlier runs.
+
+**New metrics.** Each line of `metrics.jsonl` gains:
+- `catch_battles`: how each battle where a ball could be thrown ended
+  (CAUGHT, WON, LOST, FLED). A battle counts when the ball is legal at its
+  first decision. Its CAUGHT count is the run's catches.
+- `ball_throws` and `ball_adv`: the throws in the update's rollout, and
+  their mean advantage in standard deviations from the rollout's mean.
+  `picks.ball` counts a run's throws only when the run ends, often many
+  updates later. Below 0, the
+  update makes the ball less likely where it was thrown. This tests why
+  bursts of throws were undone the next update (§52, §56).
+- The per-state stats (`states`) split runs by how they started: `fresh`,
+  `restart` or `catch_restart`. All runs shared one key before. With
+  `--catch-restart-share`, a share of runs start at a catchable battle,
+  and that mix alone would shift the overall rates.
+- `mean_caught_alive`, `max_caught_level` and `boss_fights`: at each run's
+  end, the caught Pokémon still alive, the highest level any caught one
+  reached, and the boss battles fought. They show whether caught Pokémon
+  near Roark's cap of 16 (NEXT_PHASE 3.11 e and f), and whether a run
+  ever fights Roark instead of being turned away.
+
+**Verified:** `test_a_catch_is_paid_and_the_rules_mask_a_second_one_on_the_route`
+now checks that the catching throw is logged, then plays the run out and
+checks the caught Pokémon's level and life at its end.
+`test_a_battle_that_allows_a_catch_shows_it_and_leaves_a_tagged_restart`
+checks `catch_chance` and how each run started.
+`test_a_run_that_ends_without_the_badge_is_paid_as_a_loss` checks the new
+end fields, `test_the_ball_bonus_raises_the_balls_odds_only_where_it_can_be_thrown`
+the sign of `ball_adv`, and `test_episode_stats_split_faints_by_strength_and_flag_results_the_game_contradicts`
+the tally and the new summaries.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| A battle's last decision was missing from the logs | `_advance`'s info, for the next decision, replaced the battle's | The battle's last decision and its outcome go with the next decision's info |
+| Catches weren't counted | Only throws were logged | `catch_battles`, whose CAUGHT count is the catches |
+| No way to tell why bursts of throws were undone | How the update weighed the throws wasn't logged | `ball_adv` |
+| Runs started at catchable battles would shift the overall rates | All runs shared one key in the per-state stats | Stats per start: `fresh`, `restart`, `catch_restart` |
+| No sign of whether caught Pokémon near Roark's cap | Nothing about the team was logged at a run's end | `mean_caught_alive`, `max_caught_level`, `boss_fights` |
+| The catch test's battle had no ball at its start | Its Master Balls are written after the battle starts | It starts with 5 Poké Balls, and the Master Balls replace them |
+| A test of battle episodes' records failed | The run's end fields were added to battle episodes too, as None | They are added only when the run reports them |
+
+## 56. runs9: a catch reward of 50 didn't stick either (2026-11-26)
+
+Goal: see whether §52's catch reward of 50 gets the agent catching.
+
+**The run.** runs9 trained from runs8's checkpoint 870, widened for the
+lead choice, to update 937, with 959,488 decisions in all, over 910 runs.
+The user stopped it there: "once added stop the training runs so we can
+re evaluate because catching is still too low". The 7 updates after
+checkpoint 930 were lost.
+
+**What it showed.** No run got the badge.
+
+| Updates | Wipes | Roark refused | Balls | Throw odds at a chance | PC take / leave | Entropy |
+|---|---|---|---|---|---|---|
+| 871–892 | 83.0% | 17.0% | 5 | 0.64% | 6 / 6 | 0.66 |
+| 893–914 | 82.1% | 17.9% | 4 | 0.50% | 2 / 2 | 0.68 |
+| 915–937 | 80.7% | 19.0% | 5 | 0.37% | 4 / 2 | 0.67 |
+
+The ball counts miss the throw that made each catch (§55). Throw odds
+fell through the run, to 0.19% in its last 10 updates. As in runs8,
+throwing came in bursts that the next update undid: 8.6% at update 888,
+then 0.10%; 5.7% at 903, then 0.18%; 3.9% at 918, then 0.24%. The lead
+choice came up 5 times and changed the lead once. Only 2 of the 441
+restart states hold a caught Pokémon, as at runs8's end. Training stayed
+steady (KL about 0.002), and the critic explained 0.67 of the return's
+variance, as before. Mean return fell from 138 to 126.
+
+**Where the throws are.** Two checks on the 51 catchable battles from
+§50's throw test, after the run:
+- The same 25 battles, scored with each checkpoint from 870 to 930: the
+  mean throw odds at a battle's first decision stayed between 0.08% and
+  0.33%, and no battle passed 1.3%. No checkpoint shows a burst.
+- All 51, played on without throwing by checkpoint 930, three times each:
+  253 decisions with a ball chance, at a mean of 0.07% and at most 0.87%.
+  The odds fall as the battle goes on, from 0.10% at the first decision
+  to 0.02% by the third, and fall as the wild Pokémon is hurt. A player
+  throws more once it is weak.
+
+So the policy throws at about 0.1% wherever it can be checked. The
+bursts come from battles unlike these, such as a run with a caught
+Pokémon at its next route, or from one update's policy that the next
+undid. Also, `picks.ball` counts a run's throws when it ends, so an
+update with 9% odds could log no throws. §55's `ball_throws` and
+`ball_adv` count the update's own.
+
+At these odds the reward can't be what holds catching back. By §50's
+count, at a catch reward of 50, throwing at every chance beats fighting
+by about 33 a battle. The agent throws about once in 12 updates, and
+PPO's clip lets one throw raise the ball's odds there by at most about
+20%. The gains never add up. This is what §54's ball reset (about 14% at
+the start) and catchable restarts are for.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| Catching stayed rare, and no run got the badge | Likely as in runs8: throws are so rare that each burst is undone by the next update, and a reward of 50 didn't change that | Open: the user stopped runs9 to re-evaluate; §54's restarts and ball reset and §55's metrics are ready |
+| An update showed 9% throw odds and logged no throws | `picks.ball` counts a run's throws when the run ends, many updates later | `ball_throws` counts the update's own (§55) |
+| 7 updates lost when runs9 was stopped | Checkpoints come every 10 updates, and a stopped run saves none | The next run starts from checkpoint 930 |
+| 1 route error: "no way into map 198 from (199, 26, 20)" | Not looked into yet; like two in runs6 | Open |
+
+## 57. A second review: what a catch is for, and Roark's real team (2026-11-26)
+
+Goal: test the premise behind §47 to §52, and pick the next steps. The
+user pasted a second outside review, then: "impllement based on your
+recommendations after the coding is done kick off the next run with our
+changes and new metrics tracking".
+
+**The review's point.** The entropy bonuses and the catch rewards of 10,
+20 and 50 all assumed that a throw priced right would be found and kept.
+But a catch isn't useful yet. A caught Pokémon stays at its catch level
+unless it fights, and the starter still takes the experience and passes
+Roark's cap. The badge needs a chain: catch, keep, raise to the cap,
+leave the starter in the PC, and beat Roark. No run has shown that chain
+is possible here.
+
+**Checked.**
+- Roark (ROM trainer 246) has six Pokémon at levels 13 to 16, each with
+  a held item: Bonsly (Focus Sash; Stealth Rock, Selfdestruct, Brick
+  Break, Accelerock), Lileep (Big Root; Sludge Bomb, Giga Drain,
+  AncientPower, Recover), Gible (Chesto Berry; DragonBreath,
+  Flamethrower, Thunder Fang, Earth Power), Corsola (Rindo Berry;
+  Recover, Water Pulse, Light Screen, Accelerock), Shuckle (Berry Juice;
+  Toxic, Accelerock, Curse, Sand Tomb) and Cranidos at 16 (Lum Berry;
+  Head Smash, Zen Headbutt, Crunch, Rock Polish).
+- The agent has no item action in battle, only moves, switches and the
+  ball. Items are the roadmap's step 5.
+- The route's only grind trains to level 11, on Route 202. The starter
+  passes 16 on the experience of the battles it must fight, since it
+  leads them all.
+
+**What we do now.**
+- runs10 trains with §54 and §55, which the review backs: from runs9's
+  checkpoint 930 widened with `--reset-ball`, with
+  `--catch-restart-share 0.5` and runs9's restart states.
+- The review's catch test. From each of the 51 catchable battles of §50,
+  the run is played to its end twice with runs9's policy: once throwing
+  at every chance in that battle, once never throwing in it. The return
+  after that battle shows whether a catch helps the rest of the run,
+  apart from its own reward. It runs beside runs10, on two cores.
+- Not now: ending a run once no living Pokémon is at or under the cap.
+  It changes when a run ends, and so its rewards, which is the user's
+  call. It would also blur what runs10 shows about the ball reset. A
+  narrower reading would end it only once, also, no route before the
+  boss can still give a catch: the badge is then out of reach, as after
+  a wipe.
+- Next: an existence proof, one run that takes Roark's badge under the
+  rules with the agent's own actions. Without items in battle, Roark's
+  team may be out of reach at 16. Whether items come first is the
+  user's call.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| Five changes for catching failed the same way | Each priced the throw, but the agent almost never tries one, and a catch does nothing for the run yet | runs10 with §54's reset and restarts; the catch test measures what a catch does for the rest of a run |
+| No run has shown the badge is possible here | No run has fought Roark | Open: an existence proof, after the user's call on items |
+| Roark's team may be out of reach without items | The agent has no item action in battle | Open: the user's call |
+| An over-cap starter earns about 100 before its run ends `no_badge` | The cap is only checked at Roark | Open: the user's call on ending such a run sooner |

@@ -417,7 +417,10 @@ each run to the decisions. In order:
         its throw odds at a chance stay under 1% at about update 950
         (2026-11-26, midday), widen runs9's newest checkpoint for b, and
         train on with a and c: `widen_checkpoint.py --reset-ball`, then
-        `--catch-restart-share 0.5`.
+        `--catch-restart-share 0.5`. The user stopped runs9 at update 937,
+        with its throw odds at 0.19%, to re-evaluate before the switch
+        (§56). §55's metrics show what the next run does with its chances.
+        runs10 started that day, after a second review (§57).
       - **c. Reset the ball's output row** at the switch, the user's call.
         It still holds what it learned when a catch paid 0 (bias −0.32,
         the largest weights of any action). Primacy Bias resets the last
@@ -440,6 +443,19 @@ each run to the decisions. In order:
         The lead choice (§51) is the first lever. If caught Pokémon still
         stay far under the cap, let the agent choose who fights the
         scripted grind on Route 202 (`route.py`).
+      - **g. Does a catch help the rest of the run?** The second review's
+        test (§57): from each catchable battle, play the run to its end
+        with and without the catch, and compare the return after it. If a
+        catch adds nothing, the agent is right not to catch, apart from
+        the catch reward. Running beside runs10.
+      - **h. An existence proof.** One run that takes Roark's badge under
+        the rules with the agent's actions. Its states then become
+        restarts along a winning path (Salimans and Chen). First, the
+        user's call on items in battle: Roark's six Pokémon all hold one,
+        and the agent has no item action.
+      - **i. The cap when it's broken.** The user's call: end a run once
+        no living Pokémon is at or under the cap, or only once, also, no
+        route before the boss can still give a catch.
       - **Later: one encoder for all party slots** (Deep Sets). The switch
         outputs to party slots 4 to 6 have never been trained; a shared
         encoder trains them from every slot, and suits step 7. It changes

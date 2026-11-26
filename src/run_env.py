@@ -111,6 +111,7 @@ class RunEnv(gym.Env):
         self.runner = route.Runner(self.nds, self.route_actions)
         self.decisions, self.ret, self.battles, self.end = 0, 0.0, [], None
         self.kind, self.restart, self.starter = None, None, None
+        self.start = "fresh"                            # how the run started, for the logs (see _load_restart)
         resume = self._load_restart() if self.restart_share and self.np_random.random() < self.restart_share else None
         if resume is None:
             self.nds.load_state_from_file(self.start_state)
@@ -141,8 +142,10 @@ class RunEnv(gym.Env):
         if not by_step:
             return None
         catchable = sorted(p for paths in by_step.values() for p in paths if p.endswith(CATCH_TAG + ".json"))
+        start = "restart"
         if self.catch_restart_share and catchable and self.np_random.random() < self.catch_restart_share:
             meta_path = catchable[int(self.np_random.integers(len(catchable)))]
+            start = "catch_restart"
         else:
             steps = sorted(by_step)
             meta_path = by_step[steps[int(self.np_random.integers(len(steps)))]]
@@ -161,7 +164,7 @@ class RunEnv(gym.Env):
         self.run.routes, self.run.caught_lines = dict(r["routes"]), set(r["caught_lines"])
         self.run.dead, self.run.beaten = set(r["dead"]), set(r["beaten"])
         self.runner.trainers_beaten, self.starter = list(meta["trainers_beaten"]), meta["starter"]
-        self.restart, self.restart_at = os.path.basename(meta_path).removesuffix(".json"), meta["at"]
+        self.restart, self.restart_at, self.start = os.path.basename(meta_path).removesuffix(".json"), meta["at"], start
         return meta["at"], meta["sub"]
 
     def _restart_meta(self) -> dict:
@@ -238,6 +241,7 @@ class RunEnv(gym.Env):
                 value = "ENDED"
                 continue
             info["decision"] = "battle"
+            self.chance = bool(info["action_mask"][BE.BALL_ACTION])     # a ball can be thrown in this battle
             return obs, info
 
     def _pc_start(self, cap):
@@ -326,7 +330,7 @@ class RunEnv(gym.Env):
         else:
             obs, reward, term, trunc, info = self.battle.step(action)
             if term or trunc:
-                outcome = info["outcome"]
+                outcome, last, chance = info["outcome"], info, self.chance
                 for m in self.battle.snap.player:
                     if m.hp == 0:
                         self.run.fainted(m.pid)
@@ -341,6 +345,11 @@ class RunEnv(gym.Env):
                     obs, info = self._finish("stuck")
                 else:
                     obs, info = self._advance(outcome)
+                # _advance's info is the next decision's. The battle's last decision goes with it
+                # for the logs: else no knockout, catching throw or wipe's faint is ever counted.
+                # So do how the battle ended, and whether a ball could be thrown in it.
+                info.update({k: last[k] for k in ("pick", "move", "pp_before", "events", "fainted_strengths")},
+                            battle_outcome=outcome, catch_chance=chance)
             else:
                 info["decision"] = "battle"
         if self.end == "no_badge":
@@ -359,6 +368,16 @@ class RunEnv(gym.Env):
             info.update(end=self.end, outcome=self.end, decisions=self.decisions, battles=self.battles, run_return=self.ret,
                         route_step=self.runner.at, route_steps=len(self.runner.route), heals=self.runner.heals,
                         caught=len(self.run.caught_lines), dead=len(self.run.dead), routes=dict(self.run.routes),
-                        location=tuple(gen4.read_location(self.nds)[:3]))
+                        location=tuple(gen4.read_location(self.nds)[:3]), state=self.start,
+                        boss_fights=sum(b["trainer"] in BOSSES for b in self.battles), **self._caught_at_end())
         self._show_run(obs, info)
         return obs, reward, terminated, truncated, info
+
+    def _caught_at_end(self) -> dict:
+        """For the logs as the run ends: the Pokémon caught on it still alive, and the highest
+        level any of them reached, dead or alive (0 if none was caught)."""
+        mons = gen4.read_party(self.nds) + [gen4.decode_mon(scenario.encode_mon(m))
+                                             for m in scenario.read_box_data(self.nds).values()]
+        caught = [m for m in mons if nuzlocke.line_of(m.species) in self.run.caught_lines]
+        return {"caught_alive": sum(m.pid not in self.run.dead for m in caught),
+                "caught_level": max((m.level for m in caught), default=0)}

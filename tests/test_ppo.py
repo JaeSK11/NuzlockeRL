@@ -8,7 +8,7 @@ import torch
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
 from pool import Batch
-from ppo import (Agent, Collector, Config, ObsNorm, Rollout, Transition, episode_stats, evaluate, gae,
+from ppo import (Agent, Collector, Config, ObsNorm, Rollout, Transition, _tally, episode_stats, evaluate, gae,
                  latest_checkpoint, load_policy, ppo_update, reset_action, save_checkpoint, train, widen_checkpoint)
 
 
@@ -87,7 +87,7 @@ def test_the_loss_gives_invalid_actions_no_probability_and_no_gradient():
 def test_the_ball_bonus_raises_the_balls_odds_only_where_it_can_be_thrown():
     """With no advantage and no plain entropy bonus, the ball bonus is the actor's only gradient:
     it raises the ball's odds where the ball is legal, and leaves the actor alone where it isn't."""
-    def update(ball_legal):
+    def update(ball_legal, throw_adv=None):
         torch.manual_seed(2)
         agent = Agent(5, 10)
         with torch.no_grad():
@@ -96,9 +96,11 @@ def test_the_ball_bonus_raises_the_balls_odds_only_where_it_can_be_thrown():
         mask[:, 9] = ball_legal
         with torch.no_grad():
             logp = agent.log_probs(obs, mask)
-        zeros = torch.zeros(256)
-        data = {"obs": obs, "mask": mask, "action": torch.zeros(256, dtype=torch.long), "logp": logp[:, 0],
-                "value": zeros, "advantage": zeros, "return": zeros}
+        zeros, action, advantage = torch.zeros(256), torch.zeros(256, dtype=torch.long), torch.zeros(256)
+        if throw_adv is not None:                                   # four throws, with this advantage
+            action[:4], advantage[:4] = 9, throw_adv
+        data = {"obs": obs, "mask": mask, "action": action, "logp": logp.gather(1, action[:, None])[:, 0],
+                "value": zeros, "advantage": advantage, "return": zeros}
         actor = [p.clone() for p in agent.actor.parameters()]
         cfg = Config(ent_coef=0.0, ball_ent_coef=0.5, ball_action=9)
         out = ppo_update(agent, torch.optim.Adam(agent.parameters(), lr=1e-2), data, cfg)
@@ -109,6 +111,10 @@ def test_the_ball_bonus_raises_the_balls_odds_only_where_it_can_be_thrown():
     half = torch.arange(256) < 128
     out, _, _, after = update(half)
     assert out["ball_chances"] == 128 and 0 < out["ball_prob"] < 0.01 and after > 2 * out["ball_prob"]
+    assert out["ball_throws"] == 0 and out["ball_adv"] is None
+    for sign in (1.0, -1.0):                                        # the throws' advantage, as the update weighs it
+        out, *_ = update(half, throw_adv=sign)
+        assert out["ball_throws"] == 4 and out["ball_adv"] * sign > 0
     out, actor, agent, _ = update(torch.zeros(256, dtype=torch.bool))
     assert out["ball_chances"] == 0 and out["ball_prob"] is None
     assert all(torch.equal(a, b) for a, b in zip(actor, agent.actor.parameters()))
@@ -373,6 +379,14 @@ def test_episode_stats_split_faints_by_strength_and_flag_results_the_game_contra
     stats = episode_stats(eps)["states"]["s"]
     assert (stats["mean_ace_faints"], stats["mean_other_faints"]) == (1 / 3, 1 / 3)
     assert stats["picks"] == {"status": 1} and stats["moves"] == {"Growl": 1}
+    assert _tally({"pick": "ball", "battle_outcome": "CAUGHT", "catch_chance": True}) == {"pick.ball": 1, "catch_battle.CAUGHT": 1}
+    assert _tally({"battle_outcome": "WON", "catch_chance": False}) == {}
+    assert stats["catch_battles"] == {} and "boss_fights" not in stats
+    ends = [dict(eps[0], tally={"catch_battle.CAUGHT": 2}, caught_alive=1, caught_level=9, boss_fights=1),
+            dict(eps[1], caught_alive=0, caught_level=0, boss_fights=0)]
+    run = episode_stats(ends)
+    assert run["catch_battles"] == {"CAUGHT": 2}
+    assert (run["mean_caught_alive"], run["max_caught_level"], run["boss_fights"]) == (0.5, 9, 1)
     assert stats["result_mismatches"] == 1, "a WON the game recorded as a loss; STUCK has no result to check"
 
 

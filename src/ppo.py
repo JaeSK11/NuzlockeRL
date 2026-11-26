@@ -158,7 +158,8 @@ def _player_faints(info: dict) -> int:
 def _tally(info: dict) -> collections.Counter:
     """Counts from one step's info, for the logs: the decision's kind (pick.<kind>) and move
     (move.<name>), a move's last PP spent (pp_ran_dry), and each faint, of the team's
-    strongest Pokémon (ace_faints) or another (other_faints). Envs without these keys count nothing."""
+    strongest Pokémon (ace_faints) or another (other_faints), and how each battle where a ball
+    could be thrown ended (catch_battle.<outcome>). Envs without these keys count nothing."""
     t = collections.Counter()
     if info.get("pick"):
         t["pick." + info["pick"]] += 1
@@ -168,6 +169,8 @@ def _tally(info: dict) -> collections.Counter:
         t["pp_ran_dry"] += 1
     for strength in info.get("fainted_strengths", ()):
         t["ace_faints" if strength >= 1.0 else "other_faints"] += 1
+    if info.get("catch_chance"):
+        t["catch_battle." + info["battle_outcome"]] += 1
     return t
 
 
@@ -219,7 +222,8 @@ class Collector:
                                      "outcome": info.get("outcome"), "return": self.returns.pop(env),
                                      "length": self.lengths.pop(env), "faints": self.faints.pop(env),
                                      "tally": dict(self.tallies.pop(env)), "result_mask": info.get("result_mask"),
-                                     "route_step": info.get("route_step"), "error": info.get("error")})
+                                     "route_step": info.get("route_step"), "error": info.get("error"),
+                                     **{k: info[k] for k in ("caught_alive", "caught_level", "boss_fights") if k in info}})
             self.pending[env] = (obs[row], mask[row], action[row].item(), logp[row].item(), value[row].item())
         return action.numpy()
 
@@ -233,6 +237,11 @@ def ppo_update(agent: Agent, optimizer, data: dict, cfg: Config, generator=None)
         with torch.no_grad():
             p = agent.log_probs(data["obs"][chances], data["mask"][chances])[:, cfg.ball_action].exp()
         ball = {"ball_chances": int(chances.sum()), "ball_prob": p.mean().item() if len(p) else None}
+        # The throws' advantage in standard deviations from the rollout's mean, about as the
+        # minibatches weigh it: below 0, this update makes the ball less likely where it was thrown.
+        thrown, adv = data["action"] == cfg.ball_action, data["advantage"]
+        z = (adv[thrown] - adv.mean()) / (adv.std() + 1e-8)
+        ball |= {"ball_throws": int(thrown.sum()), "ball_adv": z.mean().item() if len(z) else None}
     for _ in range(cfg.epochs):
         stats = collections.defaultdict(list)
         order = torch.randperm(n, generator=generator)
@@ -272,7 +281,9 @@ def episode_stats(episodes: list) -> dict:
     """Mean return, win rate, clean-win rate (won with no player faint), faints, and length over
     all episodes, and the same per state. From the episodes' tallies (see _tally): decisions by
     kind (picks) and by move (moves), faints of the ace and of the others per episode, moves
-    run out of PP, and episodes whose outcome the game's own result contradicts."""
+    run out of PP, how battles where a ball could be thrown ended (catch_battles), and episodes
+    whose outcome the game's own result contradicts. For runs, also the caught Pokémon alive at
+    the end, the highest level a caught one reached, and the boss battles fought."""
     def summary(eps):
         tally = sum((collections.Counter(e.get("tally", {})) for e in eps), collections.Counter())
         return {"episodes": len(eps),
@@ -287,9 +298,14 @@ def episode_stats(episodes: list) -> dict:
                 "mean_ace_faints": tally["ace_faints"] / len(eps),
                 "mean_other_faints": tally["other_faints"] / len(eps),
                 "pp_ran_dry": tally["pp_ran_dry"],
+                "catch_battles": {k[13:]: v for k, v in sorted(tally.items()) if k.startswith("catch_battle.")},
                 "result_mismatches": sum(_result_mismatch(e) for e in eps),
                 **({"mean_route_step": float(np.mean(steps)), "max_route_step": max(steps)}
                    if (steps := [e["route_step"] for e in eps if e.get("route_step") is not None]) else {}),
+                **({"mean_caught_alive": float(np.mean([e["caught_alive"] for e in ends])),
+                    "max_caught_level": max(e["caught_level"] for e in ends),
+                    "boss_fights": sum(e["boss_fights"] for e in ends)}
+                   if (ends := [e for e in eps if e.get("boss_fights") is not None]) else {}),
                 **({"errors": dict(collections.Counter(errors))}      # why runs ended route_error
                    if (errors := [e["error"] for e in eps if e.get("error")]) else {})}
     if not episodes:
