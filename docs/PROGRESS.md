@@ -3377,7 +3377,37 @@ candy left failed on the old code and passes on the new.
 
 The scripted log now records a route error's message.
 
+**Six runs after the fix** (Turtwig 0, Chimchar 0 to 2, Piplup 0 and 1):
+- Chimchar seed 1 beat Barry's second team, but lost its Monferno and
+  Zigzagoon to it. The lone Burmy left lost to Youngster Dallas's
+  Charmander on Route 203, at step 40, the furthest any scripted run has
+  got with a team.
+- Chimchar seed 0 lost to Barry's second team at step 38, with a
+  Zigzagoon at 12, a Burmy at 13 and a Monferno at 16.
+- Piplup seeds 0 and 1 ended as before, at steps 13 and 31.
+- Turtwig seed 0 got through the Route 202 grind by running from 10 of
+  its 27 battles, where Turtwig used to die to Burmy. It lost to Natalie
+  at step 13.
+- Chimchar seed 2 ran from 47 of its 56 battles and wiped in the grind at
+  level 5. The run rule overrates a wild foe's hit (a 70-power move of
+  its type), so it ran from fights it would win and gained nothing.
+
+**Six more runs, with the run rule on the foe's own moves:**
+- Chimchar seed 2 now beat Barry's second team and reached step 40, where
+  it had wiped in the grind at level 5. It ran from 4 of 78 battles, not
+  47 of 56.
+- Chimchar seed 1 lost to Barry's second team with a Zigzagoon at 13, a
+  Burmy at 13 and a Monferno at 16. Chimchar seed 0 wiped in the grind.
+- Piplup seed 2 reached step 25, and Turtwig seeds 0 and 1 steps 13 and 11.
+- In 17 runs since §61, none got past step 40 of 80.
+
+Barry's second team is the wall: six Pokémon at 9 and 10 that all hold
+items, with Fake Out, U-turn, a Choice Band and Thunder Wave. A team
+reaches him at 12 to 16 after a grind to 11 on level-5 wild Pokémon.
+
 | Issue | Cause | Resolution |
 |---|---|---|
 | Two scripted runs ended "stuck" on a Rare Candy at step 29 | After the last candy the game goes back to the bag, not to the party's prompt the flow waited for | The flow also ends when the bag comes back after the last candy; a test |
 | A route error's message wasn't in the scripted log | `play_run` didn't keep it | The record has an `error` field |
+| A scripted run fled 47 of 56 battles and never grew | The run rule overrated a wild foe's hit: a 70-power move of its type | It uses the foe's own moves, which the battle reads |
+| No scripted run beat Barry's second team and lived on | The team meets him at 12 to 16, trained on level-5 wild Pokémon | Open. Route 204's level-9 grass isn't open yet: two people stand in the only way to it, at (182, 734) and (183, 734), until after Roark |

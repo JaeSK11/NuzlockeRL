@@ -19,7 +19,7 @@ Rules (Player):
   its HP goes out.
 - Bide: while the foe stores energy, a status move, unless an attack knocks it out.
 - run: in a wild battle, once no catch is under way, from a foe that would knock the active
-  Pokémon out before it could knock the foe out.
+  Pokémon out before it could knock the foe out, by the foe's own moves.
 - rescue: an active Pokémon under SWITCH_HP of its HP that can't finish the foe gives way to a
   healthy one with the best matchup. A forced switch picks by health, matchup and level.
 - PC: take everyone (the masks apply the level cap); the lead is the weakest Pokémon under the
@@ -155,9 +155,12 @@ class Player:
         return 3 + pos
 
     def outmatched(self, me, foe, mask) -> bool:
-        """The foe knocks the active Pokémon out in fewer turns than it takes to knock the foe out."""
+        """The foe knocks the active Pokémon out in fewer turns than it takes to knock the foe out,
+        by the foe's own moves (the battle reads them), or by threat() if it shows none."""
         hit = self.best_attack(me, foe, mask)[1]
-        return hit <= 0 or foe.hp / hit > me.hp / max(self.threat(foe, me), 1.0)
+        known = [expected_damage(foe, mv, me) for mv in foe.moves if mv]
+        taken = max(known) if known else self.threat(foe, me)
+        return hit <= 0 or foe.hp / hit > me.hp / max(taken, 1.0)
 
     @staticmethod
     def power(m):
