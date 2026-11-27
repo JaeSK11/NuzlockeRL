@@ -405,6 +405,20 @@ def test_past_darius_the_party_trains_to_roarks_cap_in_the_mine(tmp_path):
     assert [(m.species, m.level) for m in party] == [(gyarados["species"], 16)] and party[0].hp == party[0].max_hp
 
 
+@pytest.mark.skipif(not (os.path.exists(ROM) and os.path.exists(BEFORE_ROARK)), reason="needs milestone 15 (scripts/make_milestones.py)")
+def test_a_sign_walked_into_is_read_and_the_walk_goes_on():
+    """A party hurt in the gym goes to heal as soon as it enters the mine: out by the west door
+    it came in by, then one step up to the signboard above it, which opens its text. The walk
+    to the Pokémon Center ended there, as a story scene, in 5 of runs12's first 8 runs."""
+    import route
+    import run_env as RE
+    k = route.ROUTE.index(("grind", route.ROARK_CAP, route.MINE_FLOOR, route.MINE_B1F_HEAL))
+    env = RE.RunEnv(start_state=BEFORE_ROARK, route_actions=route.ROUTE[k - 3:k] + [("exit", 45), ("exit", 48)])
+    obs, info = env.reset(seed=0)
+    assert env.end == "no_badge" and "error" not in info
+    assert gen4.read_location(env.nds).map_id == 48 and gen4.field_task(env.nds) == 0
+
+
 @needs_entrance
 def test_a_restart_in_a_walk_heals_after_its_battle(tmp_path):
     """A restart plays its saved battle, then the walk it interrupted from the walk's start. A

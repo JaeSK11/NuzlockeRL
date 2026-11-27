@@ -414,3 +414,16 @@ def spotted_by(nds) -> list[int]:
     loc = gen4.read_location(nds)
     return [fieldmap.trainer_id(o) for o in fieldmap.trainers(loc.map_id)
             if not gen4.read_flag(nds, o.flag) and (loc.x, loc.z) in fieldmap.sight(loc.map_id, o)]
+
+
+def reading_sign(nds) -> bool:
+    """A step into a signboard opens its text with no press of A, so a walk can start one: the
+    tile the player faces holds a shown object (a person is talked to only with A), and no
+    trigger lies under the player. A walk that ends facing a sign at the end of its stretch
+    reads it, as one up from Oreburgh Mine's west door does."""
+    loc = gen4.read_location(nds)
+    _, objs, _, coords = fieldmap.events(loc.map_id)
+    dx, dz = fieldmap.DIRS[DIRS[loc.facing]]
+    faced = (loc.x + dx, loc.z + dz)
+    return (any((o.x, o.z) == faced and not gen4.read_flag(nds, o.flag) for o in objs)
+            and not any(c.x <= loc.x < c.x + c.width and c.z <= loc.z < c.z + c.length for c in coords))

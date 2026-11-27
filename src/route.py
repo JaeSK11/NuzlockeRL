@@ -199,7 +199,8 @@ class Runner:
 
     def _battle_or_scene(self, outcome):
         """After a step that started a scene: a wild battle or a trainer who saw the player is
-        played and the walk goes on (True); a story scene is left to the route's next action."""
+        played, or a sign walked into is read, and the walk goes on (True); a story scene is
+        left to the route's next action."""
         if outcome != "scene":
             return False
         spotted = O.spotted_by(self.nds)
@@ -211,9 +212,9 @@ class Runner:
             yield from self._battle()
             yield from self._text("yes", after_battle=True)
             return True
-        if not spotted:
+        if not spotted and not O.reading_sign(self.nds):
             return False
-        yield from self._text()                         # the trainer walks up and talks; the battle follows
+        yield from self._text()                         # the trainer walks up and talks, and the battle follows; or a sign's text closes
         return True
 
     def _walk(self, goal, heal_trip=()):

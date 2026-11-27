@@ -3411,3 +3411,47 @@ reaches him at 12 to 16 after a grind to 11 on level-5 wild Pokémon.
 | A route error's message wasn't in the scripted log | `play_run` didn't keep it | The record has an `error` field |
 | A scripted run fled 47 of 56 battles and never grew | The run rule overrated a wild foe's hit: a 70-power move of its type | It uses the foe's own moves, which the battle reads |
 | No scripted run beat Barry's second team and lived on | The team meets him at 12 to 16, trained on level-5 wild Pokémon | Open. Route 204's level-9 grass isn't open yet: two people stand in the only way to it, at (182, 734) and (183, 734), until after Roark |
+
+## 63. runs12, and a sign at the mine's door (2026-11-27)
+
+Goal: train again. In 17 scripted runs since §61, none got past step 40
+of 80, and the scripted player battles worse than the trained agent, which
+reached step 70. The user's call: train now, before a scripted run takes
+the badge.
+
+**runs12** trains from runs11's checkpoint at update 1050, widened to the
+11 actions and 1834 observation values of §61 (`widen_checkpoint.py`).
+The policy plays as runs11's did until a new action or value comes up.
+It has runs11's flags and a copy of its 889 restart states. Those saved
+at a step the route has since moved are dropped when picked.
+- The 3,000-decision limit stays. No run of runs10 or runs11 reached
+  it, in 1,674 runs, and a run cut off by it is truncated, with no
+  reward lost.
+- Ending a run that can't meet the cap stays off. It changes the
+  rewards, so it waits for the user's call.
+
+**A sign at the mine's door.** In runs12's first 8 runs, 5 ended in the
+same route error: "no way into map 48 from (45, 301, 793)". A party hurt
+in the gym goes to heal as soon as it enters the mine. It leaves by the
+west door it came in by, and comes out under the mine's signboard at
+(301, 792). The walk's first stretch goes one tile up and ends facing
+it, and walking into a signboard opens its text with no press of A. The
+route took that for a story scene and stopped. From the mine floor the
+player leaves by the middle door, so the tests and a probe from there
+never met the sign.
+
+`overworld.reading_sign` tells a sign apart: the tile faced holds a
+shown object, since people are talked to only with A, and no trigger
+lies under the player. The route reads the sign's text through, as it
+does a trainer's, and the walk goes on. A test walks the same way from
+milestone 15. It fails on the old code and passes on the new. runs12
+was stopped and resumed from update 1050 with the fix, and the first
+attempt's logs kept as `metrics_sign_bug.jsonl` and `train_sign_bug.log`.
+In its first 11 runs after that, none ended in a route error, and five
+reached Roark's tile at step 79. All five ended "no_badge" with no boss
+fight: a lone starter over his cap of 16 can't fight him.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| 5 of runs12's first 8 runs ended in a route error at step 71 | Leaving the mine by its west door, the walk to heal ended facing the signboard, and walking into it opened its text, which the route took for a story scene | `reading_sign`; the route reads a sign's text through and walks on; a test |
+| The mine grind's test and probe passed | They started on the mine floor at full HP, and left by the middle door | The new test leaves by the west door, as a hurt party does |
