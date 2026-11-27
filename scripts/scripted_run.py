@@ -293,6 +293,7 @@ def play_run(env, starter_slot, seed, verbose=False):
             break
     party, box = party_report(env)
     return {"starter": romdata.species_name(RE.STARTERS[starter_slot]), "seed": seed, "end": env.end,
+            "error": info.get("error"),
             "route_step": env.runner.at, "route_steps": len(env.runner.route),
             "battles": len(env.battles), "won": sum(b["outcome"] == "WON" for b in env.battles),
             "caught": len(env.run.caught_lines), "dead": len(env.run.dead),
@@ -315,7 +316,7 @@ def main():
                 f.write(json.dumps(rec) + "\n")
                 f.flush()
                 team = ", ".join(f"{m['species']} {m['level']}" + ("x" if m["dead"] else "") for m in rec["party"])
-                print(f"{rec['starter']} seed {seed}: {rec['end']} step {rec['route_step']}/{rec['route_steps']} "
+                print(f"{rec['starter']} seed {seed}: {rec['end']} {rec['error'] or ''} step {rec['route_step']}/{rec['route_steps']} "
                       f"won {rec['won']}/{rec['battles']} caught {rec['caught']} roark {rec['roark']} "
                       f"team [{team}] {rec['seconds']}s", flush=True)
 

@@ -234,7 +234,8 @@ def use_item(nds, item_id: int, party_slot: int, forget=None) -> str:
     prompt = _prompt(nds)
     _key(nds, "a")
     nds.tick(40)
-    asked = lambda: _party_up(nds) and (_prompt(nds) == prompt).all()
+    last = count == 1                   # with none left, the game goes back to the bag, not to the party's prompt
+    asked = lambda: _party_up(nds) and (_prompt(nds) == prompt).all() or last and _bag_up(nds)
     if not _play(nds, asked, lambda state: _forget_step(nds, forget, state)):
         _close(nds)
         return "stuck"

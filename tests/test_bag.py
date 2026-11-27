@@ -122,3 +122,27 @@ def test_a_second_item_swaps_with_the_first_and_the_first_returns_to_the_bag():
     bag_now = gen4.read_bag(nds, from_battle=False)
     assert bag_now["berries"] == [(CHILAN_BERRY, 1)] and WHITE_HERB not in [i for i, _ in bag_now["items"]]
     free_to_walk(nds, gen4.read_location(nds).map_id)
+
+
+def set_count(nds, item_id, qty):
+    """Test setup: the bag's count of item_id, written to its slot."""
+    a, off = gen4.resolve(nds)["bag"], 0
+    for _, n in gen4.BAG_POCKETS:
+        for i in range(n):
+            if nds.memory.read_u16(False, a + off + 4 * i) == item_id:
+                nds.memory.write_u16(False, a + off + 4 * i + 2, qty)
+                return
+        off += 4 * n
+    raise ValueError(f"no item {item_id} in the bag")
+
+
+def test_the_last_candy_ends_back_in_the_overworld():
+    """With one candy left, the game goes back to the bag after the level-up, not to the party's
+    "Use on which Pokémon?", so the flow ends there too. Scripted runs got "stuck" on it."""
+    import bag
+    nds = center()
+    set_count(nds, RARE_CANDY, 1)
+    map_id, before = gen4.read_location(nds).map_id, gen4.read_party(nds)[0]
+    assert bag.use_item(nds, RARE_CANDY, 0) == "used"
+    assert candies(nds) == 0 and gen4.read_party(nds)[0].level == before.level + 1
+    free_to_walk(nds, map_id)

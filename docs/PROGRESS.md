@@ -3355,3 +3355,29 @@ parallel runs took the CPU over 99 °C even while paused.
 | A checkpoint from before couldn't load | The output layer has one more action, and the observation more values | `widen_checkpoint` adds actions; a test |
 | Tests stepped through heals expecting the run to end | A heal now asks about the bag | Their helpers answer the bag with none. One test answered every choice but a battle's with action 0: at a bag choice that fed the starter candies to the grind's level, and the route ended |
 | The bag's cursor has no live address | The saved cursor in RAM changes only once the bag closes | `bag.py` reads the screens' pixels, and reaches an item by pressing Up past the top, then Down |
+
+## 62. The scripted player with Run and the bag, and the last Rare Candy (2026-11-27)
+
+Goal: rerun the scripted player with §61's tools.
+
+**First runs.** Five runs, before the fix below:
+- Chimchar, seeds 0 and 1: both reached step 29 with a team of three,
+  a Burmy at 13, a Zigzagoon at 12 and a Monferno at 16. Both then ended
+  as `route_error`: "a Rare Candy on party slot 0: stuck".
+- Piplup, seeds 0 to 2: wiped at step 13 (Natalie's Sunkern stalled with
+  Leech Seed, Protect and an Oran Berry), step 15 (Logan) and step 31
+  (a clown, against a lone Zigzagoon after the Piplup died).
+
+**The last Rare Candy.** A candy's flow ended when the party screen's "Use
+on which Pokémon?" came back. After the last candy, the game goes back to
+the bag instead, so the flow waited until its frame limit and returned
+"stuck". Both Chimchar runs had spent all ten by step 29. The flow now
+also ends when the bag comes back after the last candy. A test with one
+candy left failed on the old code and passes on the new.
+
+The scripted log now records a route error's message.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| Two scripted runs ended "stuck" on a Rare Candy at step 29 | After the last candy the game goes back to the bag, not to the party's prompt the flow waited for | The flow also ends when the bag comes back after the last candy; a test |
+| A route error's message wasn't in the scripted log | `play_run` didn't keep it | The record has an `error` field |
