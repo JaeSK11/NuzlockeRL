@@ -43,6 +43,9 @@ def gym_trip(*walked, cap=None):
     heal = ("heal", cap) if cap else ("heal",)
     return (("steps", back), ("exit", 45), ("exit", 48), heal, ("exit", 45), ("exit", 47)) + tuple(("steps", w) for w in walked)
 ROUTE202_GRASS = ((175, 827), (178, 827))   # south of Route 202's first ledge, out of every trainer's sight
+# From north of the ledge, before Natalie is beaten: back by the grass. SANDGEM_HEAL's own way
+# from there crosses her sight, so after Tristan she was fought hurt on the way to heal.
+ROUTE202_HEAL = (("walk", ROUTE202_GRASS[0]),) + SANDGEM_HEAL
 GRIND_BATTLES = 60      # wild battles at most in one grind; past it the route goes on
 GRIND_PACES = 200       # paces in the grass with no battle before the script gives up
 
@@ -65,7 +68,7 @@ ROUTE = [
     ("exit", 418), ("text", "yes"),                    # the scene outside the lab
     ("exit", 420), ("heal",), ("exit", 418),
     ("grind", 11, ROUTE202_GRASS, SANDGEM_HEAL),       # a run comes at level 7; Route 202's trainers need more
-    ("walk", (170, 815), SANDGEM_HEAL), ("mend", SANDGEM_HEAL),  # past Tristan; each trainer is met healed
+    ("walk", (170, 815), ROUTE202_HEAL), ("mend", ROUTE202_HEAL),  # past Tristan; each trainer is met healed
     ("walk", (183, 820), SANDGEM_HEAL), ("mend", SANDGEM_HEAL),  # past Natalie
     ("walk", (173, 796), SANDGEM_HEAL), ("text", "yes"),  # past Logan; Jubilife's arrival
     ("exit", 29), ("talk", (6, 3)), ("text", "yes"),   # Barry takes the Parcel
@@ -127,7 +130,10 @@ class Runner:
             self.at, self.sub = start, sub
             yield from self._battle()
             yield from self._text("yes", after_battle=True)
-            if self.route[start][0] == "starter":
+            action, *args = self.route[start]
+            if action == "walk" and len(args) > 1 and needs_heal(self.nds):   # as _walk does after its battles
+                yield from self._trip(args[1])
+            if action == "starter":
                 start += 1
             else:
                 sub += 1
@@ -223,13 +229,14 @@ class Runner:
 
     def _grind(self, level, tiles, heal_trip):
         """Wild battles in the grass, pacing between two tiles, until a party Pokémon reaches
-        `level` (or GRIND_BATTLES are fought). Between battles, a party with any damage goes
-        on heal_trip: Kaizo's wild Pokémon beat a lone starter from three quarters of its HP."""
-        for _ in range(GRIND_BATTLES):
-            if max(m.level for m in gen4.read_party(self.nds)) >= level:
-                return
+        `level` (or GRIND_BATTLES are fought). Between battles, and after the last, a party with
+        any damage goes on heal_trip: Kaizo's wild Pokémon beat a lone starter from three
+        quarters of its HP, and the route's next trainer is met healed."""
+        for i in range(GRIND_BATTLES + 1):
             if needs_heal(self.nds, hp_share=1.0):
                 yield from self._trip(heal_trip)
+            if i == GRIND_BATTLES or max(m.level for m in gen4.read_party(self.nds)) >= level:
+                return
             for k in range(GRIND_PACES):
                 outcome = O.walk_to(self.nds, None, tiles[k % 2])
                 if (yield from self._battle_or_scene(outcome)):

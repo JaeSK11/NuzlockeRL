@@ -3019,3 +3019,161 @@ is possible here.
 | No run has shown the badge is possible here | No run has fought Roark | Open: an existence proof, after the user's call on items |
 | Roark's team may be out of reach without items | The agent has no item action in battle | Open: the user's call |
 | An over-cap starter earns about 100 before its run ends `no_badge` | The cap is only checked at Roark | Open: the user's call on ending such a run sooner |
+
+## 58. A catch costs the rest of the run about 43 (2026-11-26)
+
+Goal: the second review's test (§57). Does a catch help the rest of a
+run, apart from its own reward?
+
+**The test.** From each of the 51 catchable battles of §50, runs9's
+checkpoint 930, widened without the ball reset, played the run to its
+end twice with the same seed: once throwing at every chance in that
+battle, once never throwing in it. All 102 runs finished.
+
+| | Throw | Fight |
+|---|---|---|
+| Caught in that battle | 45 of 51 | — |
+| Return in that battle | 42.7 | 5.9 |
+| Return after it | 21.3 | 64.6 |
+| Route step reached | 52.6 | 60.2 |
+| Ended as a wipe / `no_badge` | 48 / 3 | 38 / 13 |
+
+Throwing came out ahead in 10 of the 51 pairs. Even with the catch
+reward of 50, it nets about −6.5 a battle. Of the 45 pairs with a catch,
+16 runs died within 3 route steps of it after throwing, against 3 after
+fighting. So, under the current policy, the agent is right not to catch.
+
+**Why.** Two of those runs, replayed decision by decision:
+- Route 201 (step 3). Throwing took several turns, so Chimchar left the
+  battle at 10 HP, and the route walked on into more wild battles with
+  no heal. Chimchar fainted two battles later, and the caught Zigzagoon
+  lost the next one.
+- Route 203 (step 44). The starter won a trainer battle with most of its
+  HP. At the next Pokémon Center, the agent left it, a level-22
+  Monferno, in the PC (it chose "leave" at 25% odds) and took only the
+  level-5 Chingling. The next trainer's level-10 Eevee won in one turn.
+
+A lone starter is never asked at the PC, so these choices only come up
+after a catch, and the policy has rarely made them. §50's party HP after
+throwing (87%) also counted the caught Pokémon's full HP, so it
+understated what throwing costs the starter.
+
+**runs10's first 62 updates.** From update 931 to 992, over 921 runs:
+- Throw odds were 9.6% at first and 2% to 3% from update 939 on: 138
+  throws in 4,005 chances (3.45%), against runs9's 0.5%.
+- 46 catches in 1,784 battles with a chance. `ball_adv` averaged −0.55
+  and was above 0 in 18 of 44 updates.
+- The starter was left in the PC 16 times in 281 choices, and the lead
+  changed twice in 130. No caught Pokémon passed level 12, almost none
+  was alive at a run's end, and no run fought Roark.
+- Fresh runs wiped 92% of the time, restarts 69%, and catch restarts 73%.
+  43 of the 443 restart states are tagged, and 13 hold a caught Pokémon.
+
+runs10 was stopped at update 992 to give the test the whole machine,
+but the test had already finished on two cores. 2 updates were lost.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| A catch cost the rest of the run about 43 | Throwing drains the starter and no heal comes before the next battles; and the PC choice, only asked after a catch, sometimes leaves the starter behind | Open: the user's call on healing after a draining battle; runs10 keeps training the PC choice |
+| §50's party HP after throwing understated its cost | It counted the caught Pokémon's full HP | The replays check the starter's own HP |
+| runs10's throw odds fell from 10% to 2% | Under the current policy, a throw nets about −6.5 a battle | Open: as above |
+| runs10 was stopped for the test after the test had finished | Its progress wasn't checked first | 2 updates lost; runs10 resumes from checkpoint 990 |
+
+## 59. A scripted player, and three route bugs it found (2026-11-27)
+
+Goal: the second review's existence proof (§57). Can a player with
+fixed rules take Roark's badge, using only the agent's actions?
+
+**The player.** `scripts/scripted_run.py` acts only through
+`RunEnv.step`, and reads the game to decide. Its rules:
+- Moves: a sure knockout with the most accurate move, else the highest
+  expected damage.
+- Catching: at a catchable wild battle, weaken the foe to half its HP
+  (or put it to sleep, or paralyze it), then throw up to 6 times. It
+  stops while its own Pokémon is under 55% HP.
+- Experience: on a battle's first turn, the strongest healthy Pokémon
+  goes in, so the weak lead still shares the experience.
+- Switching: a Pokémon under 30% HP that can't finish the foe gives way
+  to a healthy one with a better matchup.
+- PC: take everyone. The weakest Pokémon under the cap leads, except on
+  Roark's trip, where the strongest does.
+
+**Runs.** 17 runs: three starters, seeds 0 to 4, over five versions of
+the rules. All 17 wiped, and none reached Roark.
+
+| Furthest route step | Runs | Where |
+|---|---|---|
+| 3 | 2 | Route 201: a wild Zigzagoon, against Turtwig |
+| 10 | 4 | The grind: a wild Burmy, 3 of them against Turtwig |
+| 11 | 6 | Tristan (3) and Natalie (3) |
+| 25 | 2 | A Jubilife clown |
+| 38 | 2 | Barry's second battle |
+| 46 | 1 | Diana, in the Oreburgh Gate |
+
+**How the runs ended.**
+- Burmy knows Leech Life, which is super effective on Turtwig, so it
+  heals by more than Tackle takes off. Turtwig lost 12 HP a turn while
+  Burmy stayed at full HP.
+- Tristan's three level-5s use Sand-Attack and Mud-Slap. A lone
+  level-11 Piplup met him at 27 to 35 of its 35 HP and still lost.
+  Natalie was fought just after Tristan, with no heal between: in two
+  of her wins the party was at 6 HP or 2 HP.
+- Further on, a lone level-15 Burmy that only knew Leech Life lost to
+  Barry's six. A level-22 Monferno at full HP lost to Diana's Hypnosis,
+  Lovely Kiss and Destiny Bond. Without items in battle, sleep has no
+  answer.
+- Caught Pokémon rarely lasted. Route 201's walk (step 3) has no heal
+  trip, so a Zigzagoon weakened for the catch walks on to Sandgem
+  hurt. A Burmy caught on Route 202 reached levels 11 to 15 in some
+  runs.
+- The starter passes the cap of 16 on Route 203. A run with no caught
+  Pokémon alive at or under 16 would end as `no_badge` at Roark.
+
+**Three route bugs.** Four of runs10's step-11 restart states were each
+saved at Tristan's battle. After it, the scripted player went to heal
+each time, and met Natalie on the way, at 8 to 15 of its 33 to 35 HP.
+The ROM's sight tiles (`fieldmap.sight`) show why. Tristan stands at
+(166, 813) and looks down to z 818. Natalie stands at (181, 818) and
+looks down to (181, 822).
+1. `SANDGEM_HEAL`'s way from north of the first ledge crosses Natalie's
+   sight. So after Tristan, the party walked into her on the way to
+   heal. That is the scripted runs' "Natalie just after Tristan".
+2. A restart plays its saved battle, then the walk it interrupted, from
+   the walk's start. It skipped the walk's heal check after a battle,
+   so a party under half its HP walked on unhealed.
+3. The grind stopped as soon as a Pokémon reached level 11, before its
+   heal check. So a fresh run met Tristan, on the next walk, still hurt
+   from the grind.
+
+All three break the route's own rule that each trainer is met healed.
+They are bugs, not new heals: the open question of healing after a
+draining battle (§58) is still the user's call. The fixes:
+- Steps 11 and 12 heal by `ROUTE202_HEAL`: back to the grind's grass
+  first, which no trainer sees, then to Sandgem.
+- After a restart's saved battle, a walk runs its heal check, as it
+  does after its own battles.
+- The grind's heal check comes before its level check, so the grind
+  ends healed.
+
+A test covers each, and each test fails on the old route code and
+passes on the new. Restart states saved at steps 11 and 12 have the old
+action, so `_load_restart` drops them.
+
+**What the runs say.** No fixed rules got past step 46, and Roark's fight
+was never tested. Beyond the bugs, three things look like limits of the
+rules and actions rather than of the method. The user decides each:
+- No items in battle, so sleep, confusion and Destiny Bond have no
+  answer (roadmap step 5).
+- The cap: a caught Pokémon has to survive and grow to about 16 while
+  the starter is benched.
+- No heal after a draining catch on Route 201 (§58).
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| No scripted run got past step 46 of 71 | Kaizo's trainers beat a lone Pokémon, and a catch rarely lives to grow | Open: the user's calls on items in battle, the cap, and healing after a catch |
+| A restart walked on hurt after its saved battle | `play()` replayed the battle, then the walk, but not the walk's heal check | The heal check runs after the saved battle too; a test |
+| Natalie was fought hurt, just after Tristan | `SANDGEM_HEAL`'s way from north of the first ledge crosses her sight | Steps 11 and 12 heal by `ROUTE202_HEAL`, through the grass first; a test |
+| A fresh run met Tristan hurt from the grind | The grind checked the level before its heal check | The heal check comes first; the grind test checks the HP |
+| The probes first seemed to show Tristan met on the way to heal | They printed the battle that ended with the tile where the next one began | The ROM's sight tiles settled which trainer sees where |
+| The first report put the step-11 losses on low HP at Tristan | It mixed up Tristan's battle and Natalie's | Checked against the logs: in the fresh runs, Tristan was met at 27 to 35 of 35 HP, and Natalie hurt |
+| The scripted trace named the next battle's foes | It read them after the step, when a battle that followed at once was already up | It reads them from the ended battle's last decision |

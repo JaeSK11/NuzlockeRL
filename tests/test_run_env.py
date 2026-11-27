@@ -306,6 +306,45 @@ def test_grinding_fights_wild_battles_until_the_level(tmp_path):
     assert info["end"] == "no_badge"                                  # the route (one grind) played to its end
     assert [m.level for m in gen4.read_party(env.nds)] == [8]
     assert info["battles"] and all(b["trainer"] == 0 and b["outcome"] in ("WON", "CAUGHT", "FLED") for b in info["battles"])
+    turtwig = gen4.read_party(env.nds)[0]
+    assert turtwig.hp == turtwig.max_hp                               # healed after the last battle too: Tristan is next
+
+
+@needs_entrance
+def test_a_restart_in_a_walk_heals_after_its_battle(tmp_path):
+    """A restart plays its saved battle, then the walk it interrupted from the walk's start. A
+    party left under half its HP goes on the walk's heal trip first, as the walk does after its
+    own battles: without it, a restart walked on hurt into the route's next trainer."""
+    import route
+    import run_env as RE
+    walks = [("walk", tile, route.SANDGEM_HEAL) for tile in route.ROUTE202_GRASS * 20]
+    start = lone_turtwig(tmp_path, level=30, hp=30)                   # under half its HP, and sure to win
+    saves = tmp_path / "restarts"
+    saves.mkdir()
+    env = RE.RunEnv(start_state=start, route_actions=walks, restart_dir=str(saves))
+    obs, info = env.reset(seed=0)
+    assert info["decision"] == "battle" and env.trainer == 0 and len(list(saves.glob("*.json"))) == 1
+    env = RE.RunEnv(start_state=start, route_actions=walks, restart_dir=str(saves), restart_share=1.0)
+    obs, info = env.reset(seed=0)
+    assert info["restart"] and env.runner.heals == 0
+    while len(env.battles) == 0:
+        obs, reward, term, trunc, info = env.step(first_move(info))
+    assert env.runner.heals == 1                                      # the saved battle, then Sandgem's nurse
+
+
+@needs_entrance
+def test_a_heal_trip_after_tristan_goes_around_natalie(tmp_path):
+    """The walk up from the grind's grass meets Tristan. The heal trip after him, from north of
+    Route 202's first ledge, goes back by the grass: SANDGEM_HEAL's way from there crosses
+    Natalie's sight, so she was fought hurt on the way to heal."""
+    import route
+    import run_env as RE
+    acts = [("walk", route.ROUTE202_GRASS[0]), ("walk", (170, 815)), ("mend", route.ROUTE202_HEAL)]
+    env = RE.RunEnv(start_state=lone_turtwig(tmp_path, level=30, hp=60), route_actions=acts)
+    obs, info = env.reset(seed=0)
+    info = play_out(env, info)
+    assert env.runner.heals == 1 and info["end"] == "no_badge"
+    assert [b["trainer"] for b in info["battles"] if b["trainer"]] == [1]   # Tristan on the walk, then no Natalie
 
 
 @needs_entrance

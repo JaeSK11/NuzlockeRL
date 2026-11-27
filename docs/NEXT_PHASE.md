@@ -447,12 +447,15 @@ each run to the decisions. In order:
         test (§57): from each catchable battle, play the run to its end
         with and without the catch, and compare the return after it. If a
         catch adds nothing, the agent is right not to catch, apart from
-        the catch reward. Running beside runs10.
+        the catch reward. Done (§58): under runs9's policy a catch costs
+        the rest of the run about 43.
       - **h. An existence proof.** One run that takes Roark's badge under
         the rules with the agent's actions. Its states then become
         restarts along a winning path (Salimans and Chen). First, the
         user's call on items in battle: Roark's six Pokémon all hold one,
-        and the agent has no item action.
+        and the agent has no item action. A scripted player (§59,
+        `scripts/scripted_run.py`) got no further than step 46 of 71 in
+        17 runs, and found three route bugs on the way.
       - **i. The cap when it's broken.** The user's call: end a run once
         no living Pokémon is at or under the cap, or only once, also, no
         route before the boss can still give a catch.
