@@ -442,7 +442,10 @@ each run to the decisions. In order:
       - **f. Experience for caught Pokémon,** the blocker for the badge.
         The lead choice (§51) is the first lever. If caught Pokémon still
         stay far under the cap, let the agent choose who fights the
-        scripted grind on Route 202 (`route.py`).
+        scripted grind on Route 202 (`route.py`). Since §60 the grind goes
+        on until every party Pokémon has its level, and a second grind in
+        Oreburgh Mine raises the team to Roark's cap after the gym's
+        trainers.
       - **g. Does a catch help the rest of the run?** The second review's
         test (§57): from each catchable battle, play the run to its end
         with and without the catch, and compare the return after it. If a
@@ -455,10 +458,17 @@ each run to the decisions. In order:
         user's call on items in battle: Roark's six Pokémon all hold one,
         and the agent has no item action. A scripted player (§59,
         `scripts/scripted_run.py`) got no further than step 46 of 71 in
-        17 runs, and found three route bugs on the way.
-      - **i. The cap when it's broken.** The user's call: end a run once
-        no living Pokémon is at or under the cap, or only once, also, no
-        route before the boss can still give a catch.
+        17 runs, and found three route bugs on the way. Items in battle
+        stay banned (§60). With the team grinds, 15 more runs got no
+        further than step 38 of 80. Since §61 the agent and the scripted
+        player can run from wild battles, use Rare Candies and give held
+        items, and the scripted rules handle Bide and feed a weak catch.
+        Next: rerun the scripted player with them.
+      - **i. The cap when it's broken.** End a run once no living Pokémon
+        is at or under the cap. The user's call (§60): yes, but only once
+        a team can live to Roark, so after item h. Pokémon in the PC count
+        as living, and restart states that hold a lone starter over the cap
+        are dropped, or many episodes would start already lost.
       - **Later: one encoder for all party slots** (Deep Sets). The switch
         outputs to party slots 4 to 6 have never been trained; a shared
         encoder trains them from every slot, and suits step 7. It changes

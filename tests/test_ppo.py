@@ -287,6 +287,35 @@ def test_a_widened_checkpoint_plays_as_before_and_trains_on(tmp_path):
     assert torch.load(latest_checkpoint(new_run), weights_only=True)["update"] == old["update"] + 1
 
 
+class RunBanditEnv(BanditEnv):
+    """The bandit with a fifth action, always masked: the policy should play as before."""
+    action_space = gym.spaces.Discrete(5)
+    MASK = np.array([True, True, True, False, False])
+
+
+def test_a_checkpoint_widened_with_a_new_action_plays_as_before(tmp_path):
+    old_run, new_run = str(tmp_path / "old"), str(tmp_path / "new")
+    train(BANDITS, old_run, 64 * 2, seed=0, cfg=Config(rollout=64, checkpoint_every=1), log=lambda *_: None)
+    old = torch.load(latest_checkpoint(old_run), weights_only=True)
+    new = widen_checkpoint(old, 3, 5)
+    assert new["n_actions"] == 5 and new["agent"]["actor.4.weight"].shape[0] == 5
+    os.makedirs(new_run)
+    save_checkpoint(new_run, new)
+    before, norm = load_policy(latest_checkpoint(old_run))
+    after, _ = load_policy(latest_checkpoint(new_run))
+    x = norm(torch.rand(16, 3, dtype=torch.float64))
+    with torch.no_grad():
+        assert torch.equal(after.actor(x)[:, :4], before.actor(x))
+        assert after.actor(x)[:, 4].abs().max() < 0.1                     # as a new action at the start
+    mask = torch.ones(16, 5, dtype=torch.bool)
+    mask[:, 4] = False
+    assert torch.allclose(after.log_probs(x, mask)[:, :4], before.log_probs(x, mask[:, :4]))
+
+    train([RunBanditEnv] * 4, new_run, old["decisions"] + 64, seed=0, cfg=Config(rollout=64, checkpoint_every=1),
+          log=lambda *_: None)                                            # the optimizer's state fits
+    assert torch.load(latest_checkpoint(new_run), weights_only=True)["update"] == old["update"] + 1
+
+
 def test_a_reset_action_starts_over_and_the_others_stay(tmp_path):
     run = str(tmp_path / "run")
     train(BANDITS, run, 64 * 2, seed=0, cfg=Config(rollout=64, checkpoint_every=1), log=lambda *_: None)

@@ -261,7 +261,7 @@ def test_mask_matches_what_the_game_accepts(name, tmp_path, monkeypatch):
 @needs_rom
 def test_encore_allows_only_the_encored_move_and_uses_it_from_fight(tmp_path):
     path, s = lock_prompt("encore", tmp_path)
-    assert s.encored and action_mask(s).tolist() == [True, False, False, False, True] + [False] * 5
+    assert s.encored and action_mask(s).tolist() == [True, False, False, False, True] + [False] * 6
     e = BattleEnv([path], ROM)
     e.reset(options={"state": path, "keep_rng": True})
     pp = e.snap.player[e.snap.player_active].pp[0]
@@ -331,6 +331,17 @@ def set_first_ball(env, item, count):
     for bag in ("bag", "bagBattle"):
         env.nds.memory.write_u16(False, env.addrs[bag] + off, item)
         env.nds.memory.write_u16(False, env.addrs[bag] + off + 2, count)
+
+
+@needs_rom
+def test_run_ends_a_wild_battle_and_is_masked_in_a_trainer_battle():
+    e = BattleEnv([WILD], ROM)
+    obs, info = e.reset(options={"state": BARRY})
+    assert not info["action_mask"][battle_env.RUN_ACTION] and field(obs, "wild")[0] == 0
+    obs, info = e.reset(seed=0, options={"state": WILD})
+    assert info["action_mask"][battle_env.RUN_ACTION] and field(obs, "wild")[0] == 1
+    _, reward, term, trunc, info = e.step(battle_env.RUN_ACTION)
+    assert term and info["outcome"] == "FLED" and info["pick"] == "run" and reward == 0
 
 
 @needs_rom
@@ -430,13 +441,13 @@ def test_turn_cap_is_a_loss():
 @needs_rom
 def test_action_masks(env):
     info, _ = play(env, BARRY, [])
-    assert info["action_mask"].tolist() == [True] + [False] * 9 and info["input_mode"] == 0
+    assert info["action_mask"].tolist() == [True] + [False] * 10 and info["input_mode"] == 0
     with pytest.raises(ValueError):
         env.step(1)
     env.step(0)
 
     info, _ = play(env, WILD, [])
-    assert info["action_mask"].tolist() == [True, True] + [False] * 8 and info["input_mode"] == 1
+    assert info["action_mask"].tolist() == [True, True] + [False] * 8 + [True] and info["input_mode"] == 1   # Run: wild
     for masked in (2, 4):
         with pytest.raises(ValueError):
             env.step(masked)
@@ -532,7 +543,7 @@ def test_switch_makes_the_target_active_and_the_game_keeps_the_menu_order(team_e
     env = team_env
     _, info = reset_on(env, "team3")
     start = [m.pid for m in env.snap.player]
-    assert info["action_mask"].tolist() == [True] * 6 + [False] * 4
+    assert info["action_mask"].tolist() == [True] * 6 + [False] * 4 + [True]
     _, reward, term, trunc, info = env.step(4)
     assert (term, trunc, info["switched_in"]) == (False, False, True)
     assert active_pid(env) == start[1]
@@ -548,7 +559,7 @@ def test_switch_makes_the_target_active_and_the_game_keeps_the_menu_order(team_e
 def test_every_switch_position_reaches_its_pokemon(team_env, action):
     _, info = reset_on(team_env, "team6_vs_starly12")
     start = [m.pid for m in team_env.snap.player]
-    assert info["action_mask"].tolist() == [True] * 2 + [False] * 2 + [True] * 5 + [False]
+    assert info["action_mask"].tolist() == [True] * 2 + [False] * 2 + [True] * 5 + [False, True]
     _, _, _, trunc, info = team_env.step(action)
     assert not trunc and info["switched_in"]
     assert active_pid(team_env) == start[action - 3]
@@ -579,7 +590,7 @@ def test_forced_switch_is_a_decision_that_only_allows_alive_teammates(team_env):
     lead = -(FAINT_BASE + FAINT_SCALE * strengths(team_env.snap.player)[0])
     assert rows[-1] == (lead, ["PLAYER_FAINTED"], False, False)
     assert info["forced_switch"] is True and info["turn"] == len(rows)
-    assert info["action_mask"].tolist() == [False] * 4 + [True, True] + [False] * 4
+    assert info["action_mask"].tolist() == [False] * 4 + [True, True] + [False] * 5
     assert team_env.snap.player[0].hp == 0
     obs = observation(team_env.snap, info["turn"], team_env.turn_cap, True)
     assert obs[OBS_SLICES["forced_switch"]][0] == 1.0
@@ -623,12 +634,12 @@ def test_struggle_is_the_only_action_with_no_pp_and_the_game_uses_it(team_env):
     env = team_env
     _, info = reset_on(env, "no_pp_vs_starly12", seed=0)
     enemy_hp = env.snap.enemy[0].hp
-    assert info["action_mask"].tolist() == [True, True, False, False, True] + [False] * 5
+    assert info["action_mask"].tolist() == [True, True, False, False, True] + [False] * 5 + [True]
     env.step(0)
     _, _, _, _, info = env.step(1)
     assert env.snap.player[0].pp == [0, 0, 0, 0]
     assert env.snap.enemy[0].hp == enemy_hp, "Tail Whip and Meditate do no damage"
-    assert info["action_mask"].tolist() == [True] + [False] * 9, "a living teammate is masked too"
+    assert info["action_mask"].tolist() == [True] + [False] * 9 + [True], "a living teammate is masked too"
     obs = observation(env.snap, 2, env.turn_cap)
     assert [obs[OBS_SLICES[f"party0.move{k}.valid"]][0] for k in range(2)] == [0.0, 0.0]
     _, _, term, trunc, info = env.step(0)
@@ -686,7 +697,7 @@ def test_observation_carries_types_and_move_features_from_the_rom(team_env):
     assert field(obs, "party3.alive")[0] == 0 and not field(obs, "party3.types").any()
     assert not field(obs, "stages_player").any() and not field(obs, "stages_enemy").any()
     assert field(obs, "turn")[0] == 0 and field(obs, "forced_switch")[0] == 0
-    assert not obs[OBS_SLICES["weather"].start:].any(), "no effects at the start"
+    assert not obs[OBS_SLICES["weather"].start:OBS_SLICES["wild"].start].any(), "no effects at the start"
 
 
 @needs_rom
@@ -786,17 +797,21 @@ def test_observation_carries_type_matchups_against_the_enemy():
 
 
 def test_action_mask_rules_without_an_emulator():
-    def mask(hps, pps=(3,) * 3, order=(), forced=False, can_throw=False):
+    def mask(hps, pps=(3,) * 3, order=(), forced=False, can_throw=False, can_run=False, trapped=False):
         party = tuple(gen4.Mon(pid=i + 1, checksum_ok=True, species=1, hp=hp, max_hp=20, moves=[33, 0, 0, 0],
                                pp=[pp, 0, 0, 0]) for i, (hp, pp) in enumerate(zip(hps, pps)))
         enemy = (gen4.Mon(pid=9, checksum_ok=True, species=1, hp=5, max_hp=20, moves=[33, 0, 0, 0], pp=[3, 0, 0, 0]),)
-        return action_mask(Snapshot(party, enemy, 0, 0, (6,) * 8, (6,) * 8, order), forced, can_throw).astype(int).tolist()
-    assert mask([5, 0, 7]) == [1, 0, 0, 0, 0, 1, 0, 0, 0, 0], "the fainted teammate at position 1 is masked"
-    assert mask([5, 0, 7], order=(0, 2, 1, 3, 4, 5)) == [1, 0, 0, 0, 1, 0, 0, 0, 0, 0], "switch targets follow the menu order"
-    assert mask([0, 4, 7], forced=True) == [0, 0, 0, 0, 1, 1, 0, 0, 0, 0]
-    assert mask([5, 4, 7], pps=(0, 3, 3)) == [1, 0, 0, 0, 0, 0, 0, 0, 0, 0], "Struggle is the only action"
+        snap = Snapshot(party, enemy, 0, 0, (6,) * 8, (6,) * 8, order, trapped=trapped)
+        return action_mask(snap, forced, can_throw, can_run).astype(int).tolist()
+    assert mask([5, 0, 7]) == [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0], "the fainted teammate at position 1 is masked"
+    assert mask([5, 0, 7], order=(0, 2, 1, 3, 4, 5)) == [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0], "switch targets follow the menu order"
+    assert mask([0, 4, 7], forced=True) == [0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0]
+    assert mask([5, 4, 7], pps=(0, 3, 3)) == [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "Struggle is the only action"
     assert mask([5, 4, 7], can_throw=True)[9] == 1 and mask([5, 4, 7], pps=(0, 3, 3), can_throw=True)[9] == 1
     assert mask([0, 4, 7], forced=True, can_throw=True)[9] == 0, "no ball at a forced switch"
+    assert mask([5, 4, 7], can_run=True)[10] == 1 and mask([5, 4, 7], pps=(0, 3, 3), can_run=True)[10] == 1
+    assert mask([0, 4, 7], forced=True, can_run=True)[10] == 0, "no run at a forced switch"
+    assert mask([5, 4, 7], can_run=True, trapped=True)[10] == 0, "a trapped Pokémon can't flee"
 
 
 @needs_rom

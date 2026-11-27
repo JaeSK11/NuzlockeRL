@@ -436,14 +436,18 @@ def train(env_fns, run_dir: str, total_decisions: int, seed: int = 0, cfg: Confi
     return decisions
 
 
-def widen_checkpoint(ckpt: dict, obs_dim: int) -> dict:
+def widen_checkpoint(ckpt: dict, obs_dim: int, n_actions: int | None = None) -> dict:
     """The checkpoint for an observation with new values appended at its end. The new inputs
     get zero weights, so the policy and the value start exactly as before, and learn from
     there. Their running mean starts at 0 and variance at 1, and adapt at the rate the old
-    count allows."""
+    count allows. With n_actions, new actions appended at the end of the action list too:
+    each starts as reset_action draws it, its logit near 0. Where one is masked, the policy
+    plays as before."""
     old = ckpt["obs_dim"]
     if obs_dim < old:
         raise ValueError(f"the checkpoint has {old} observation values, more than {obs_dim}")
+    if n_actions is not None and n_actions < ckpt["n_actions"]:
+        raise ValueError(f"the checkpoint has {ckpt['n_actions']} actions, more than {n_actions}")
     extra, out = obs_dim - old, dict(ckpt, obs_dim=obs_dim)
 
     def widen(t, fill=0.0):     # a first layer's weights (or its Adam moments), or a norm buffer
@@ -457,6 +461,20 @@ def widen_checkpoint(ckpt: dict, obs_dim: int) -> dict:
     out["optimizer"] = dict(ckpt["optimizer"], state={
         i: {k: widen(v) if names[i] in first and k != "step" else v for k, v in st.items()}
         for i, st in ckpt["optimizer"]["state"].items()})
+    if n_actions is None or n_actions == ckpt["n_actions"]:
+        return out
+    old_actions, rows = ckpt["n_actions"], n_actions - ckpt["n_actions"]
+
+    def grow(t):                # the output layer's weights or bias (or its Adam moments): new rows of 0
+        return torch.cat([t, t.new_zeros((rows, *t.shape[1:]))], 0)
+    last = ("actor.4.weight", "actor.4.bias")
+    out["agent"] = {k: grow(v) if k in last else v for k, v in out["agent"].items()}
+    out["optimizer"] = dict(out["optimizer"], state={
+        i: {k: grow(v) if names[i] in last and k != "step" else v for k, v in st.items()}
+        for i, st in out["optimizer"]["state"].items()})
+    out["n_actions"] = n_actions
+    for action in range(old_actions, n_actions):
+        out = reset_action(out, action, seed=action)
     return out
 
 

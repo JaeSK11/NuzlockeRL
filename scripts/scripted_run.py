@@ -13,13 +13,20 @@ Rules (Player):
 - catch: at a wild battle where the rules allow a catch, weaken the foe with the strongest
   move that won't knock it out until it is at or under CATCH_HP of its HP (or asleep or
   paralyzed), then throw, up to MAX_THROWS, while the active Pokémon has CATCH_SAFE_HP of its HP.
-- feeding: on a battle's first turn, send in the strongest healthy Pokémon (by stats times HP
-  share) unless the weak lead is under the cap and, in a wild battle, beats the foe alone, so
-  the weak one is a participant and shares the experience. A lead under half its HP goes out.
+- feeding: on a battle's first turn, before any catch, send in the strongest healthy Pokémon
+  (by stats times HP share) unless the weak lead is under the cap and, in a wild battle, beats
+  the foe alone, so the weak one is a participant and shares the experience. A lead under half
+  its HP goes out.
+- Bide: while the foe stores energy, a status move, unless an attack knocks it out.
+- run: in a wild battle, once no catch is under way, from a foe that would knock the active
+  Pokémon out before it could knock the foe out.
 - rescue: an active Pokémon under SWITCH_HP of its HP that can't finish the foe gives way to a
   healthy one with the best matchup. A forced switch picks by health, matchup and level.
 - PC: take everyone (the masks apply the level cap); the lead is the weakest Pokémon under the
   cap (to feed it), but on Roark's trip the strongest.
+- bag: a Rare Candy for the weakest Pokémon under the cap while it is 4 or more levels under
+  the strongest, and at the boss's PC until all reach the cap; a held item for the weakest
+  Pokémon holding none.
 """
 import argparse
 import json
@@ -41,6 +48,7 @@ CATCH_HP = 0.5
 MAX_THROWS = 6
 CATCH_SAFE_HP = 0.55   # an active Pokémon under this share of its HP doesn't weaken or throw
 STATUS_CATCH = 0x07 | 0x40          # asleep or paralyzed: catch odds up
+VOLATILE_BIDE = 3 << 8              # statusVolatile: storing energy (the layout of battle_env's VOLATILE_ bits)
 SWITCH_HP = 0.3
 
 
@@ -107,15 +115,21 @@ class Player:
         cap = env.run.level_cap() or 100
         if env.battle.forced:
             return self.pick_switch(s, party, foe, mask)
+        if turn == 0:                                   # before a catch too: a weak lead doesn't weaken the foe alone
+            sw = self.opening_switch(s, party, me, foe, mask, cap)
+            if sw is not None:
+                return sw
+        if s.volatile[1] & VOLATILE_BIDE and self.best_attack(me, foe, mask)[1] < foe.hp:
+            k = next((k for k in range(4) if mask[k] and me.moves[k] and romdata.move(me.moves[k]).cls == 2), None)
+            if k is not None:                           # Bide pays back double the damage it takes
+                return k
         if mask[BE.BALL_ACTION] and self.throws < MAX_THROWS and me.hp >= CATCH_SAFE_HP * me.max_hp:
             if foe.hp <= CATCH_HP * foe.max_hp or foe.status & STATUS_CATCH:
                 self.throws += 1
                 return BE.BALL_ACTION
             return self.best_attack(me, foe, mask, avoid_ko=True)[0]
-        if turn == 0:
-            sw = self.opening_switch(s, party, me, foe, mask, cap)
-            if sw is not None:
-                return sw
+        if mask[BE.RUN_ACTION] and self.outmatched(me, foe, mask):
+            return BE.RUN_ACTION
         sw = self.rescue_switch(s, party, me, foe, mask)
         if sw is not None:
             return sw
@@ -139,6 +153,11 @@ class Player:
         if not hurt and (me.level >= cap or (not self.env.trainer and self.safe_alone(me, foe))):
             return None
         return 3 + pos
+
+    def outmatched(self, me, foe, mask) -> bool:
+        """The foe knocks the active Pokémon out in fewer turns than it takes to knock the foe out."""
+        hit = self.best_attack(me, foe, mask)[1]
+        return hit <= 0 or foe.hp / hit > me.hp / max(self.threat(foe, me), 1.0)
 
     @staticmethod
     def power(m):
@@ -195,12 +214,32 @@ class Player:
         weak = [i for i in under if levels[i] + 3 <= strongest]
         return min(weak, key=lambda i: levels[i]) if weak else 0
 
+    def bag_action(self, info):
+        """A Rare Candy for the weakest Pokémon under the cap, if it is 4 or more levels under the
+        strongest; at the boss's PC, for the weakest under the cap until all reach it. A held item
+        for the weakest Pokémon that holds none."""
+        party = gen4.read_party(self.env.nds)
+        mask = info["action_mask"]
+        alive = [k for k in range(len(party)) if mask[k]]
+        if info["decision"] == "hold":
+            free = [k for k in alive if not party[k].item]
+            return min(free, key=lambda k: party[k].level) if free else BE.BAG_DONE
+        cap = self.env.run.level_cap() or 100
+        under = [k for k in alive if party[k].level < cap]
+        if not under:
+            return BE.BAG_DONE
+        k = min(under, key=lambda k: party[k].level)
+        at_boss = bool(self.env.pc and self.env.pc["cap"])
+        return k if at_boss or party[k].level + 4 <= max(m.level for m in party) else BE.BAG_DONE
+
     def act(self, info):
         d = info["decision"]
         if d == "starter":
             return self.starter_slot
         if d in ("pc", "lead"):
             return self.pc_action(info)
+        if d in ("candy", "hold"):
+            return self.bag_action(info)
         return self.battle_action(info)
 
 
@@ -229,8 +268,8 @@ def play_run(env, starter_slot, seed, verbose=False):
             sn = env.battle.snap
             me = sn.player[sn.player_active]
             fo = sn.enemy[sn.enemy_active if sn.enemy_active is not None else 0]
-            what = (f"move {romdata.move_name(me.moves[act])}" if act < 4 else
-                    "ball" if act == BE.BALL_ACTION else f"switch {act - 3}")
+            what = (f"move {romdata.move_name(me.moves[act])}" if act < 4 else "ball" if act == BE.BALL_ACTION
+                    else "run" if act == BE.RUN_ACTION else f"switch {act - 3}")
             moves.append(f"{romdata.species_name(me.species)} {me.level} {me.hp}/{me.max_hp} vs "
                          f"{romdata.species_name(fo.species)} {fo.level} {fo.hp}/{fo.max_hp}: {what}")
         obs, r, term, trunc, info = env.step(act)

@@ -20,6 +20,10 @@ needs_entrance = pytest.mark.skipif(not (os.path.exists(ROM) and os.path.exists(
 
 
 def first_move(info):
+    """The first action allowed; at a bag choice none, so the bag stays as it is."""
+    if info.get("decision") in ("candy", "hold"):
+        import battle_env
+        return battle_env.BAG_DONE
     return next(a for a in range(len(info["action_mask"])) if info["action_mask"][a])
 
 
@@ -52,10 +56,10 @@ def lone_turtwig(tmp_path, level=7, hp=None, species=387, moves=None, exp=None, 
 
 
 def take_all(env, info):
-    """Answer each PC choice with "take along", and the lead with the party's first, so the party
-    stays as it is."""
-    while info["decision"] in ("pc", "lead"):
-        _, _, _, _, info = env.step(0)                                  # run_env.PC_TAKE, or the first leads
+    """Answer each PC choice with "take along", the lead with the party's first, and each bag
+    choice with none, so the party stays as it is."""
+    while info["decision"] in ("pc", "lead", "candy", "hold"):
+        _, _, _, _, info = env.step(first_move(info))                   # run_env.PC_TAKE, or the first leads
     return info
 
 
@@ -176,7 +180,7 @@ def test_before_roark_the_party_heals_and_leaves_the_pokemon_over_his_cap(tmp_pa
         asked += 1
         _, _, _, _, info = env.step(RE.PC_TAKE)
     assert info["decision"] == "lead"
-    _, _, _, _, info = env.step(0)
+    take_all(env, env.step(0)[4])                                           # the bag stays as it is
     assert asked == 5 and env.end == "no_badge" and env.runner.heals == 1
     assert gen4.read_location(env.nds).map_id == 47 and gen4.read_player_tile(env.nds)[:2] == (5, 4)
     left = gen4.read_party(env.nds)
@@ -250,7 +254,7 @@ def test_before_roark_a_lone_pokemon_over_his_cap_stays_and_the_agent_picks_from
         if info["decision"] != "pc":
             break
     assert asked == 5 and info["decision"] == "lead"
-    _, _, _, _, info = env.step(0)                                          # the first of the four leads
+    take_all(env, env.step(0)[4])                                           # the first of the four leads
     assert env.end == "no_badge"
     team = gen4.read_party(env.nds)
     assert [m.pid for m in team] == [party[k].pid for k in (2, 3, 4, 5)]
@@ -264,10 +268,10 @@ def test_a_fainted_pokemon_stays_in_the_pc_and_is_never_offered():
     env = RE.RunEnv(start_state=FAINTED, route_actions=[("heal",), ("heal",)])
     _, info = env.reset(seed=0)
     asked = leads = 0
-    while info["decision"] in ("pc", "lead"):
+    while info["decision"] in ("pc", "lead", "candy", "hold"):
         asked += info["decision"] == "pc"
         leads += info["decision"] == "lead"
-        _, _, _, _, info = env.step(0)                                  # take along; the first leads
+        _, _, _, _, info = env.step(first_move(info))                   # take along; the first leads; no item
     assert (asked, leads) == (10, 2) and env.runner.heals == 2          # five living, twice
     box = [m for m in gen4.read_box(env.nds, 0) if m]
     assert len(box) == 1 and box[0].pid in env.run.dead
@@ -285,14 +289,46 @@ def test_after_the_pc_choice_the_agent_picks_the_lead():
     living = [m for m in gen4.read_party(env.nds) if m.hp > 0]
     while info["decision"] == "pc":
         obs, _, _, _, info = env.step(RE.PC_TAKE)
-    assert info["decision"] == "lead" and info["action_mask"].tolist() == [True] * 5 + [False] * 5
+    assert info["decision"] == "lead" and info["action_mask"].tolist() == [True] * 5 + [False] * 6
     assert obs[BE.OBS_SLICES["lead"]][0] == 1
     assert obs[BE.OBS_SLICES["party3.level"]][0] == pytest.approx(living[3].level / 100)
     _, _, _, _, info = env.step(3)
-    assert info["pick"] == "lead_changed" and env.end == "no_badge"
+    assert info["pick"] == "lead_changed"
+    take_all(env, info)
+    assert env.end == "no_badge"
     order = [m.pid for m in gen4.read_party(env.nds)]
     assert order == [living[k].pid for k in (3, 0, 1, 2, 4)]
     assert all(m.hp == m.max_hp for m in gen4.read_party(env.nds))
+
+
+@pytest.mark.skipif(not (os.path.exists(ROM) and os.path.exists(FAINTED)), reason="needs the fainted fixture (scripts/make_milestones.py)")
+def test_after_the_nurse_the_agent_uses_rare_candies_and_gives_held_items():
+    """The bag after a heal, worked by its menus (bag.py): a Rare Candy for each party Pokémon the
+    agent picks until it stops, then each held item for the one it picks, or for none."""
+    import battle_env as BE
+    import route
+    import run_env as RE
+    env = RE.RunEnv(start_state=FAINTED, route_actions=[("heal",)])
+    _, info = env.reset(seed=0)
+    while info["decision"] in ("pc", "lead"):
+        _, _, _, _, info = env.step(0)
+    before = gen4.read_party(env.nds)
+    assert info["decision"] == "candy" and info["action_mask"][BE.BAG_DONE]
+    assert route.bag_count(env.nds, BE.RARE_CANDY) == 10
+    obs, _, _, _, info = env.step(1)
+    assert info["pick"] == "candy_used" and info["decision"] == "candy"
+    assert obs[BE.OBS_SLICES["candy"]][0] == 1 and obs[BE.OBS_SLICES["candies_left"]][0] == pytest.approx(0.9)
+    obs, _, _, _, info = env.step(BE.BAG_DONE)
+    assert info["pick"] == "candy_none" and info["decision"] == "hold"
+    assert obs[BE.OBS_SLICES["hold"]].tolist() == [1, 0]                    # the Chilan Berry
+    obs, _, _, _, info = env.step(0)
+    assert info["pick"] == "hold_used" and obs[BE.OBS_SLICES["hold"]].tolist() == [0, 1]   # the White Herb
+    assert obs[BE.OBS_SLICES["party_items"]][:2].tolist() == [1, 0]         # the lead holds the berry
+    env.step(BE.BAG_DONE)
+    assert env.end == "no_badge"
+    after = gen4.read_party(env.nds)
+    assert after[1].level == before[1].level + 1 and after[0].item == BE.HOLD_ITEMS[0]
+    assert route.bag_count(env.nds, BE.RARE_CANDY) == 9 and route.bag_count(env.nds, BE.HOLD_ITEMS[1]) == 1
 
 
 @needs_entrance
@@ -308,6 +344,65 @@ def test_grinding_fights_wild_battles_until_the_level(tmp_path):
     assert info["battles"] and all(b["trainer"] == 0 and b["outcome"] in ("WON", "CAUGHT", "FLED") for b in info["battles"])
     turtwig = gen4.read_party(env.nds)[0]
     assert turtwig.hp == turtwig.max_hp                               # healed after the last battle too: Tristan is next
+
+
+@needs_entrance
+def test_grinding_goes_on_until_every_party_pokemon_has_the_level(tmp_path):
+    """A Pokémon over the level doesn't end the grind while another is under it. The grind
+    stopped at the first to reach the level, so a caught Pokémon met the route's trainers far
+    under them."""
+    import random
+    import pynds
+    import romdata as R
+    import route
+    import run_env as RE
+    import scenario
+    nds = pynds.PyNDS(ROM)
+    nds.load_state_from_file(lone_turtwig(tmp_path, level=29, species=130, exp=R.exp_for_level(130, 30) - 1))
+    nds.tick(2)                                                       # a Gyarados one win from 30
+    party = scenario.read_party_data(nds)
+    party.append(scenario.build_mon(445, 31, R.default_moves(445, 31), ivs=15,
+                                    trainer=scenario.Trainer.from_mon(party[0]), rng=random.Random(0)))
+    scenario.write_party(nds, party)
+    path = str(tmp_path / "under_and_over.state")
+    nds.save_state_to_file(path)
+    env = RE.RunEnv(start_state=path, route_actions=[("grind", 30, route.ROUTE202_GRASS, route.SANDGEM_HEAL)])
+    obs, info = env.reset(seed=0)
+    assert info["decision"] == "battle" and env.trainer == 0          # Garchomp is over 30, Gyarados isn't
+    info = play_out(env, info)
+    assert info["end"] == "no_badge"
+    assert [m.level for m in gen4.read_party(env.nds)] == [30, 31]
+
+
+@pytest.mark.skipif(not (os.path.exists(ROM) and os.path.exists(BEFORE_ROARK)), reason="needs milestone 15 (scripts/make_milestones.py)")
+def test_past_darius_the_party_trains_to_roarks_cap_in_the_mine(tmp_path):
+    """From Roark's tile, the gym's trainers beaten: back out to Oreburgh Mine, wild battles there
+    until every party Pokémon is at his cap, and back up to him, where the mend leaves the
+    Pokémon over the cap in the PC."""
+    import pynds
+    import romdata as R
+    import route
+    import run_env as RE
+    import scenario
+    nds = pynds.PyNDS(ROM)
+    nds.load_state_from_file(BEFORE_ROARK)
+    nds.tick(2)
+    garchomp, gyarados = scenario.read_party_data(nds)[:2]
+    gyarados["level"], gyarados["exp"] = 15, R.exp_for_level(gyarados["species"], 16) - 1   # one win from the cap
+    garchomp["level"], garchomp["exp"] = 20, R.exp_for_level(garchomp["species"], 20)
+    scenario.write_party(nds, [gyarados, garchomp])
+    path = str(tmp_path / "under_cap.state")
+    nds.save_state_to_file(path)
+    k = route.ROUTE.index(("grind", route.ROARK_CAP, route.MINE_FLOOR, route.MINE_B1F_HEAL))
+    env = RE.RunEnv(start_state=path, route_actions=route.ROUTE[k - 3:-2])    # the steps back to the mend before Roark
+    obs, info = env.reset(seed=0)
+    assert info["decision"] == "battle" and gen4.read_location(env.nds).map_id == 198
+    info = play_out(env, info)
+    assert info["end"] == "no_badge" and env.runner.heals >= 1
+    assert gen4.read_location(env.nds).map_id == 47 and gen4.read_player_tile(env.nds)[:2] == (5, 4)
+    assert all(b["trainer"] == 0 for b in info["battles"])
+    party = gen4.read_party(env.nds)
+    assert [(m.species, m.level) for m in party] == [(gyarados["species"], 16)] and party[0].hp == party[0].max_hp
 
 
 @needs_entrance
@@ -408,7 +503,7 @@ def test_a_battle_that_allows_a_catch_shows_it_and_leaves_a_tagged_restart(tmp_p
     assert obs[BE.OBS_SLICES["run_level_cap"]] == pytest.approx(0.16)    # Roark's cap
     chances = []
     while not (len(env.battles) == 1 and info["decision"] == "battle"):  # fight it, on to the next
-        obs, _, term, trunc, info = env.step(first_move(info) if info["decision"] == "battle" else 0)
+        obs, _, term, trunc, info = env.step(first_move(info))
         assert not (term or trunc)
         if "battle_outcome" in info:
             chances.append(info["catch_chance"])
@@ -459,6 +554,7 @@ def test_a_hurt_party_goes_to_the_pokemon_center_before_grinding(tmp_path):
     import run_env as RE
     env = RE.RunEnv(start_state=lone_turtwig(tmp_path, hp=5), route_actions=[("grind", 8, route.ROUTE202_GRASS, route.SANDGEM_HEAL)])
     obs, info = env.reset(seed=0)
+    info = take_all(env, info)                                        # the bag after the nurse
     assert info["decision"] == "battle" and env.trainer == 0
     assert env.runner.heals == 1                                      # healed at Sandgem before the first wild battle
     turtwig = env.battle.snap.player[0]

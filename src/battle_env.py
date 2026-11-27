@@ -27,12 +27,13 @@ import romdata
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_ROM = os.environ.get("NUZLOCKERL_ROM", os.path.join(ROOT, "roms/plat-kaizo-nightmare-update-final.nds"))
 
-FIGHT_XY, POKEMON_XY = (128, 87), (215, 160)
+FIGHT_XY, POKEMON_XY, RUN_XY = (128, 87), (215, 160), (128, 176)
 MOVE_XY = [(64, 40), (192, 40), (64, 115), (192, 115)]
 PARTY_XY = [(64, 28), (192, 36), (64, 76), (192, 84), (64, 124), (192, 132)]   # party-menu positions 0-5
 SHIFT_XY = (128, 110)           # confirm button of the party submenu, also in the forced switch
-N_ACTIONS = 10                  # 0-3 move slot, 4-8 switch to party position 1-5, 9 throw a ball
+N_ACTIONS = 11                  # 0-3 move slot, 4-8 switch to party position 1-5, 9 throw a ball, 10 run
 BALL_ACTION = 9                 # the first ball in the Poké Balls pocket, when the caller allows a catch
+RUN_ACTION = 10                 # RUN on the action menu, in a wild battle
 SETTLE = 20                     # frames to wait after the prompt rises; earlier taps are dropped
 TAP_HOLD, TAP_CHECK, TAP_TRIES = 6, 20, 4   # the game reacts 2 to 9 frames after a tap, depending on the button
 PARTY_SETTLE, PARTY_GAP, PARTY_CHECK = 50, 30, 40   # the party screen takes 40 frames to open and 30 to close
@@ -133,6 +134,8 @@ def route_for(action: int, forced: bool, fight_only: bool) -> tuple[Screen, ...]
     fight_only: FIGHT alone chooses the move, as under Struggle or Encore (fights_at_once)."""
     if forced:
         return (Screen(Phase.FORCED_SWITCH, (PARTY_XY[action - 3], SHIFT_XY), settle=20, gap=PARTY_GAP, check=PARTY_CHECK),)
+    if action == RUN_ACTION:
+        return (Screen(Phase.ACTION_MENU, (RUN_XY,)),)
     if action >= 4:
         return (Screen(Phase.ACTION_MENU, (POKEMON_XY,)),
                 Screen(Phase.PARTY_MENU, (PARTY_XY[action - 3], SHIFT_XY),
@@ -147,7 +150,7 @@ class Event(enum.Enum):
     WON = enum.auto()
     LOST = enum.auto()
     TURN_CAP = enum.auto()      # counts as a loss so stalling never pays
-    FLED = enum.auto()          # the game recorded a flee: Roar or Whirlwind, by either side, ended a wild battle
+    FLED = enum.auto()          # the game recorded a flee: the player ran, or Roar or Whirlwind, by either side, ended a wild battle
     CAUGHT = enum.auto()        # the game recorded a catch (resultMask 4)
     ENDED = enum.auto()         # battle over with neither side wiped, and no flee recorded
     STUCK = enum.auto()         # no prompt and no end in the frame guard
@@ -230,6 +233,8 @@ def decision(prev: Snapshot, action: int, forced: bool) -> dict:
     matchup against the enemy's active Pokémon: super, neutral, resisted or immune."""
     if action == BALL_ACTION:
         return {"pick": "ball", "move": None, "pp_before": None}
+    if action == RUN_ACTION:
+        return {"pick": "run", "move": None, "pp_before": None}
     if action >= 4:
         return {"pick": "forced_switch" if forced else "switch", "move": None, "pp_before": None}
     if is_struggling(prev):
@@ -339,16 +344,19 @@ def fights_at_once(snap: Snapshot) -> bool:
     return is_struggling(snap) or snap.encored
 
 
-def action_mask(snap: Snapshot, forced: bool = False, can_throw: bool = False) -> np.ndarray:
+def action_mask(snap: Snapshot, forced: bool = False, can_throw: bool = False, can_run: bool = False) -> np.ndarray:
     """Moves the game accepts (allowed_moves), and switches to existing, unfainted, non-active
     Pokémon unless the active one is trapped. With no move allowed only action 0 is valid: the
     game then uses Struggle whatever slot is tapped. At a forced switch only the switches are
     valid, trapped or not, since the trapped Pokémon has fainted. A ball can be thrown when
-    `can_throw` (the caller allows a catch and the bag has a ball), but not at a forced switch."""
+    `can_throw` (the caller allows a catch and the bag has a ball), but not at a forced switch.
+    Run when `can_run` (a wild battle), but not at a forced switch or when trapped, which
+    stops a flee as it stops a switch."""
     mask = np.zeros(N_ACTIONS, dtype=bool)
     if snap.player_active is None:
         return mask
     mask[BALL_ACTION] = can_throw and not forced
+    mask[RUN_ACTION] = can_run and not forced and not snap.trapped
     if not forced:
         allowed = allowed_moves(snap)
         if not any(allowed):
@@ -385,6 +393,9 @@ SIDE_FIELDS = (("reflect", 5), ("light_screen", 5), ("safeguard", 5), ("mist", 5
 VOLATILE_FIELDS = (("bound", VOLATILE_BIND, 5), ("cursed", VOLATILE_CURSE, 1),
                    ("confused", VOLATILE_CONFUSION, 5), ("substitute", VOLATILE_SUBSTITUTE, 1))
 PC_OFFER = 6                    # living Pokémon in the PC a PC choice shows and offers, in box order
+RARE_CANDY = 50
+HOLD_ITEMS = (200, 214)         # the held items a run gets before Roark: Chilan Berry, White Herb
+BAG_DONE = 6                    # at a bag choice, actions 0-5 pick a party Pokémon and this one none
 OBS_FIELDS = (
     tuple((f"party{i}.{n}", s) for i in range(6) for n, s in PARTY_FIELDS)
     + tuple((f"enemy.{n}", s) for n, s in MON_FIELDS)
@@ -401,7 +412,12 @@ OBS_FIELDS = (
     # The lead choice after it (lead_observation), last for the same reason.
     + (("lead", 1),)
     # The run's state, which a battle alone doesn't show; set by run_env.RunEnv, 0 here.
-    + (("catch_allowed", 1), ("route_progress", 1), ("run_level_cap", 1)))
+    + (("catch_allowed", 1), ("route_progress", 1), ("run_level_cap", 1))
+    # Whether the battle is wild, where Run is allowed (BattleEnv._obs), last for the same reason.
+    + (("wild", 1),)
+    # The bag at a Pokémon Center (bag_observation), last for the same reason.
+    + (("bag", 1), ("candy", 1), ("candies_left", 1), ("hold", len(HOLD_ITEMS)),
+       ("party_items", 6 * len(HOLD_ITEMS))))
 OBS_SLICES: dict[str, slice] = {}
 OBS_SIZE = 0
 for _name, _size in OBS_FIELDS:
@@ -509,6 +525,25 @@ def lead_observation(team, cap: int | None) -> np.ndarray:
     the next boss's level cap. Action k puts the k-th Pokémon first, so it starts each battle."""
     obs = observation(Snapshot(tuple(team), (), None, None, (6,) * 8, (6,) * 8), 0, 1)
     for name, value in {"pc": 1.0, "lead": 1.0, "level_cap": (cap or 0) / 100}.items():
+        obs[OBS_SLICES[name]] = value
+    return obs
+
+
+def bag_observation(party, cap: int | None, candies: int, item: int | None = None) -> np.ndarray:
+    """A bag choice at a Pokémon Center (run_env), after the PC choice: a Rare Candy for one of
+    the party (item None), or `item` (one of HOLD_ITEMS) to hold. The party in its order, which
+    of HOLD_ITEMS each holds, the candies left and the next boss's level cap. Action k picks
+    the k-th Pokémon, BAG_DONE none."""
+    obs = observation(Snapshot(tuple(party), (), None, None, (6,) * 8, (6,) * 8), 0, 1)
+    held = np.zeros((6, len(HOLD_ITEMS)), dtype=np.float32)
+    for k, m in enumerate(party):
+        if m.item in HOLD_ITEMS:
+            held[k, HOLD_ITEMS.index(m.item)] = 1.0
+    values = {"bag": 1.0, "candy": float(item is None), "candies_left": min(candies / 10, 1.0),
+              "party_items": held.ravel(), "level_cap": (cap or 0) / 100}
+    if item is not None:
+        values["hold"] = np.eye(len(HOLD_ITEMS))[HOLD_ITEMS.index(item)]
+    for name, value in values.items():
         obs[OBS_SLICES[name]] = value
     return obs
 
@@ -729,12 +764,14 @@ class BattleEnv(gym.Env):
             self.result_mask = self.nds.memory.read_u8(False, self.addrs["battleResult"])
 
     def _info(self, **extra) -> dict:
-        return {"action_mask": action_mask(self.snap, self.forced, self._can_throw()), "state": self.state_name,
+        return {"action_mask": action_mask(self.snap, self.forced, self._can_throw(), self.wild), "state": self.state_name,
                 "rng_seed": self.rng_seed, "turn": self.turn, "forced_switch": self.forced,
                 "result_mask": self.result_mask, **extra}
 
     def _obs(self) -> np.ndarray:
-        return observation(self.snap, self.turn, self.turn_cap, self.forced)
+        obs = observation(self.snap, self.turn, self.turn_cap, self.forced)
+        obs[OBS_SLICES["wild"]] = self.wild
+        return obs
 
     def _stuck_signal(self) -> list:
         """(command, curCommandState[0], player status flags) for the log."""
@@ -753,6 +790,7 @@ class BattleEnv(gym.Env):
             self.state_name = options.get("state") or self.states[int(self.np_random.integers(len(self.states)))]
             self.nds.load_state_from_file(self.state_name)
         self.addrs = gen4.resolve(self.nds)
+        self.wild = not self.nds.memory.read_u16(False, self.addrs["enemyTrainerID"])
         if options.get("keep_rng"):
             self.rng_seed = self.nds.memory.read_u32(False, self.addrs["battleRngSeed"])
         else:
@@ -781,7 +819,7 @@ class BattleEnv(gym.Env):
         if self._done:
             raise RuntimeError("step() after the episode ended; call reset()")
         action = int(action)
-        mask = action_mask(self.snap, self.forced, self._can_throw())
+        mask = action_mask(self.snap, self.forced, self._can_throw(), self.wild)
         if not 0 <= action < N_ACTIONS or not mask[action]:
             raise ValueError(f"action {action} is masked: {mask.tolist()}")
         prev, forced, fight_only = self.snap, self.forced, fights_at_once(self.snap)

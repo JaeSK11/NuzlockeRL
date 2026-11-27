@@ -9,6 +9,7 @@ crossed with fixed steps.
 """
 from __future__ import annotations
 
+import bag
 import battle_env
 import gen4
 import nuzlocke
@@ -33,21 +34,32 @@ ROUTE203_HEAL = (("walk", (186, 758)),) + JUBILIFE_HEAL
 GATE_HEAL = (("exit", 344),) + ROUTE203_HEAL + (("walk", (246, 749)), ("exit", 258))
 OREBURGH_HEAL = (("exit", 48), ("heal",), ("exit", 45))
 MINE_HEAL = (("exit", 198), ("exit", 45)) + OREBURGH_HEAL + (("exit", 198), ("exit", 199))
+MINE_B1F_HEAL = (("exit", 45),) + OREBURGH_HEAL + (("exit", 198),)
+
+
+def gym_back(*walked):
+    """The steps back to the gym's door after the step lists `walked` (the ROM's collision
+    can't see the gym's raised floors)."""
+    return [OPPOSITE[d] for steps in reversed(walked) for d in reversed(steps)]
 
 
 def gym_trip(*walked, cap=None):
-    """From partway up the gym, after the step lists `walked`: the same steps back to the door
-    (the ROM's collision can't see the gym's raised floors), Oreburgh's Pokémon Center, and the
-    steps up again. With cap, the Pokémon Center also leaves the Pokémon over it in the PC."""
-    back = [OPPOSITE[d] for steps in reversed(walked) for d in reversed(steps)]
+    """From partway up the gym, after the step lists `walked`: the same steps back to the door,
+    Oreburgh's Pokémon Center, and the steps up again. With cap, the Pokémon Center also leaves
+    the Pokémon over it in the PC."""
     heal = ("heal", cap) if cap else ("heal",)
-    return (("steps", back), ("exit", 45), ("exit", 48), heal, ("exit", 45), ("exit", 47)) + tuple(("steps", w) for w in walked)
+    return (("steps", gym_back(*walked)), ("exit", 45), ("exit", 48), heal, ("exit", 45), ("exit", 47)) + tuple(("steps", w) for w in walked)
 ROUTE202_GRASS = ((175, 827), (178, 827))   # south of Route 202's first ledge, out of every trainer's sight
+MINE_FLOOR = ((12, 4), (12, 7))   # Oreburgh Mine B1F, by the door: no trainers, wild Pokémon at level 10
 # From north of the ledge, before Natalie is beaten: back by the grass. SANDGEM_HEAL's own way
 # from there crosses her sight, so after Tristan she was fought hurt on the way to heal.
 ROUTE202_HEAL = (("walk", ROUTE202_GRASS[0]),) + SANDGEM_HEAL
 GRIND_BATTLES = 60      # wild battles at most in one grind; past it the route goes on
 GRIND_PACES = 200       # paces in the grass with no battle before the script gives up
+
+
+def bag_count(nds, item: int) -> int:
+    return sum(n for pocket in gen4.read_bag(nds, from_battle=False).values() for i, n in pocket if i == item)
 
 
 def needs_heal(nds, hp_share: float = 0.5) -> bool:
@@ -67,7 +79,7 @@ ROUTE = [
     ("walk", (164, 843)), ("text", "yes"),             # Sandgem's entrance, to the lab: Rowan's Pokédex needs a yes
     ("exit", 418), ("text", "yes"),                    # the scene outside the lab
     ("exit", 420), ("heal",), ("exit", 418),
-    ("grind", 11, ROUTE202_GRASS, SANDGEM_HEAL),       # a run comes at level 7; Route 202's trainers need more
+    ("grind", 11, ROUTE202_GRASS, SANDGEM_HEAL),       # the party to 11: a run comes at level 7; Route 202's trainers need more
     ("walk", (170, 815), ROUTE202_HEAL), ("mend", ROUTE202_HEAL),  # past Tristan; each trainer is met healed
     ("walk", (183, 820), SANDGEM_HEAL), ("mend", SANDGEM_HEAL),  # past Natalie
     ("walk", (173, 796), SANDGEM_HEAL), ("text", "yes"),  # past Logan; Jubilife's arrival
@@ -92,6 +104,10 @@ ROUTE = [
     ("exit", 198), ("exit", 45), ("mend", OREBURGH_HEAL), ("exit", 47),
     ("steps", GYM_DOOR_TO_JONATHON), ("mend", gym_trip(GYM_DOOR_TO_JONATHON)),
     ("steps", GYM_JONATHON_TO_DARIUS), ("steps", GYM_DARIUS_TO_ROARK),
+    # Past Darius, out to the mine: the party trains to Roark's cap once the gym's trainers can't push it over
+    ("steps", gym_back(GYM_DOOR_TO_JONATHON, GYM_JONATHON_TO_DARIUS, GYM_DARIUS_TO_ROARK)), ("exit", 45), ("exit", 198),
+    ("grind", ROARK_CAP, MINE_FLOOR, MINE_B1F_HEAL),
+    ("exit", 45), ("exit", 47), ("steps", GYM_DOOR_TO_JONATHON), ("steps", GYM_JONATHON_TO_DARIUS), ("steps", GYM_DARIUS_TO_ROARK),
     ("mend", gym_trip(GYM_DOOR_TO_JONATHON, GYM_JONATHON_TO_DARIUS, GYM_DARIUS_TO_ROARK, cap=ROARK_CAP), ROARK_CAP),
     ("talk_from", (5, 4), "up"), ("text", "yes"),      # Roark
 ]
@@ -228,14 +244,16 @@ class Runner:
             self.in_trip -= 1
 
     def _grind(self, level, tiles, heal_trip):
-        """Wild battles in the grass, pacing between two tiles, until a party Pokémon reaches
-        `level` (or GRIND_BATTLES are fought). Between battles, and after the last, a party with
-        any damage goes on heal_trip: Kaizo's wild Pokémon beat a lone starter from three
-        quarters of its HP, and the route's next trainer is met healed."""
+        """Wild battles in the grass or a cave, pacing between two tiles, until every party
+        Pokémon has reached `level` (or GRIND_BATTLES are fought), so a caught Pokémon trains up
+        too. It gains experience only in the battles the player sends it into. Between
+        battles, and after the last, a party with any damage goes on heal_trip: Kaizo's wild
+        Pokémon beat a lone starter from three quarters of its HP, and the route's next trainer
+        is met healed."""
         for i in range(GRIND_BATTLES + 1):
             if needs_heal(self.nds, hp_share=1.0):
                 yield from self._trip(heal_trip)
-            if i == GRIND_BATTLES or max(m.level for m in gen4.read_party(self.nds)) >= level:
+            if i == GRIND_BATTLES or min(m.level for m in gen4.read_party(self.nds)) >= level:
                 return
             for k in range(GRIND_PACES):
                 outcome = O.walk_to(self.nds, None, tiles[k % 2])
@@ -272,7 +290,7 @@ class Runner:
         yield from ()
 
     def _heal(self, cap=None):
-        """The PC, then the nurse. The caller answers ("pc", cap) with the party slots to leave in
+        """The PC, then the nurse, then the bag (_bag). The caller answers ("pc", cap) with the party slots to leave in
         the PC, the (box, slot)s to take out of it, and which Pokémon of the new party leads:
         run_env applies the rules (a fainted Pokémon stays in the PC for good; with cap, the
         boss's level cap) and asks the agent the rest."""
@@ -282,6 +300,37 @@ class Runner:
         yield from self._talk_from(*NURSE)
         yield from self._text("yes")
         self.heals += 1
+        yield from self._bag()
+
+    def _bag(self):
+        """Rare Candies, then each held item in the bag, each the caller's choice. ("candy",) takes
+        back a party slot or None to stop, and ("hold", item) a party slot or None to keep the item.
+        bag.py works the bag's menus, as a player does. Healing items are left alone: the rules
+        allow none in battle, and the nurse heals."""
+        while bag_count(self.nds, battle_env.RARE_CANDY):
+            slot = yield ("candy",)
+            if slot is None:
+                break
+            if (out := bag.use_item(self.nds, battle_env.RARE_CANDY, slot, self._candy_forget(slot))) != "used":
+                raise RouteError(f"a Rare Candy on party slot {slot}: {out}")
+        for item in battle_env.HOLD_ITEMS:
+            if bag_count(self.nds, item):
+                slot = yield ("hold", item)
+                if slot is not None and (out := bag.give_item(self.nds, item, slot)) != "given":
+                    raise RouteError(f"{romdata.item_name(item)} to party slot {slot}: {out}")
+
+    def _candy_forget(self, slot):
+        """bag.use_item's forget for a Rare Candy on party slot `slot`: the slot of the move to
+        forget for a new move at the new level, by move_to_forget, or None to keep the old four.
+        The move may come from the Pokémon's level evolution, if the candy starts one."""
+        def forget():
+            mon = gen4.read_party(self.nds)[slot]
+            forms = [mon.species] + [e.target for e in romdata.evolutions(mon.species) if e.method == LEVEL_EVOLUTION]
+            new = [m for f in forms for lv, m in romdata.learnset(f) if lv == mon.level and m not in mon.moves]
+            if not new:
+                return None
+            return battle_env.move_to_forget(mon.moves, romdata.species(mon.species).types, new[0])
+        return forget
 
     def _call(self, fn):
         """fn(nds): a hook for checks and fixtures, such as writing a party."""

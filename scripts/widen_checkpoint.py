@@ -1,11 +1,12 @@
-"""Carry a run's newest checkpoint over to the current battle observation, which has new values
-at its end (src/battle_env.py OBS_FIELDS). Starts a new run directory from it:
+"""Carry a run's newest checkpoint over to the current battle observation and actions, which
+have new values and actions at their ends (src/battle_env.py OBS_FIELDS, N_ACTIONS). Starts a
+new run directory from it:
 
   python scripts/widen_checkpoint.py runs/old runs/new
   python scripts/train_ppo.py --runs --run-dir runs/new ...   # resumes from the widened checkpoint
 
-The policy starts exactly as the old one played (ppo.widen_checkpoint); with --reset-ball, except
-that the ball starts over as when training began. Restart states don't
+The policy starts exactly as the old one played where the new actions are masked
+(ppo.widen_checkpoint); with --reset-ball, except that the ball starts over as when training began. Restart states don't
 depend on the observation: copy runs/old/restarts to runs/new/restarts to keep them."""
 import argparse, os, sys
 
@@ -30,11 +31,11 @@ def main():
     if ppo.latest_checkpoint(args.new_run_dir):
         sys.exit(f"{args.new_run_dir} already has a checkpoint")
     os.makedirs(args.new_run_dir, exist_ok=True)
-    ckpt = ppo.widen_checkpoint(torch.load(src, weights_only=True), battle_env.OBS_SIZE)
+    ckpt = ppo.widen_checkpoint(torch.load(src, weights_only=True), battle_env.OBS_SIZE, battle_env.N_ACTIONS)
     if args.reset_ball:
         ckpt = ppo.reset_action(ckpt, battle_env.BALL_ACTION)
     print(f"{src}: {ckpt['update']} updates, {ckpt['decisions']} decisions -> {battle_env.OBS_SIZE} "
-          f"observation values; wrote {ppo.save_checkpoint(args.new_run_dir, ckpt)}")
+          f"observation values, {battle_env.N_ACTIONS} actions; wrote {ppo.save_checkpoint(args.new_run_dir, ckpt)}")
 
 
 if __name__ == "__main__":

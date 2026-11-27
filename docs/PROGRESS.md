@@ -3159,6 +3159,10 @@ A test covers each, and each test fails on the old route code and
 passes on the new. Restart states saved at steps 11 and 12 have the old
 action, so `_load_restart` drops them.
 
+runs10 was stopped at update 1010, just after its checkpoint. runs11
+trains from that checkpoint with these fixes, runs10's flags and a copy
+of its restart states.
+
 **What the runs say.** No fixed rules got past step 46, and Roark's fight
 was never tested. Beyond the bugs, three things look like limits of the
 rules and actions rather than of the method. The user decides each:
@@ -3177,3 +3181,177 @@ rules and actions rather than of the method. The user decides each:
 | The probes first seemed to show Tristan met on the way to heal | They printed the battle that ended with the tile where the next one began | The ROM's sight tiles settled which trainer sees where |
 | The first report put the step-11 losses on low HP at Tristan | It mixed up Tristan's battle and Natalie's | Checked against the logs: in the fresh runs, Tristan was met at 27 to 35 of 35 HP, and Natalie hurt |
 | The scripted trace named the next battle's foes | It read them after the step, when a battle that followed at once was already up | It reads them from the ended battle's last decision |
+
+## 60. The whole team trains, and what the scripted player met next (2026-11-27)
+
+Goal: a third review of the open calls in §59. The user's calls, from it:
+- Items in battle stay banned. The README's rules already say so, and
+  held items still work.
+- Ending a run that can't meet the cap comes later, once a team can
+  live to Roark. Alone, it would take away the one plan that works now,
+  a lone starter, and leave nothing.
+- No heal after a Route 201 catch. The agent can learn that Route 201
+  is a bad place to throw.
+- First, the review's fourth question: let the whole team train up, as
+  a player grinds each Pokémon to the cap before a boss. Then rerun the
+  scripted player until it takes the badge, and only then train.
+
+**The change.**
+- The grind went on until any one Pokémon reached its level, so a catch
+  met the route's trainers far under them. It now goes on until every
+  party Pokémon has the level, within the same 60 battles. A caught
+  Pokémon still gains experience only in battles it is sent into.
+- A second grind, at step 71 of 80, after the gym's trainers. From
+  Roark's tile, the gym's steps back to the door, then Oreburgh Mine
+  B1F. It has no trainers, and its wild Pokémon are at level 10. The
+  grind goes on until every party Pokémon is at Roark's cap of 16, with
+  heal trips to Oreburgh's Pokémon Center, and then the steps go back
+  up. It comes after the gym's trainers because their ten Pokémon at 11
+  to 15 would push a team already at 16 over the cap. The mend before
+  Roark is unchanged: it still leaves a Pokémon over the cap in the PC.
+- Two tests. In one, a Garchomp over the level ended the old grind at
+  once, and the new grind fights until the Gyarados under it gets
+  there. The other walks the new steps from milestone 15: out to the
+  mine, a Gyarados one win from 16, then back to Roark with a Garchomp
+  over the cap left in the PC.
+
+runs11 was stopped at update 1050, after its checkpoint, because the
+route it trained on had changed.
+
+**The scripted player on the new route.** 15 runs: three starters, seeds
+0 to 4. 14 wiped and one was stopped for heat at step 14. None got past
+step 38, Barry's second battle, so none reached the mine grind.
+
+| Step | Runs | What ended it |
+|---|---|---|
+| 3 | 1 | Route 201: a level-6 Turtwig lost to a wild Zigzagoon |
+| 10 | 5 | Route 202's grind: a wild Burmy beat Turtwig in four runs. In one, a Sentret beat Chimchar, and later another beat the Burmy left |
+| 13 | 1 | Natalie, against a lone Burmy at 11 |
+| 15 | 3 | Logan, against a lone Piplup at 13 (twice) and a lone Burmy at 12 |
+| 25 | 1 | Clown Moe, against a lone Burmy at 13 |
+| 38 | 3 | Barry's second battle, against a lone Prinplup at 16 to 17 |
+
+**Why.**
+- Turtwig can't beat a wild Burmy. Leech Life is super effective and
+  heals Burmy by more than Tackle takes off. A player would run, but
+  the agent's actions have no Run.
+- A grind with a weak catch now lasts longer, and each Kaizo wild
+  battle is a risk. In the Chimchar runs the grind went on for 19 to 57
+  battles. And the scripted player leads with its weakest Pokémon: a
+  level-4 Zigzagoon from Route 201 died leading against Burmy in three
+  Turtwig runs.
+- Logan's Kricketot knows Bide, which hits back with double the damage
+  it takes. The scripted player kept attacking into it.
+- Barry's second team has six Pokémon at 9 and 10, with Fake Out,
+  U-turn, a Choice Band, two Expert Belts, Thunder Wave, and a Turtwig
+  with Razor Leaf. It beat a lone level-17 Prinplup from full HP.
+- The team grind did what it is for once. In a Chimchar run, the
+  Zigzagoon caught on Route 201 went from level 4 to 11 in Route 202's
+  grind, before the run was stopped for heat.
+
+**Heat.** 15 runs at once took the CPU over 99 °C for more than 30
+seconds, and the watch stopped them. Two runs ignored the stop: a
+process started in the background from a script ignores SIGINT. They
+were stopped with SIGTERM. The full test suite, on one core, was then
+stopped the same way: with no project process running, the CPU was
+already at 91 to 92 °C.
+
+**The scripted player's rules, changed.** Two of the deaths came from its
+own rules, not the route:
+- On the first turn of a catchable battle, the catch rule came before
+  the switch-in. So a weak lead wore the foe down alone. Route 201's
+  Zigzagoon at 4 did so against Burmy, and died. The switch-in now comes
+  first.
+- Bide: while the foe stores energy (`statusVolatile` bits 8 and 9),
+  it uses a status move, unless an attack knocks the foe out.
+These changes haven't been run yet. The agent's own observation shows
+confusion, binding, Substitute and Curse, but not Bide.
+
+**The bag.** From Route 201 on, every run carries 10 Rare Candies and a
+Chilan Berry, and a White Herb by Barry's second battle (read from
+runs11's restart states). The rules ban items in battle, not outside it,
+and held items work. But the agent has no action that uses an item
+outside battle, so none of these has ever been used. Ten Rare Candies
+would take a level-5 catch to 15.
+
+**What is next.** The scripted player hasn't taken the badge. The review
+named held items as the next thing to look at. The runs point at these:
+- Run, in wild battles. It is within the rules, and it is what a player
+  does against a Burmy. It would add an action to the agent's.
+- The bag outside battle: Rare Candies and held items. It would add a
+  decision, as the PC did.
+- The scripted player's own rules: Bide, and switching a weak catch in
+  rather than leading with it.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| A caught Pokémon met the route's trainers far under them | The grind stopped when any one Pokémon reached its level | It stops when every party Pokémon has the level; a test |
+| No grind before Roark | The route had one grind, on Route 202 | A grind in Oreburgh Mine B1F after the gym's trainers, to Roark's cap; a test |
+| No scripted run got past step 38 of 80 | Deaths before the grinds could help: Turtwig against Burmy with no Run, Bide, and Barry's second team against a lone Pokémon | Open: Run, the bag outside battle, the scripted rules |
+| 10 Rare Candies have gone unused in every run | The agent has no action for the bag outside battle | Open: a bag decision, the user's call |
+| 15 runs at once took the CPU over 99 °C | Every core busy | The watch stopped them; run fewer at once |
+| Two runs ignored the stop | A process started in the background from a script ignores SIGINT | Stopped with SIGTERM |
+| A weak lead wore down a catch alone, and died | The catch rule came before the first turn's switch-in | The switch-in comes first; not yet rerun |
+| The scripted player attacked into Bide | It had no rule for it | A status move while the foe stores energy; not yet rerun |
+| The full suite couldn't run within the heat limit | The CPU was at 91 to 92 °C before it started: a system process held one core at full speed | Once it was restarted, the suite ran within the limit, paused by a heat governor when needed (§61) |
+
+## 61. Run, Rare Candies and held items (2026-11-27)
+
+Goal: the user's calls on §60's open questions. "yes the agent should be
+able to run from wild battles". Rare Candies and held items are "fair
+game", but no potions or other healing items. The README's rules now say
+so.
+
+**Run.** Action 10 taps RUN on the action menu, at (128, 176). It is
+masked outside a wild battle, at a forced switch, and when the active
+Pokémon is trapped, by the same rule that stops a switch. A run that gets
+away ends the battle as FLED, with no reward. The route's first encounter
+is used up all the same: `run.encounter` marks it when the battle starts.
+A run that fails costs the turn. The observation gains a `wild` value.
+
+**The bag.** After each nurse visit, the agent is asked:
+- A Rare Candy for which party Pokémon, or none (action 6). Asked again
+  after each candy, until it picks none or the candies run out.
+- Then each held item in the bag, the Chilan Berry and the White Herb, for
+  which party Pokémon, or none. These are the only two a run gets before
+  Roark. Giving one to a Pokémon that holds the other swaps them.
+
+A fainted Pokémon is no choice, nor a candy for one at level 100. The cap
+isn't masked: a candy can take a Pokémon over it. The observation shows
+the cap, the candies left, the item asked about, and which of the two
+items each party Pokémon holds.
+
+`src/bag.py` works the field menu, the bag and the party screen by
+buttons alone, as a player does, with no writes to the game. The screens
+keep no address that reads live, so it tells them apart by their pixels,
+and it checks the result in RAM: the bag's counts, and the party's level,
+species and held item. A candy's new move is answered by the route's
+`move_to_forget` rule, and an evolution is left to play. A subagent wrote
+it from probes; its eight tests cover a candy, a fifth move both ways, an
+evolution, a level-100 Pokémon, a missing item, and a swap of held items.
+
+**Checkpoints.** `ppo.widen_checkpoint` now adds actions too. Each new row
+of the policy's output layer starts as `reset_action` draws it, with its
+logit near 0. Where a new action is masked, the policy plays exactly as
+before. `scripts/widen_checkpoint.py` widens both the observation and the
+actions.
+
+The full suite passed, 194 tests. It ran one process at a time under a
+heat governor that pauses it at 97 °C and resumes it at 93, since
+parallel runs took the CPU over 99 °C even while paused.
+
+**The scripted player** got the same tools:
+- Run, in a wild battle, from a foe that would knock the active Pokémon
+  out before it could knock the foe out, once no catch is under way.
+- A Rare Candy for the weakest Pokémon under the cap, while it is 4 or
+  more levels under the strongest. At the boss's PC, candies for the
+  weakest under the cap until all reach it.
+- A held item for the weakest Pokémon that holds none.
+
+| Issue | Cause | Resolution |
+|---|---|---|
+| The agent couldn't run from a wild battle | No action for RUN | Action 10, masked outside wild battles and when trapped; tests |
+| Every run carried 10 Rare Candies and two held items it couldn't use | No decision for the bag outside battle | A candy choice and a hold choice after each nurse visit, worked by the bag's menus (`bag.py`); tests |
+| A checkpoint from before couldn't load | The output layer has one more action, and the observation more values | `widen_checkpoint` adds actions; a test |
+| Tests stepped through heals expecting the run to end | A heal now asks about the bag | Their helpers answer the bag with none. One test answered every choice but a battle's with action 0: at a bag choice that fed the starter candies to the grind's level, and the route ended |
+| The bag's cursor has no live address | The saved cursor in RAM changes only once the bag closes | `bag.py` reads the screens' pixels, and reaches an item by pressing Up past the top, then Down |

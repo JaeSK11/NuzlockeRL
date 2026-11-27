@@ -218,6 +218,9 @@ class RunEnv(gym.Env):
                 mask = np.zeros(BE.N_ACTIONS, dtype=bool)
                 mask[:len(STARTERS)] = True
                 return BE.observation(starter_snapshot(), 0, 1), {"action_mask": mask, "decision": "starter"}
+            if event[0] in ("candy", "hold"):
+                self.kind = event[0]
+                return self._bag_choice(event[1] if event[0] == "hold" else None)
             if event[0] == "pc":
                 self.kind = "pc"
                 self._pc_start(event[1])
@@ -243,6 +246,16 @@ class RunEnv(gym.Env):
             info["decision"] = "battle"
             self.chance = bool(info["action_mask"][BE.BALL_ACTION])     # a ball can be thrown in this battle
             return obs, info
+
+    def _bag_choice(self, item):
+        """After the nurse: a Rare Candy (item None) or `item` to hold, for which party Pokémon,
+        or BE.BAG_DONE for none. A fainted Pokémon is no choice, nor a candy for one at level 100."""
+        party = gen4.read_party(self.nds)
+        mask = np.zeros(BE.N_ACTIONS, dtype=bool)
+        mask[:len(party)] = [m.hp > 0 and (item is not None or m.level < 100) for m in party]
+        mask[BE.BAG_DONE] = True
+        obs = BE.bag_observation(party, self.run.level_cap(), route.bag_count(self.nds, BE.RARE_CANDY), item)
+        return obs, {"action_mask": mask, "decision": self.kind}
 
     def _pc_start(self, cap):
         """A Pokémon Center's PC choice. A fainted Pokémon counts as dead (Nuzlocke) and is no
@@ -317,6 +330,11 @@ class RunEnv(gym.Env):
         if self.kind == "starter":
             self.starter = STARTERS[int(action)]
             obs, info = self._advance(int(action))
+        elif self.kind in ("candy", "hold"):
+            slot = None if int(action) == BE.BAG_DONE else int(action)
+            pick = f"{self.kind}_{'none' if slot is None else 'used'}"
+            obs, info = self._advance(slot)
+            info["pick"] = pick
         elif self.kind == "pc":
             if len(self.pc["taken"]) < len(self.pc["positions"]):
                 self.pc["taken"].append(int(action) == PC_TAKE)

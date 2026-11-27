@@ -12,6 +12,9 @@ Nuzlocke rules:
   route's first encounter (the shiny clause).
 - The hack's level caps apply (see [Hack notes](#hack-notes)).
 - No healing or battle items from the bag in battle. Held items still work.
+- No potions or other healing items, in battle or out: Pokémon Centers heal. Rare Candies
+  and held items are allowed outside battle.
+- Running from a wild battle is allowed. The route's first encounter is used up all the same.
 - Set battle style: no free switch after knocking out an enemy Pokémon.
 
 The long-term goal is a model that, once it beats Platinum Kaizo, can be
